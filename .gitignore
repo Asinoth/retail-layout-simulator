@@ -1,0 +1,38 @@
+# ─── Python ──────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.so
+*.egg-info/
+.pytest_cache/
+
+# ─── Project-specific: reference / non-history dirs ──────────────
+# Old reference codebase kept on disk for diffing but not part of
+# the project history.
+old_codebase/
+
+# Pre-Tier-1 auto-snapshots; the new history starts here.
+backups/
+
+# Workspace marker
+.abacus.donotdelete
+
+# ─── Generated / run outputs ────────────────────────────────────
+# Regenerated on every simulation stop; can blow up to several MB.
+analytics_latest.json
+
+# Per-run optimization reports; produced by the GUI's Optimize
+# pipeline. Reproducible from inputs + seed.
+optimization_report_*.txt
+
+# Experiment outputs: large CSVs + PNGs + sidecar JSONs. The
+# sidecar JSONs reference these paths so re-runs need to write to
+# the same directory layout; keep the directory but not its contents.
+experiments/results/*
+!experiments/results/.gitkeep
+
+# ─── Editor / OS noise ──────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db

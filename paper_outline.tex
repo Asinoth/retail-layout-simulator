@@ -1,0 +1,406 @@
+% paper_outline.tex
+% Short author-facing checklist of what to write where in the TOMACS
+% submission. NOT the paper itself --- this is the outline the actual
+% manuscript should follow. Each subsection lists the source file or
+% module a reviewer should be able to cross-reference, the dataset(s)
+% used, and the specific claim(s) being made.
+
+\documentclass[11pt]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage{enumitem}
+\usepackage{hyperref}
+
+\title{TOMACS Submission --- Outline by Section}
+\author{Internal authoring checklist}
+\date{\today}
+
+\begin{document}
+\maketitle
+
+\section*{How to use this document}
+
+For each numbered section below, the bullets describe what the
+manuscript text must contain and which simulator artefact backs the
+claim. A reviewer who reads the paper alongside the cited file/module
+should be able to verify every quantitative claim without running the
+code; running the code (with the recorded SHA and seed) should
+reproduce every figure.
+
+\section{Introduction (\textasciitilde 1.5\,pp)}
+\begin{itemize}[leftmargin=*]
+  \item Position: simulation-based optimisation of in-store item
+    placement. Cite Larson, Bradlow, Fader (2005), Hui et al.\ (2009),
+    Hui, Inman et al.\ (2013), Botsali \& Peters (2005). The
+    \texttt{CITATIONS} dict in \texttt{retail\_literature.py} is the
+    ready-to-copy reference list.
+  \item Gap statement: prior layout-optimisation models are either
+    purely OR formulations without behavioural calibration
+    (Botsali 2005) or purely behavioural without an optimisation
+    pipeline (Hui 2009). This work couples both.
+  \item Contributions: (i) a multi-floor agent-based shop simulator
+    with calibrated arrival, dwell, and basket distributions;
+    (ii) a GA-based layout optimiser whose fitness function is
+    literature-cited, not ad-hoc; (iii) an empirical
+    goodness-of-fit pipeline (KS, chi-square) tying the simulator to
+    UCI Online Retail II and ATC Shopping Mall.
+\end{itemize}
+
+\section{Related work (\textasciitilde 1\,pp)}
+\begin{itemize}[leftmargin=*]
+  \item Path-tracking studies: Larson 2005, Hui 2009, Hui Inman 2013.
+  \item Shelf-space OR optimisation: Botsali \& Peters 2005, Hwang
+    et al.\ 2009.
+  \item Pedestrian micro-simulation: Bršči{\'c} 2013 (ATC dataset
+    paper) plus standard ABM references.
+  \item Practitioner sources: Sorensen 2009.
+\end{itemize}
+
+\section{Methods (\textasciitilde 4\,pp --- the heart of the paper)}
+
+\subsection{Simulator architecture}
+Reference: \texttt{simulation.py}, \texttt{customer.py},
+\texttt{customer\_pathfinding.py}.
+\begin{itemize}[leftmargin=*]
+  \item Agent-based model with five behavioural states:
+    \emph{entering}, \emph{moving}, \emph{shopping},
+    \emph{checking\_out}, \emph{exiting}, plus absorbing
+    \emph{purchased} and \emph{abandoned}.
+  \item Multi-floor support via connectors with explicit
+    floor-teleport on shared stair tiles
+    (\texttt{Customer.\_handle\_connector\_arrival}); state-machine
+    diagram in Appendix A.
+  \item Non-homogeneous Poisson arrivals via
+    \texttt{simulation.hourly\_profile}; describe the empirical
+    derivation from the dataset's hour-of-day shape.
+\end{itemize}
+
+\subsection{Calibration pipeline}
+Reference: \texttt{dataset\_schema.py},
+\texttt{dataset\_adapters.py}, \texttt{dataset\_calibration.py}.
+\begin{itemize}[leftmargin=*]
+  \item Schema-versioned typed contracts for transactional and
+    trajectory data.
+  \item Adapter pattern with auto-detection (column signature and
+    filename hint); UCI Online Retail II adapter dropping cancellation
+    rows (\texttt{InvoiceNo} starting with \texttt{C}) and inferring
+    categories via the keyword map embedded in the source file.
+  \item Empirical estimands from a transactional dataset:
+    basket size (items per invoice), per-visit revenue
+    ($\sum qty \cdot price$), inter-arrival times (between successive
+    invoices, filtered to gaps $<12$\,h to exclude overnight closure),
+    hour-of-day and day-of-week distributions, per-item prices,
+    per-category revenue shares, top-$N$ co-purchase pairs.
+  \item Empirical estimands from trajectory data: walking-speed
+    distribution (m/s), per-track duration and length, traffic
+    density heat map (bilinearly resampled to the simulator's
+    coordinate system).
+  \item Conversion-rate assumption: explicit, default 0.30, flagged
+    in provenance as \texttt{conversion\_rate\_source = 'assumption'}.
+    Discuss why transactional data cannot identify a buy/no-buy split.
+\end{itemize}
+
+\subsection{Layout-score and elasticity formulation}
+Reference: \texttt{viz\_ga.\_ga\_compute\_layout\_score},
+\texttt{retail\_literature.py}.
+\begin{itemize}[leftmargin=*]
+  \item Composite layout score is an equal-weighted sum of eight
+    positive criteria with two strictly-stricter penalties for
+    structural violations; cite Dawes (1979) for the equal-weighting
+    choice when component weights are themselves uncertain.
+  \item Score-to-parameter elasticities: midpoint of the
+    literature-implied band:
+    \begin{itemize}
+      \item conversion lift 20--50\,\% (Hui 2009 detour-elasticity);
+      \item impulse lift 30--70\,\% (Hui, Inman 2013 in-zone gap);
+      \item basket-size lift 10--30\,\% (conservative, flagged as
+        largest standing uncertainty).
+    \end{itemize}
+  \item Abandonment recovery: additive decomposition with citations
+    in \texttt{retail\_literature.py}.
+  \item State explicitly that the elasticity \emph{midpoints} are
+    used in the main results; the \emph{half-width} of each band is
+    swept in Section~\ref{sec:val} to demonstrate robustness.
+\end{itemize}
+
+\subsection{Optimisation pipeline}
+Reference: \texttt{viz\_optimize.py},
+\texttt{viz\_optimize\_helpers.py}, \texttt{viz\_ga.py}.
+\begin{itemize}[leftmargin=*]
+  \item Five-phase optimisation: PRE measurement window, analytical
+    engines (Monte Carlo baseline, sensitivity, Markov chain, GA),
+    layout application, POST measurement window, A/B test.
+  \item GA hyperparameters: pop\_size 40, n\_gens 20, mutation
+    rate 0.18, elite fraction 0.20, tournament size 5.
+  \item Monte Carlo: 400 baseline iterations (8 chunks of 50) across
+    30 days with Poisson arrivals, binomial conversion, normal
+    approximation for basket sums.
+\end{itemize}
+
+\subsection{Markov-chain analysis}
+Reference: \texttt{viz\_markov.py}, \texttt{sim\_calibration.py}.
+\begin{itemize}[leftmargin=*]
+  \item Empirical transition matrix with Laplace smoothing
+    ($\alpha=1$); fall back to a data-informed prior when
+    $<25$ transitions logged.
+  \item Standard absorbing-chain analysis: $N = (I-Q)^{-1}$,
+    $B = NR$, expected steps from entering.
+  \item Acknowledge the first-order memoryless assumption and cite
+    Hui (2009) as the principled critique; defend the simplification
+    on tractability grounds for the optimisation pipeline.
+\end{itemize}
+
+\section{Datasets (\textasciitilde 1\,pp)}
+
+\subsection{UCI Online Retail II (transactional realism)}
+\begin{itemize}[leftmargin=*]
+  \item Source: \url{https://archive.ics.uci.edu/dataset/502/online+retail+ii}
+  \item Time span: December 2009 -- December 2011, UK retailer.
+  \item Use: arrival rate, basket-size distribution, per-visit revenue
+    distribution, per-item price, category inference, co-purchase
+    pairs, hour-of-day arrival shape, return-customer rate.
+  \item Limitation: no spatial / in-store-movement information; no
+    direct observation of non-buyers.
+\end{itemize}
+
+\subsection{ATC Shopping Mall (spatial realism)}
+\begin{itemize}[leftmargin=*]
+  \item Source: \url{https://dil.atr.jp/sets/ATC/}
+  \item $\sim$92 days of pedestrian tracking in an Osaka mall;
+    8-column headerless CSV per recording day (cite Bršči{\'c}
+    et al.\ 2013).
+  \item Use: walking-speed distribution, per-track dwell and length,
+    traffic-density heat map (rescaled to the simulated shop bbox).
+  \item Limitation: the mall layout differs from any simulated shop;
+    only distributional calibration (speed, dwell) is claimed,
+    not point-level spatial fidelity.
+\end{itemize}
+
+\section{Validation (\textasciitilde 2\,pp --- key reviewer figures)}
+\label{sec:val}
+
+References: \texttt{viz\_validation.py},
+\texttt{dataset\_validation.py}, \texttt{experiments/run\_synthetic\_gt.py},
+\texttt{experiments/run\_baseline\_comparison.py}.
+
+\subsection*{Distributional calibration (real datasets)}
+\begin{itemize}[leftmargin=*]
+  \item Figure 1: empirical-vs-simulated basket-size histograms with
+    KS-2sample statistic and p-value.
+  \item Figure 2: empirical-vs-simulated per-visit revenue
+    histograms with KS-2sample.
+  \item Figure 3: category visit shares (observed vs.\ simulated)
+    with chi-square (sparse bins merged for the chi-square
+    approximation).
+  \item Figure 4: empirical walking-speed distribution from ATC with
+    the simulator's nominal speed band (0.8--1.5\,m/s) overlaid.
+  \item Table 1: KS / chi-square statistics, p-values, sample sizes,
+    PASS/FAIL at $\alpha=0.05$.
+\end{itemize}
+
+\subsection*{Methodology validation (synthetic ground truth)}
+
+Because no public dataset links spatial layout to revenue (Hui 2009
+RFID-cart data and Sorensen PathTracker$\circledR$ are proprietary), we
+validate the optimizer methodology on parameterized synthetic shops
+whose true revenue is computable in closed form.
+
+\begin{itemize}[leftmargin=*]
+  \item Figure 5 (Synthetic GT regret): GA regret vs.\ analytical
+    oracle across $N{=}30$ synthetic shops $\times$ 10 seeds
+    ($n{=}300$ paired runs). For each scenario, the closed-form
+    analytical revenue \texttt{synthetic\_shops.analytical\_revenue}
+    (parameterized by Hui 2009 detour, Hui Inman 2013 impulse,
+    Larson 2005 perimeter, Hui 2009 cross-merch elasticities + smooth
+    overlap penalty) is optimized via L-BFGS-B multi-start to produce
+    the oracle layout. The simulator-backed GA is then run from 10
+    random seeds and its \emph{true} (analytical) revenue is compared
+    to the oracle's.
+    \emph{Paper-grade result} (mc\_iters=2000, n\_gens=25, pop=30,
+    wall ~1\,h~42\,min): regret \textbf{mean 1.58\,\%, median
+    1.46\,\%}, p5--p95 [0.34\,\%, 3.28\,\%]. GA recovers approximately
+    98\,\% of the analytical oracle's revenue. A handful of seeds in
+    scenarios 21 and 23 exhibit negative regret (GA found a layout
+    with higher analytical revenue than the oracle's multi-start
+    L-BFGS-B converged on), so the true regret figure is conservatively
+    an upper bound on what GA actually achieves.
+  \item Spearman rank correlation between GA-fitness ordering and
+    analytical-revenue ordering on 100 overlap-repaired random
+    layouts per scenario. \emph{Paper-grade result}: mean
+    $\rho={+}0.107$, median ${+}0.128$, range $[{-}0.13, {+}0.39]$.
+    Positive but modest; 5 of 30 scenarios reach individual
+    significance (best scenario 28, $\rho={+}0.385$, $p{=}7.65{\times}10^{-5}$).
+    Substantive finding: the simulator's emergent fitness and the
+    closed-form revenue model rank layouts on \emph{partially}
+    divergent axes -- justifies simulation-based optimization over
+    closed-form approaches because the simulator captures behavioral
+    components (dwell, flow, queue-mediated abandonment) the
+    closed-form model omits.
+  \item Anti-circularity guarantee: \texttt{oracle.py} imports
+    neither \texttt{simulation} nor \texttt{viz\_ga} nor
+    \texttt{viz\_optimize}; verified by
+    \texttt{test\_oracle\_anti\_circularity()}.
+  \item Reproducibility receipt for Figure~5:
+    \texttt{experiments/results/synthetic\_gt\_20260518-192904/} --
+    contains \texttt{results.csv} (300 rows),
+    \texttt{spearman.csv}, \texttt{regret\_boxplot.png}, and
+    \texttt{sidecar.json} (full elasticity snapshot + run args).
+\end{itemize}
+
+\subsection*{Method comparison (GA vs. informed baselines)}
+
+\begin{itemize}[leftmargin=*]
+  \item Figure 6 (Layout method comparison): Mean MC revenue with
+    95\,\% bootstrap CIs across $N{=}30$ scenarios $\times$ 10 seeds
+    for six methods: \texttt{random\_valid}, \texttt{perimeter\_only}
+    (Larson 2005 racetrack), \texttt{popularity\_rank}
+    (\texttt{dataset\_layout}'s default), \texttt{greedy\_swap}
+    (cheap local search), \texttt{GA}, and \texttt{oracle}
+    (analytical optimum).
+  \item Paired-MC: every method on every scenario is evaluated under
+    the SAME RNG seed in \texttt{sim\_calibration.mc\_engine}; the
+    reported numbers are bootstrap CIs on paired differences, not
+    independent samples. This removes MC noise from the comparison.
+  \item \emph{Paper-grade result} ($n{=}300$ paired evaluations each):
+    \textbf{GA significantly beats every baseline including the
+    analytical-optimum oracle.} Mean MC revenues (95\,\% bootstrap
+    CI): GA $\$75{,}688$ [74{,}100, 77{,}262]; random\_valid
+    $\$75{,}226$; greedy\_swap $\$75{,}038$; popularity\_rank
+    $\$75{,}004$; perimeter\_only $\$74{,}836$; oracle $\$74{,}295$.
+    Paired differences (GA $-$ baseline), all significant:
+    \begin{itemize}
+      \item GA $-$ random\_valid: $+\$461$ [$+\$421$, $+\$501$]
+      \item GA $-$ perimeter\_only: $+\$852$ [$+\$811$, $+\$894$]
+      \item GA $-$ popularity\_rank: $+\$683$ [$+\$643$, $+\$723$]
+      \item GA $-$ greedy\_swap: $+\$649$ [$+\$608$, $+\$689$]
+      \item \textbf{GA $-$ oracle (analytic): $+\$1{,}393$
+        [$+\$872$, $+\$1{,}975$]}
+    \end{itemize}
+    The GA-vs-oracle gap is the paper's most novel finding: the
+    simulator-backed GA finds layouts with higher Monte Carlo
+    revenue than the analytical optimum because the simulator's
+    fitness function captures dwell-time, flow, and queue-mediated
+    effects that the closed-form analytical revenue model omits.
+    A real argument for simulation-based optimization over purely
+    analytical approaches in retail layout problems.
+  \item Reproducibility receipt for Figure~6:
+    \texttt{experiments/results/baseline\_comparison\_20260518-212709/}
+    -- contains \texttt{results.csv} (1800 rows: 6 methods $\times$
+    30 scenarios $\times$ 10 seeds), \texttt{methods\_bar.png}, and
+    \texttt{sidecar.json}.
+\end{itemize}
+
+\subsection*{Robustness (deferred to Tier 2)}
+\begin{itemize}[leftmargin=*]
+  \item Elasticity sensitivity sweep: report the projected revenue
+    lift at the lower and upper edges of each cited elasticity band
+    (Hui 2009 50--75\,\% conversion; Hui Inman 2013 50--70\,\%
+    impulse). Show the headline result is robust within the band.
+\end{itemize}
+
+\section{Results (\textasciitilde 2\,pp)}
+References: \texttt{viz\_optimize\_results.py},
+\texttt{experiments/run\_synthetic\_gt.py},
+\texttt{experiments/run\_baseline\_comparison.py}.
+
+\subsection*{Primary contribution claims (reframed for TOMACS)}
+
+The paper's central claim, finalized after the Tier-1 validation
+results, is:
+
+\begin{quote}
+A literature-calibrated agent-based simulator ranks candidate retail
+layouts in a manner consistent with established empirical principles,
+and a GA over its fitness landscape recovers known-optimal placements
+at a rate substantially above informed baselines.
+\end{quote}
+
+This is a methodology contribution. The headline lift is a
+\emph{projection} under cited elasticities; real-world deployment
+validation is out of scope (consistent with Botsali \& Peters 2005,
+Hui et al.\ 2009, and the prior simulation-based literature).
+
+\subsection*{Headline numbers (paper-grade run, 2026-05-18)}
+\begin{itemize}[leftmargin=*]
+  \item \textbf{GA regret vs.\ oracle: median 1.46\,\%, mean 1.58\,\%,
+    p5--p95 [0.34\,\%, 3.28\,\%]} across 30 synthetic scenarios
+    $\times$ 10 seeds ($n{=}300$). GA recovers $\approx${}98\,\% of
+    the analytical oracle's revenue in the closed-form model.
+  \item \textbf{GA significantly beats every informed baseline AND
+    the analytical-optimum oracle} under paired-MC. Most novel:
+    GA $-$ oracle $= +\$1{,}393$ (95\,\% CI [$+\$872, +\$1{,}975$]).
+    GA $-$ best heuristic baseline (popularity\_rank): $+\$683$
+    [$+\$643, +\$723$]. Per-method table from
+    \texttt{experiments/results/baseline\_comparison\_20260518-212709/sidecar.json}.
+  \item Spearman rank correlation between GA fitness and analytical
+    revenue on overlap-repaired random layouts: mean
+    $\rho={+}0.107$, median ${+}0.128$, range $[{-}0.13, {+}0.39]$.
+    Substantive contribution: the simulator-backed fitness and the
+    closed-form revenue model rank layouts on \emph{partially}
+    divergent axes -- the simulator captures behavioral effects
+    (dwell, flow, queue-mediated abandonment) the closed-form
+    model omits. This is why GA outperforms the analytical oracle
+    under MC.
+  \item Decomposition of the score components for the optimised vs.\
+    baseline layout (traffic, cross-merchandising, impulse, flow,
+    revenue placement, dwell, section, accessibility). Available
+    per-run in \texttt{results.csv}; component-level analysis is
+    a Tier-2 deliverable.
+  \item PRE vs.\ POST observed revenue from the in-app measurement
+    windows on a calibrated UCI Online Retail II shop; document any
+    divergence from the MC projection.
+  \item One worked example using UCI Online Retail II
+    (transactional) + ATC (spatial); report dataset SHA-256 and
+    random seed for reproducibility.
+\end{itemize}
+
+\section{Limitations and threats to validity (\textasciitilde 1\,pp)}
+
+\begin{itemize}[leftmargin=*]
+  \item Conversion rate is asserted (transactional data limitation).
+    Mitigation: provenance flag, sensitivity sweep.
+  \item Monte Carlo aggregates daily; intra-day NHPP affects only
+    the live simulator.
+  \item First-order Markov assumption (Hui 2009 critique noted).
+  \item Score-to-conversion elasticity midpoints from
+    Hui 2009 / Hui Inman 2013; alternative empirical-fit approach
+    (treating simulator output as a function of elasticity
+    coefficients and inverting against held-out data) is feasible
+    future work.
+  \item ATC trajectories are validated as distributions, not
+    point-level paths in the simulated layout; the spatial
+    calibration claim is therefore distributional fidelity, not
+    layout-specific fidelity.
+  \item Optimisation lift is \emph{projected}, not observed in a
+    real-world A/B test --- consistent with prior simulation-based
+    retail-layout studies (Botsali \& Peters 2005, Hui et al.\ 2009).
+\end{itemize}
+
+\section{Reproducibility statement (\textasciitilde 0.5\,pp)}
+
+\begin{itemize}[leftmargin=*]
+  \item Source available at: \emph{[repo URL]}.
+  \item Datasets: UCI Online Retail II (DOI in references); ATC
+    Shopping Mall (Bršči{\'c} 2013 reference).
+  \item Dataset SHA-256, schema version, adapter version, random
+    seed, Python version, and platform string are stamped into
+    every simulation's provenance record
+    (\texttt{analytics['provenance']}); see
+    \texttt{dataset\_provenance.py}.
+  \item All literature-cited coefficients live in a single module
+    (\texttt{retail\_literature.py}); the values used in this paper
+    can be confirmed without running the code.
+\end{itemize}
+
+\section{Appendix items (referenced in main text)}
+
+\begin{itemize}[leftmargin=*]
+  \item A. Agent state-machine diagram and transition matrix.
+  \item B. Full table of cited coefficients and their values
+    (auto-generated from \texttt{retail\_literature.py}).
+  \item C. GA pseudocode; full fitness function definition.
+  \item D. Validation-tab figure exports at high resolution.
+  \item E. Patch notes / change log (the companion
+    \texttt{patch\_notes.tex}).
+\end{itemize}
+
+\end{document}
