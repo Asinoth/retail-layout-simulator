@@ -16,6 +16,9 @@ backups/
 # Workspace marker
 .abacus.donotdelete
 
+# Claude Code session-local settings (per-machine state, not project history)
+.claude/settings.local.json
+
 # ─── Generated / run outputs ────────────────────────────────────
 # Regenerated on every simulation stop; can blow up to several MB.
 analytics_latest.json

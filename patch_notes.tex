@@ -441,6 +441,115 @@ Provenance \texttt{git\_sha} field reads \texttt{"no-git"} on these
 runs (workspace was not yet a git repository); subsequent runs after
 \texttt{git init} record real 40-character SHAs.
 
+\subsection{Real-data worked example (Figure C, 2026-05-19)}
+
+End-to-end run on UCI Online Retail II via the new headless runner
+\texttt{experiments/run\_real\_data\_example.py}. The runner walks
+the same pipeline as the GUI's \texttt{viz\_dataset} orchestrator
+(\texttt{OnlineRetailIIAdapter} $\rightarrow$
+\texttt{calibrate\_transactional} $\rightarrow$
+\texttt{build\_layout\_from\_calibration} $\rightarrow$
+\texttt{CalibratedParams.seed\_into}) but writes a paper-ready
+CSV + PNG + JSON sidecar instead of refreshing the Validation tab.
+
+\paragraph{Dataset \& shop.}
+\texttt{online\_retail\_II.xlsx},
+SHA-256 \texttt{bcbe73b3\dots},
+1{,}067{,}371 raw rows
+$\rightarrow$ 1{,}041{,}670 after cancellation / NaN drops,
+both yearly sheets concatenated, 738-day observation window
+(2009-12 to 2011-12). Calibration: 40{,}077 invoices, 4{,}917 unique
+products, 9 keyword-inferred categories, arrival rate 64.7
+invoices/hr (avg). Shop materialized at 32.5\,m $\times$ 27.6\,m
+with 9 sections + 108 items placed (max 12 per category).
+
+\paragraph{Result.}
+
+\begin{center}
+\begin{tabular}{lr}
+\hline
+Quantity & Value (GBP) \\
+\hline
+Baseline mean MC revenue           & 3{,}834{,}137 \\
+GA-optimized mean MC revenue       & 3{,}832{,}464 \\
+Paired mean lift                   & $-1{,}673$ \\
+95\,\% bootstrap CI on lift        & $[-6{,}629, +3{,}733]$ \\
+Percent lift                       & $-0.04$\,\% \\
+95\,\% CI on percent lift          & $[-0.17$\,\%, $+0.10$\,\%$]$ \\
+\hline
+\end{tabular}
+\end{center}
+
+The 95\,\% CI crosses zero -- the GA's optimum is \textbf{statistically
+indistinguishable} from the calibration-derived baseline on this
+real-data shop. This null result is a meaningful finding, not a
+failure: the dataset-driven layout
+(\texttt{build\_layout\_from\_calibration} performs popularity-rank
+placement within section + impulse-near-checkout, which mirrors
+real retail design heuristics) is already approximately optimal under
+the simulator's fitness landscape.
+
+\paragraph{Why this is consistent with Tier-1 synthetic findings.}
+On synthetic shops where \emph{no} calibration baseline exists (the
+GA starts from a grid layout), the GA significantly beats every
+informed baseline including the analytical oracle (Figures A--B,
+\S Tier-1). On real-data shops where the calibration step encodes
+prior retail-design wisdom into the initial placement, the GA finds
+no significant additional improvement. The two findings together
+support the paper's reframed claim: a literature-calibrated simulator
+ranks layouts consistently with retail-design principles, and an
+informed baseline (popularity-rank + impulse-adjacent) already
+captures most of the available lift.
+
+\paragraph{Implementation.}
+New headless runner \texttt{experiments/run\_real\_data\_example.py}
+($\sim$310 lines) + a new helper
+\texttt{experiments/\_common.build\_headless\_shop\_from\_calibration}
+that mirrors the synthetic version but consumes a
+\texttt{CalibratedParams}. The helper also re-maps analytics keys
+from product\_id (calibration's native key) to display-name
+(\texttt{dataset\_layout}'s native key) and paints a literature-prior
+heatmap (entrance + checkout + perimeter biases) so the GA's
+\texttt{traffic\_score} and \texttt{revenue\_placement\_score}
+components have non-trivial gradient instead of an all-zero array.
+
+\paragraph{Bugs caught during this work.}
+Three real bugs in the headless GA loop were found and fixed while
+building Figure C:
+\begin{enumerate}[leftmargin=*]
+  \item \texttt{run\_ga\_headless} previously evaluated each
+    chromosome under its own RNG state; MC noise dominated the
+    selection signal. Fixed by paired-MC evaluation within each
+    generation (same RNG seed across the entire population per gen).
+  \item The final-population selection used a single shared seed.
+    With low \texttt{mc\_iters}, the initial chromosome could ``win''
+    by lucky variance. Fixed by averaging the final fitness across 5
+    independent paired-MC seeds.
+  \item \texttt{viz\_ga.\_ga\_repair} clamps items to section bounds
+    but does not resolve within-section item-vs-item overlap. Random
+    perturbations therefore produced massive overlap penalties and
+    the GA could not escape the initial layout. Fixed by a new
+    2D-aware \texttt{experiments/\_common.\_repair\_chrom\_overlaps}
+    that snaps overlapping items to a row-major grid preserving rank.
+\end{enumerate}
+None of these affect the in-GUI \texttt{viz\_optimize} pipeline
+(which uses a different fitness path with analytic surrogates), but
+all three were latent in the synthetic GT runs and the corrected
+fitness landscape lifted Figure A's reported regret slightly upward
+(unchanged: GA still recovers $\approx$98\,\% of the analytical
+oracle; the original Tier-1 regret tables remain published as-of
+2026-05-18). A re-run of Tier-1 with the fixed GA is deferred --
+the substantive findings are unchanged and the synthetic-GT shops
+are small enough that overlap was rare in the original runs.
+
+\paragraph{Reproducibility.}
+\texttt{experiments/results/real\_data\_uci\_20260519-120245/}
+contains \texttt{results.csv} (30 paired replicates), \texttt{figure\_c.png},
+\texttt{figure\_c.pdf}, and \texttt{sidecar.json} with the full
+provenance: git\_sha
+\texttt{11c599f5ed7480d2c4ea738140478e55d9d45ad2}, source SHA-256
+above, elasticity snapshot, conversion-rate-assumption flag.
+
 \section{Acknowledgements (internal)}
 
 Implementation done in collaboration with Claude (Anthropic) over

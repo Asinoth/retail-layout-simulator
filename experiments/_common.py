@@ -49,6 +49,8 @@ from viz_projections import ProjectionsMixin
 from simulation import CustomerFlowSimulation
 
 from synthetic_shops import SyntheticShop, SyntheticItem
+from dataset_calibration import CalibratedParams
+from dataset_layout import build_layout_from_calibration
 from retail_literature import (
     GaWeights,
     ELASTICITY_CONV_BASE, ELASTICITY_CONV_GAIN_MAX,
@@ -304,6 +306,192 @@ def base_params_for(synthetic: SyntheticShop) -> Dict[str, Any]:
     }
 
 
+# ─── Build a headless shop from a calibrated real dataset ───────────────
+
+def build_headless_shop_from_calibration(
+    params: CalibratedParams,
+    max_items_per_category: int = 12,
+) -> "HeadlessShop":
+    """Materialize a real-dataset-calibrated shop on a Tk-free
+    ``HeadlessShop`` instance.
+
+    Reuses the existing dataset pipeline:
+      * ``dataset_layout.build_layout_from_calibration`` lays out the
+        sections + items based on the calibrated category mix.
+      * ``CalibratedParams.seed_into`` populates analytics with the
+        empirical basket / co-purchase / hourly-profile / dwell data,
+        sets ``sim.run_time`` and ``sim.sim_time`` so
+        ``extract_simulation_parameters`` reports the right
+        ``customers_per_hour``, and stamps the calibration provenance
+        block.
+
+    The returned shop is immediately usable by ``run_ga_headless`` /
+    ``paired_mc_revenue`` -- the GA's ``_ga_compute_layout_score`` reads
+    from ``shop.customer_simulation.analytics`` which has been
+    populated by ``seed_into``, and ``_ga_fitness`` calls the simulator's
+    MC engine with no Tk dependency.
+    """
+    # HeadlessShop's constructor needs initial dimensions; the layout
+    # builder will overwrite ``self.width`` / ``self.height`` to fit the
+    # calibrated section grid. Start with a placeholder; the builder
+    # sizes it correctly.
+    shop = HeadlessShop(width=20.0, height=15.0)
+
+    # Geometry: sections + items + entrance + checkout + heat-map buffer.
+    layout_stats = build_layout_from_calibration(
+        shop, params, max_items_per_category=max_items_per_category
+    )
+
+    # Analytics: empirical distributions seeded into sim.analytics so
+    # the GA / MC pipelines see real values from t=0.
+    params.seed_into(shop.customer_simulation)
+
+    # ── Key remapping fix ────────────────────────────────────────────
+    # ``seed_into`` writes analytics keyed by ``product_id`` (StockCode),
+    # but ``build_layout_from_calibration`` keys shop items by the
+    # human-readable display name (with disambiguating "(stockcode)"
+    # suffix on collision). Without a remap, the GA's
+    # ``_ga_compute_layout_score`` lookups for cross_merchandising,
+    # popular_items, item_conversion_rates all miss -- traffic, cross,
+    # revenue_placement components stay locked at zero and the GA only
+    # responds to overlap_penalty / section_compliance. The remap
+    # rewrites every analytics structure to use the SHOP's keys, so
+    # the GA sees real per-item signal.
+    A = shop.customer_simulation.analytics
+    f1_items = shop.floors[1]['items']
+    pid_to_key: Dict[str, str] = {}
+    for key, idata in f1_items.items():
+        pid = idata.get('product_id')
+        if pid is not None and pid not in pid_to_key:
+            pid_to_key[str(pid)] = key
+
+    def _remap_dict_by_pid(d: Dict[str, Any]) -> Dict[str, Any]:
+        out = {}
+        for k, v in d.items():
+            new_k = pid_to_key.get(str(k))
+            if new_k is not None:
+                out[new_k] = v
+        return out
+
+    if 'popular_items' in A:
+        A['popular_items'] = _remap_dict_by_pid(dict(A['popular_items']))
+    if 'item_conversion_rates' in A:
+        A['item_conversion_rates'] = _remap_dict_by_pid(
+            dict(A['item_conversion_rates'])
+        )
+    # cross_merchandising is keyed "pid_a|pid_b" -> translate to
+    # "key_a|key_b" (skip pairs whose items didn't make it into the
+    # placed-items cap).
+    if 'cross_merchandising' in A:
+        remapped = {}
+        for pair_str, count in dict(A['cross_merchandising']).items():
+            if not isinstance(pair_str, str) or '|' not in pair_str:
+                continue
+            pa, pb = pair_str.split('|', 1)
+            ka = pid_to_key.get(pa)
+            kb = pid_to_key.get(pb)
+            if ka is None or kb is None:
+                continue
+            remapped[f"{ka}|{kb}"] = count
+        A['cross_merchandising'] = remapped
+
+    # Heat map: paint a literature-inspired bias (perimeter + entrance
+    # + checkout proximity) so the traffic / revenue_placement
+    # components of the GA score have non-trivial spatial gradient.
+    # This mirrors what the live simulator's heat map would build up
+    # from real customer trajectories, but lets the GA score
+    # immediately rather than after a long sim warm-up.
+    _paint_synthetic_heatmap(shop)
+
+    # ``geometry_dirty`` was already set by build_layout_from_calibration.
+    return shop
+
+
+def _paint_synthetic_heatmap(shop: "HeadlessShop") -> None:
+    """Initial heat-map prior for a freshly built shop. Bias toward
+    (entrance, checkout) and the perimeter racetrack. Mirrors what
+    Larson 2005 reports as the dominant traffic pattern in real shops,
+    so the GA's traffic_score / revenue_placement_score read a
+    meaningful spatial gradient instead of an all-zero array.
+
+    The live simulator's heat-map (driven by actual customer paths)
+    overwrites this once a simulation runs; this is only the
+    cold-start prior for headless GA optimization."""
+    import math
+    sim = shop.customer_simulation
+    res = sim.heat_map_resolution
+    wc = sim.heat_raw.shape[0]
+    hc = sim.heat_raw.shape[1]
+    door = shop.door_position or (shop.width / 2, 0.2)
+    # Find checkout center
+    chk = None
+    walls = shop.floors[1].get('walls', {})
+    if 'Checkout' in walls:
+        cp = walls['Checkout']['position']; cs = walls['Checkout']['size']
+        chk = (cp[0] + cs[0] / 2, cp[1] + cs[1] / 2)
+    if chk is None:
+        chk = (door[0] - 3.0, door[1] + 0.5)
+
+    heat = np.zeros((wc, hc), dtype=np.float32)
+    for ix in range(wc):
+        for iy in range(hc):
+            x = ix / res; y = iy / res
+            d_door = math.hypot(x - door[0], y - door[1])
+            d_chk  = math.hypot(x - chk[0], y - chk[1])
+            d_wall = min(x, y, shop.width - x, shop.height - y)
+            heat[ix, iy] = (
+                3.0 / (1.0 + d_door)            # entrance proximity
+                + 2.0 / (1.0 + d_chk)           # checkout proximity
+                + 1.5 / (1.0 + max(d_wall, 0.1))  # perimeter racetrack
+            )
+    sim.heat_raw = heat
+    sim.heat_map_data = heat.astype(np.float64)
+    if hasattr(sim, '_floor_heat_raw'):
+        sim._floor_heat_raw = {1: heat}
+
+
+def base_params_for_calibration(params: CalibratedParams) -> Dict[str, Any]:
+    """``base_params`` dict for the simulator's MC engine, derived from a
+    real-dataset calibration. Same shape as ``base_params_for`` (the
+    synthetic version) so ``run_ga_headless`` / ``paired_mc_revenue``
+    work without modification.
+
+    Notes on the per-field derivation:
+      * ``customers_per_hour`` comes from the calibrated arrival rate.
+      * ``conversion_rate`` is the asserted assumption (not measured);
+        same caveat as ``seed_into`` records under
+        ``analytics['calibration']['conversion_rate_source']``.
+      * basket-size mean/std come from the empirical distribution; the
+        full list goes into ``basket_sizes_observed`` so
+        ``mc_engine`` uses its empirical sampler instead of the
+        normal approximation.
+      * ``rev_per_converting_customer`` and ``rev_std`` come from the
+        empirical per-invoice revenue distribution.
+      * ``impulse_rate`` / ``avg_impulse_value`` are stand-ins (real
+        transactional data doesn't distinguish planned vs. impulse);
+        use literature defaults from retail_literature so the MC
+        projection's impulse-revenue term doesn't collapse to zero.
+    """
+    baskets = np.asarray(params.basket_sizes, dtype=np.float64)
+    revs = np.asarray(params.invoice_revenues, dtype=np.float64)
+    return {
+        'customers_per_hour': float(params.arrivals_per_hour),
+        'conversion_rate': float(params.assumed_conversion_rate),
+        'rev_per_converting_customer': float(revs.mean()) if revs.size else 1.0,
+        'rev_std': float(revs.std(ddof=1)) if revs.size > 1 else 1.0,
+        'impulse_rate': 0.20,   # literature midpoint; UCI doesn't label impulse
+        'avg_impulse_value': max(
+            float(revs.mean()) * 0.15 if revs.size else 1.0,
+            0.5,
+        ),
+        'avg_basket_size': float(baskets.mean()) if baskets.size else 3.0,
+        'std_basket_size': float(baskets.std(ddof=1)) if baskets.size > 1 else 1.0,
+        'basket_sizes_observed': list(map(int, baskets.astype(int))) if baskets.size else [3] * 30,
+        'abandonment_rate': max(0.0, 1.0 - float(params.assumed_conversion_rate)) * 0.10,
+        'avg_queue_time': 5.0,
+    }
+
+
 # ─── Apply a layout to the headless shop ─────────────────────────────────
 
 def apply_layout(shop: HeadlessShop,
@@ -355,6 +543,108 @@ def paired_mc_revenue(shop: HeadlessShop,
 
 
 # ─── Headless GA loop ────────────────────────────────────────────────────
+
+def _repair_chrom_overlaps(shop: "HeadlessShop",
+                           chrom: np.ndarray,
+                           item_names: List[str]) -> np.ndarray:
+    """Resolve within-section item-vs-item overlaps in a chromosome.
+
+    The GA's own ``_ga_repair`` only clamps each item to its section
+    bounds; it does not check pair-wise overlap. Without this fix,
+    every random perturbation puts multiple items in the same section
+    at overlapping positions -- the GA's overlap_penalty crushes the
+    score and the GA can never escape the initial layout.
+
+    This is a 2D-aware repair: items within a section are sorted by
+    current position into a row-major grid, then snapped to evenly-
+    spaced non-overlapping slots that preserve relative order. The
+    chromosome's positional information is therefore retained as
+    *rank* (left-to-right, then top-to-bottom) rather than absolute
+    coordinates -- but a non-overlapping layout is always achievable
+    as long as the section can fit the items in a grid, which the
+    ``dataset_layout`` builder ensures by construction."""
+    import math as _math
+    out = chrom.copy()
+
+    # Group items by section
+    by_cat: Dict[str, List[int]] = {}
+    sizes: List[Tuple[float, float]] = []
+    cats: List[str] = []
+    for i, n in enumerate(item_names):
+        d = shop._ga_get_item_data(n)
+        cat = d.get('category', '')
+        cats.append(cat)
+        sizes.append(tuple(d.get('size', (1.0, 1.0))))
+        by_cat.setdefault(cat, []).append(i)
+
+    walls = shop.floors[1].get('walls', {})
+
+    for cat, idx_list in by_cat.items():
+        if len(idx_list) < 2:
+            continue
+        sec_wall = walls.get(f"Section_{cat}")
+        if sec_wall is None:
+            continue
+        sx, sy = sec_wall['position']
+        sw, sh = sec_wall['size']
+
+        # Detect overlap among these items
+        any_overlap = False
+        for k in range(len(idx_list)):
+            i = idx_list[k]
+            xi, yi = out[i, 0], out[i, 1]
+            wi, hi = sizes[i]
+            for k2 in range(k + 1, len(idx_list)):
+                j = idx_list[k2]
+                xj, yj = out[j, 0], out[j, 1]
+                wj, hj = sizes[j]
+                if not (xi + wi <= xj or xi >= xj + wj
+                        or yi + hi <= yj or yi >= yj + hj):
+                    any_overlap = True
+                    break
+            if any_overlap:
+                break
+        if not any_overlap:
+            continue
+
+        # Build a 2D non-overlapping grid that preserves order.
+        n = len(idx_list)
+        max_w = max(sizes[i][0] for i in idx_list)
+        max_h = max(sizes[i][1] for i in idx_list)
+        gap = 0.15
+        pad = 0.05
+        avail_w = sw - 2 * pad
+        avail_h = sh - 2 * pad
+        cols = max(1, int(_math.floor((avail_w + gap) / (max_w + gap))))
+        rows_needed = int(_math.ceil(n / cols))
+        if rows_needed * (max_h + gap) - gap > avail_h:
+            # Doesn't fit in this many cols; try the other orientation
+            rows_needed = max(1, int(_math.floor((avail_h + gap) / (max_h + gap))))
+            cols = int(_math.ceil(n / rows_needed))
+        # Sort items by current position (row-major: y then x) so we
+        # preserve the *rank* the GA chose.
+        sorted_idx = sorted(
+            idx_list,
+            key=lambda i: (out[i, 1], out[i, 0])
+        )
+        step_x = (avail_w - max_w) / max(cols - 1, 1) if cols > 1 else 0.0
+        step_y = (avail_h - max_h) / max(rows_needed - 1, 1) if rows_needed > 1 else 0.0
+        # Ensure step >= item dim + gap (else overlap)
+        step_x = max(step_x, max_w + gap)
+        step_y = max(step_y, max_h + gap)
+        for k, i in enumerate(sorted_idx):
+            r = k // cols
+            c = k % cols
+            wi, hi = sizes[i]
+            x = sx + pad + c * step_x
+            y = sy + pad + r * step_y
+            # Clip to section (in case step pushed past)
+            x = max(sx + pad, min(x, sx + sw - wi - pad))
+            y = max(sy + pad, min(y, sy + sh - hi - pad))
+            out[i, 0] = x
+            out[i, 1] = y
+    return out
+
 
 def run_ga_headless(shop: HeadlessShop,
                     item_names: List[str],
@@ -410,16 +700,39 @@ def run_ga_headless(shop: HeadlessShop,
             noisy[i, 1] = float(np.clip(
                 current[i, 1] + np.random.normal(0, sigma_y), lo_y, hi_y))
         noisy = shop._ga_repair(noisy, item_names)
+        noisy = _repair_chrom_overlaps(shop, noisy, item_names)
         population.append(noisy)
 
     history_best: List[float] = []
     history_avg:  List[float] = []
 
+    def _paired_fitness(pop: List[np.ndarray], mc_seed: int) -> np.ndarray:
+        """Evaluate every chromosome in ``pop`` under the SAME RNG seed
+        in ``mc_engine``. Without this, MC noise (~2-3% SE at mc_iters=500)
+        dominates real fitness differences, and the GA's selection
+        becomes random. Paired-MC across the population is the
+        within-GA analogue of the paired-MC we already use across
+        methods in ``paired_mc_revenue``.
+        """
+        out = np.empty(len(pop), dtype=np.float64)
+        for k, p in enumerate(pop):
+            np.random.seed(mc_seed)
+            out[k] = shop._ga_fitness(p, item_names, base_params,
+                                      mc_days, mc_iters)
+        return out
+
+    # GA-loop RNG (used for crossover/mutation/tournament) is separated
+    # from the MC-evaluation RNG so the latter can be paired across
+    # candidates without disturbing the former. We use Python's random
+    # for GA-loop choices via numpy, and reseed np.random freshly inside
+    # ``_paired_fitness`` for each MC eval.
+    ga_rng = np.random.RandomState(rng_seed + 1)
+
     for gen in range(n_gens):
-        fitness = np.array([
-            shop._ga_fitness(p, item_names, base_params, mc_days, mc_iters)
-            for p in population
-        ])
+        # Every candidate in this generation shares one MC seed -> the
+        # fitness differences reflect real layout quality, not noise.
+        mc_seed_gen = rng_seed * 1000 + gen
+        fitness = _paired_fitness(population, mc_seed_gen)
         rank = np.argsort(fitness)[::-1]
         population = [population[r] for r in rank]
         fitness = fitness[rank]
@@ -434,24 +747,46 @@ def run_ga_headless(shop: HeadlessShop,
         new_pop: List[np.ndarray] = [p.copy() for p in population[:n_elite]]
         while len(new_pop) < pop_size:
             t_size = min(5, pop_size)
-            t_idx  = np.random.choice(pop_size, t_size, replace=False)
+            t_idx  = ga_rng.choice(pop_size, t_size, replace=False)
             p1 = population[t_idx[np.argmax(fitness[t_idx])]]
-            t_idx2 = np.random.choice(pop_size, t_size, replace=False)
+            t_idx2 = ga_rng.choice(pop_size, t_size, replace=False)
             p2 = population[t_idx2[np.argmax(fitness[t_idx2])]]
+            # Crossover / mutate use module np.random; isolate them by
+            # temporarily setting the global state from ga_rng.
+            saved_state = np.random.get_state()
+            np.random.set_state(ga_rng.get_state())
             c1, c2, blend = shop._ga_crossover(p1, p2)
+            children = []
             for child in (c1, c2, blend):
                 child = shop._ga_mutate(child, item_names, mut_rate)
                 child = shop._ga_repair(child, item_names)
+                # Resolve within-section overlaps so the GA can actually
+                # explore the section bound -- without this every mutated
+                # candidate's fitness collapses to the overlap-penalty
+                # floor and the GA can't escape the initial layout.
+                child = _repair_chrom_overlaps(shop, child, item_names)
+                children.append(child)
+            ga_rng.set_state(np.random.get_state())
+            np.random.set_state(saved_state)
+            for child in children:
                 new_pop.append(child)
                 if len(new_pop) >= pop_size:
                     break
         population = new_pop[:pop_size]
 
-    # Final evaluation on the surviving population
-    final_fit = np.array([
-        shop._ga_fitness(p, item_names, base_params, mc_days, mc_iters)
-        for p in population
-    ])
+    # Final evaluation on the surviving population: average over multiple
+    # paired-MC seeds so a single unlucky seed doesn't decide the winner.
+    # With one seed, the chromosome that happens to score best under
+    # THAT specific RNG state wins -- and that's often the initial
+    # (grid) chromosome since it's always feasible. Averaging across
+    # ``n_final_seeds`` seeds reduces SE by sqrt(n) and lets the GA's
+    # genuine improvements show through.
+    n_final_seeds = 5
+    final_fits_stack = np.zeros((n_final_seeds, len(population)), dtype=np.float64)
+    for s_idx in range(n_final_seeds):
+        seed_s = rng_seed * 1000 + n_gens + 1 + s_idx
+        final_fits_stack[s_idx] = _paired_fitness(population, seed_s)
+    final_fit = final_fits_stack.mean(axis=0)
     best_idx = int(np.argmax(final_fit))
     return {
         'best_chrom':   population[best_idx],

@@ -273,6 +273,33 @@ python -m experiments.run_baseline_comparison --n-scenarios 30 `
   - Paper text updated: `paper_outline.tex` §Validation +
     §Results headline numbers; `patch_notes.tex` §Tier-1
     paper-grade run results.
+- **Real-data Figure C DONE (2026-05-19).** New headless runner
+  `experiments/run_real_data_example.py` (~310 lines) +
+  `experiments._common.build_headless_shop_from_calibration` helper.
+  Paper-grade run against UCI Online Retail II (both sheets, both
+  years, 1.04M invoice rows, 738-day span, calibrated to a 9-section
+  108-item shop).
+  - Headline: GA paired mean lift = **−£1,673** (95% CI
+    [−£6,629, +£3,733]; pct lift −0.04% CI [−0.17%, +0.10%]).
+    **CI crosses zero — GA is statistically tied with the
+    calibration-derived baseline.** This is a meaningful null:
+    the popularity-rank-within-section placement that
+    `build_layout_from_calibration` produces is already near-optimal
+    on real-data calibration.
+  - Three real bugs caught + fixed in the headless GA loop:
+    (a) per-chromosome RNG drift in `run_ga_headless` (fixed:
+        paired-MC within each gen);
+    (b) single-seed final-eval bias (fixed: average over 5 final
+        seeds);
+    (c) `viz_ga._ga_repair` didn't resolve within-section overlaps
+        (fixed: new `experiments._common._repair_chrom_overlaps`
+        does 2D rank-preserving grid snap).
+  - Artefact: `experiments/results/real_data_uci_20260519-120245/`
+    (results.csv, figure_c.png/pdf, sidecar.json with git SHA
+    `11c599f…` + dataset SHA-256 + elasticity snapshot).
+  - Paper text updated: `paper_outline.tex` §Results worked-example
+    bullet now concrete; `patch_notes.tex` §Tier-1 has a Real-data
+    Worked Example subsection.
 
 ---
 
@@ -288,9 +315,10 @@ In rough priority for the paper:
    (Hui 2009: 50-75 %% conversion lift; Hui Inman 2013: 50-70 %%
    impulse gap). Latin Hypercube over 6-D band, ~200 evaluations.
 3. **UCI Online Retail II + ATC worked example (Figure C)** —
-   end-to-end calibrate against the real datasets, run the optimize
-   pipeline, report projected lift. The "this actually works on
-   real data" showpiece for §Application.
+   UCI side **DONE** (2026-05-19, null result with tight CI: the
+   calibration baseline is already near-optimal). ATC trajectory
+   side deferred pending user obtaining the ATC Shopping Mall
+   dataset; the adapter + calibration code path exists.
 4. **Fix oracle non-convergence on synthetic_gt scenarios 21 and 23**
    (negative-regret seeds suggest oracle's L-BFGS-B multi-start
    needs n_restarts > 6 or differential evolution). Doesn't change

@@ -348,9 +348,39 @@ Hui et al.\ 2009, and the prior simulation-based literature).
   \item PRE vs.\ POST observed revenue from the in-app measurement
     windows on a calibrated UCI Online Retail II shop; document any
     divergence from the MC projection.
-  \item One worked example using UCI Online Retail II
-    (transactional) + ATC (spatial); report dataset SHA-256 and
-    random seed for reproducibility.
+  \item \textbf{Worked example: UCI Online Retail II (Figure C).}
+    Full-pipeline run on the canonical UK retailer dataset
+    (\texttt{online\_retail\_II.xlsx},
+    SHA-256 \texttt{bcbe73b35f5b7babf197fb0cb983a11f5d9ff929078d4aa53d171b1f2df2e980},
+    1{,}067{,}371 raw rows, 1{,}041{,}670 after dropping cancellations
+    and zero-qty/zero-price rows, both sheets concatenated -- 738-day
+    span 2009-12 to 2011-12).
+    Calibration: 40{,}077 invoices, 4{,}917 unique products, 9
+    keyword-inferred categories, arrival rate 64.7 invoices/hr (avg).
+    Shop materialized at 32.5\,m $\times$ 27.6\,m with 9 sections and
+    108 items placed (max 12 per category). GA paper-grade budget
+    (mc\_iters=2000, n\_gens=25, pop=30, n\_mc\_replicates=30,
+    paired-MC w.\ same seed across baseline and GA outputs).
+    Result: baseline (calibration-derived popularity-rank) mean MC
+    revenue \pounds{}3{,}834{,}137 vs. GA-optimized mean
+    \pounds{}3{,}832{,}464, paired mean lift $-$\pounds{}1{,}673
+    (95\,\% bootstrap CI [$-$\pounds{}6{,}629, $+$\pounds{}3{,}733];
+    $-0.04$\,\% with CI [$-0.17$\,\%, $+0.10$\,\%]).
+    \emph{The CI crosses zero -- the GA's optimum is statistically
+    indistinguishable from the calibration-derived baseline.} This is
+    a meaningful finding: the dataset-driven layout (popularity-rank
+    within section, impulse near checkout) is already a near-optimal
+    placement for the simulator's fitness landscape on this dataset.
+    The GA's value is most clearly demonstrated on synthetic shops
+    (Figures 5--6) where the calibration baseline does not exist as
+    a free lunch. Reproducibility:
+    \texttt{experiments/results/real\_data\_uci\_20260519-120245/}
+    contains \texttt{results.csv} (30 paired replicates),
+    \texttt{figure\_c.png}/\texttt{.pdf}, and \texttt{sidecar.json}
+    with the full provenance (git SHA, dataset SHA-256, elasticity
+    snapshot, conversion-rate-assumption flag).
+    ATC spatial worked example deferred to future work (dataset not
+    yet acquired).
 \end{itemize}
 
 \section{Limitations and threats to validity (\textasciitilde 1\,pp)}
