@@ -1,0 +1,94 @@
+{
+  "strengths": [
+    0.0,
+    0.04,
+    0.08,
+    0.16,
+    0.32
+  ],
+  "n_reps": 5,
+  "rev_per_cust_mean": [
+    0.8181,
+    0.9343,
+    0.7646,
+    0.8232,
+    0.77
+  ],
+  "rev_per_cust_sd": [
+    0.2155,
+    0.1252,
+    0.201,
+    0.3105,
+    0.1617
+  ],
+  "rev_per_cust_anova_F": 0.517,
+  "rev_per_cust_anova_p": 0.7241,
+  "completed_per_setting": [
+    321,
+    351,
+    356,
+    334,
+    331
+  ],
+  "conversion": [
+    0.9938,
+    1.0029,
+    1.0085,
+    0.9853,
+    1.0
+  ],
+  "default_strength": 0.08,
+  "throughput_range_pct": 10.34,
+  "chi2": 2.496,
+  "chi2_p": 0.645,
+  "chi2_dof": 4,
+  "homogeneous": true,
+  "metric": "post_warmup_throughput",
+  "rows": [
+    {
+      "strength": 0.0,
+      "revenue": 265.14,
+      "completed": 321,
+      "customers": 323,
+      "conversion": 0.9938080495356038,
+      "rev_per_cust_mean": 0.8181354231232728,
+      "rev_per_cust_sd": 0.2154777725818746
+    },
+    {
+      "strength": 0.04,
+      "revenue": 328.8,
+      "completed": 351,
+      "customers": 350,
+      "conversion": 1.002857142857143,
+      "rev_per_cust_mean": 0.9342938601251856,
+      "rev_per_cust_sd": 0.12517272067474716
+    },
+    {
+      "strength": 0.08,
+      "revenue": 273.96999999999997,
+      "completed": 356,
+      "customers": 353,
+      "conversion": 1.0084985835694051,
+      "rev_per_cust_mean": 0.7646333525076249,
+      "rev_per_cust_sd": 0.20102913796116076
+    },
+    {
+      "strength": 0.16,
+      "revenue": 269.81000000000006,
+      "completed": 334,
+      "customers": 339,
+      "conversion": 0.9852507374631269,
+      "rev_per_cust_mean": 0.8231561815523658,
+      "rev_per_cust_sd": 0.3104637600562435
+    },
+    {
+      "strength": 0.32,
+      "revenue": 253.48999999999995,
+      "completed": 331,
+      "customers": 331,
+      "conversion": 1.0,
+      "rev_per_cust_mean": 0.7700162707779817,
+      "rev_per_cust_sd": 0.16170818751552607
+    }
+  ]
+}

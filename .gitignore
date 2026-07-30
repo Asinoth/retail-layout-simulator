@@ -1,0 +1,41 @@
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# External datasets -- download separately (see README)
+DATASETS/
+
+# Experiment outputs: the small per-run artifact files (results.csv,
+# sidecar.json, summary.json, spearman.csv) that regenerate the paper's
+# macros ARE tracked; heavy re-derivable binaries are not.
+CODE/experiments/results/*/*.png
+CODE/experiments/results/*/*.pdf
+analytics_latest.json
+optimization_report_*.txt
+
+# LaTeX build artifacts (the compiled PDF is committed)
+*.aux
+*.log
+*.out
+*.blg
+*.bbl
+*.synctex.gz
+*.toc
+*.fls
+*.fdb_latexmk
+
+# Editor / OS
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
+
+# Manuscript: withheld from the public repository while the paper is under
+# submission. The files stay on disk here; the canonical copies live in the
+# working repo. Re-add them after publication.
+TOMACS_submission.tex
+TOMACS_submission.pdf
+TOMACS_references.bib
+paper_results_macros.tex

@@ -1,0 +1,59 @@
+{
+  "git_sha": "17797dc347a6d3b2864c0a6dbf848bb4c5d4ee10",
+  "python": "3.13.2",
+  "platform": "Windows-11-10.0.26200-SP0",
+  "iso_time": "2026-07-19T21:34:40",
+  "elasticities": {
+    "GA_weights": {
+      "traffic": 0.13333333333333333,
+      "cross_merch": 0.13333333333333333,
+      "impulse": 0.13333333333333333,
+      "flow": 0.13333333333333333,
+      "revenue_placement": 0.13333333333333333,
+      "dwell": 0.13333333333333333,
+      "section_compliance": 0.16,
+      "accessibility": 0.04,
+      "overlap_penalty": 0.8,
+      "bottleneck_penalty": 0.2
+    },
+    "ELASTICITY_CONV_BASE": 0.2,
+    "ELASTICITY_CONV_GAIN_MAX": 0.3,
+    "ELASTICITY_IMP_BASE": 0.3,
+    "ELASTICITY_IMP_GAIN_MAX": 0.4,
+    "ELASTICITY_BSK_BASE": 0.1,
+    "ELASTICITY_BSK_GAIN_MAX": 0.2
+  },
+  "kind": "elasticity_lhs",
+  "summary": {
+    "n_draws_total": 9216,
+    "frac_positive": 1.0,
+    "lift_median": 1266.0451843251144,
+    "lift_p5": 753.0596180971213,
+    "lift_p95": 2053.6170215092025,
+    "bands": {
+      "conv": [
+        0.2,
+        0.5
+      ],
+      "imp": [
+        0.3,
+        0.7
+      ],
+      "bsk": [
+        0.1,
+        0.30000000000000004
+      ]
+    },
+    "config": {
+      "n_scenarios": 12,
+      "n_seeds": 3,
+      "n_draws": 256,
+      "n_items": 10,
+      "n_gens": 15,
+      "pop_size": 24,
+      "mc_iters": 500,
+      "mc_days": 14,
+      "out_root": "C:\\Users\\alext\\OneDrive\\Desktop\\refactor\\CODE\\experiments\\results"
+    }
+  }
+}

@@ -1,0 +1,13 @@
+{
+  "score_baseline": 0.4988,
+  "score_ga": 0.5297,
+  "conv_lift_pct": 0.9,
+  "impulse_lift_pct": 6.0,
+  "basket_lift_pct": 0.6,
+  "elasticity_midpoints": {
+    "conv": 0.35,
+    "impulse": 0.5,
+    "basket": 0.2
+  },
+  "mc_rse_at_2000_pct": 0.472
+}

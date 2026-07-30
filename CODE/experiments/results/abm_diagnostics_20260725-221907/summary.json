@@ -1,0 +1,196 @@
+{
+  "markov_order": {
+    "n_sequences": 1147,
+    "n_transitions": 4629,
+    "H_next_given_cur_bits": 0.4814,
+    "info_gain_second_order_bits": 0.1475,
+    "info_gain_ci95": 0.0256,
+    "mean_tv_first_vs_second": 0.1084,
+    "tv_ci95": 0.0121
+  },
+  "emergence": {
+    "perimeter_interior_ratio": 1.374,
+    "perimeter_ratio_ci95": 0.081,
+    "band_m": 2.5
+  },
+  "protocol": {
+    "reps": 10,
+    "warmup_s": 30.0,
+    "collect_s": 120.0,
+    "spawn": 2.5,
+    "cap": 45,
+    "framing": "terminating"
+  },
+  "per_rep": [
+    {
+      "markov_order": {
+        "n_sequences": 104,
+        "n_transitions": 487,
+        "mean_seq_len": 5.6826923076923075,
+        "dense_second_order_mass": 384,
+        "H_next_given_cur_bits": 0.4245,
+        "info_gain_second_order_bits": 0.1461,
+        "mean_tv_first_vs_second": 0.1058
+      },
+      "emergence": {
+        "perimeter_mean_intensity": 0.0266,
+        "interior_mean_intensity": 0.0195,
+        "perimeter_interior_ratio": 1.366,
+        "band_m": 2.5
+      }
+    },
+    {
+      "markov_order": {
+        "n_sequences": 113,
+        "n_transitions": 437,
+        "mean_seq_len": 4.867256637168142,
+        "dense_second_order_mass": 326,
+        "H_next_given_cur_bits": 0.4667,
+        "info_gain_second_order_bits": 0.1452,
+        "mean_tv_first_vs_second": 0.1168
+      },
+      "emergence": {
+        "perimeter_mean_intensity": 0.0265,
+        "interior_mean_intensity": 0.0195,
+        "perimeter_interior_ratio": 1.357,
+        "band_m": 2.5
+      }
+    },
+    {
+      "markov_order": {
+        "n_sequences": 107,
+        "n_transitions": 454,
+        "mean_seq_len": 5.242990654205608,
+        "dense_second_order_mass": 351,
+        "H_next_given_cur_bits": 0.4922,
+        "info_gain_second_order_bits": 0.1696,
+        "mean_tv_first_vs_second": 0.1105
+      },
+      "emergence": {
+        "perimeter_mean_intensity": 0.0259,
+        "interior_mean_intensity": 0.02,
+        "perimeter_interior_ratio": 1.29,
+        "band_m": 2.5
+      }
+    },
+    {
+      "markov_order": {
+        "n_sequences": 132,
+        "n_transitions": 476,
+        "mean_seq_len": 4.606060606060606,
+        "dense_second_order_mass": 349,
+        "H_next_given_cur_bits": 0.4826,
+        "info_gain_second_order_bits": 0.0867,
+        "mean_tv_first_vs_second": 0.0924
+      },
+      "emergence": {
+        "perimeter_mean_intensity": 0.0254,
+        "interior_mean_intensity": 0.02,
+        "perimeter_interior_ratio": 1.27,
+        "band_m": 2.5
+      }
+    },
+    {
+      "markov_order": {
+        "n_sequences": 115,
+        "n_transitions": 472,
+        "mean_seq_len": 5.104347826086957,
+        "dense_second_order_mass": 353,
+        "H_next_given_cur_bits": 0.5403,
+        "info_gain_second_order_bits": 0.1428,
+        "mean_tv_first_vs_second": 0.0988
+      },
+      "emergence": {
+        "perimeter_mean_intensity": 0.0265,
+        "interior_mean_intensity": 0.0195,
+        "perimeter_interior_ratio": 1.359,
+        "band_m": 2.5
+      }
+    },
+    {
+      "markov_order": {
+        "n_sequences": 107,
+        "n_transitions": 477,
+        "mean_seq_len": 5.457943925233645,
+        "dense_second_order_mass": 370,
+        "H_next_given_cur_bits": 0.4338,
+        "info_gain_second_order_bits": 0.1064,
+        "mean_tv_first_vs_second": 0.0795
+      },
+      "emergence": {
+        "perimeter_mean_intensity": 0.0245,
+        "interior_mean_intensity": 0.0208,
+        "perimeter_interior_ratio": 1.18,
+        "band_m": 2.5
+      }
+    },
+    {
+      "markov_order": {
+        "n_sequences": 121,
+        "n_transitions": 464,
+        "mean_seq_len": 4.8347107438016526,
+        "dense_second_order_mass": 343,
+        "H_next_given_cur_bits": 0.5237,
+        "info_gain_second_order_bits": 0.1455,
+        "mean_tv_first_vs_second": 0.1048
+      },
+      "emergence": {
+        "perimeter_mean_intensity": 0.0284,
+        "interior_mean_intensity": 0.0185,
+        "perimeter_interior_ratio": 1.533,
+        "band_m": 2.5
+      }
+    },
+    {
+      "markov_order": {
+        "n_sequences": 112,
+        "n_transitions": 443,
+        "mean_seq_len": 4.955357142857143,
+        "dense_second_order_mass": 333,
+        "H_next_given_cur_bits": 0.4666,
+        "info_gain_second_order_bits": 0.1554,
+        "mean_tv_first_vs_second": 0.1102
+      },
+      "emergence": {
+        "perimeter_mean_intensity": 0.0273,
+        "interior_mean_intensity": 0.0191,
+        "perimeter_interior_ratio": 1.431,
+        "band_m": 2.5
+      }
+    },
+    {
+      "markov_order": {
+        "n_sequences": 115,
+        "n_transitions": 467,
+        "mean_seq_len": 5.060869565217391,
+        "dense_second_order_mass": 353,
+        "H_next_given_cur_bits": 0.498,
+        "info_gain_second_order_bits": 0.2216,
+        "mean_tv_first_vs_second": 0.14
+      },
+      "emergence": {
+        "perimeter_mean_intensity": 0.0286,
+        "interior_mean_intensity": 0.0186,
+        "perimeter_interior_ratio": 1.543,
+        "band_m": 2.5
+      }
+    },
+    {
+      "markov_order": {
+        "n_sequences": 121,
+        "n_transitions": 452,
+        "mean_seq_len": 4.735537190082645,
+        "dense_second_order_mass": 332,
+        "H_next_given_cur_bits": 0.4859,
+        "info_gain_second_order_bits": 0.1555,
+        "mean_tv_first_vs_second": 0.1253
+      },
+      "emergence": {
+        "perimeter_mean_intensity": 0.0273,
+        "interior_mean_intensity": 0.0193,
+        "perimeter_interior_ratio": 1.415,
+        "band_m": 2.5
+      }
+    }
+  ]
+}

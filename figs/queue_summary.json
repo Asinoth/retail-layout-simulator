@@ -1,0 +1,21 @@
+{
+  "nominal": {
+    "cap": 20,
+    "spawn": 1.5,
+    "peak_agents": 20,
+    "max_lane_occupancy": 2,
+    "busy_frac": 0.24600000000000005,
+    "busy_frac_sd": 0.17386776584519628,
+    "n_reps": 5
+  },
+  "stress": {
+    "cap": 50,
+    "spawn": 3.0,
+    "peak_agents": 50,
+    "max_lane_occupancy": 4,
+    "busy_frac": 0.718,
+    "busy_frac_sd": 0.1209131920015347,
+    "n_reps": 5
+  },
+  "verdict": "emergent congestion is observable"
+}

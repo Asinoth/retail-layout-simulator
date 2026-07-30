@@ -1,0 +1,19 @@
+{
+  "hyper_spread_median_pct": 0.3752064770143499,
+  "hyper_spread_max_pct": 0.5070762035550679,
+  "default_gap_median_pct": 0.115735671929188,
+  "diversity_start": 0.02521849594867881,
+  "diversity_end": 0.012096115446557467,
+  "diversity_retained_pct": 47.965253245767734,
+  "n_settings": 9,
+  "mut_rates": [
+    0.1,
+    0.18,
+    0.3
+  ],
+  "pop_sizes": [
+    20,
+    30,
+    40
+  ]
+}
