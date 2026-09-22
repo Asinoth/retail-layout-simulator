@@ -1,16 +1,26 @@
 # -*- coding: utf-8 -*-
-"""Generate a plain-language Greek status PDF for the supervisor.
+"""Frozen 27 May 2026 supervisor snapshot -- not the current status.
 
-Renders ``project_status_GR.pdf`` at the repo root. Greek prose with English
-technical terms kept verbatim. Uses reportlab + DejaVu Sans (full Greek
-glyph coverage, shipped with matplotlib) so no extra fonts are needed.
+Renders ``project_status_GR.pdf`` at the repo root: plain-language Greek
+prose with English technical terms kept verbatim, using reportlab +
+DejaVu Sans (full Greek glyph coverage, shipped with matplotlib) so no
+extra fonts are needed.
 
-    python make_status_report.py
+Its text is hard-coded and describes the project as it stood on that
+date: the results it quotes, and the open-items list, have both moved on
+since. Regenerating reproduces that snapshot, it does not refresh it, so
+the script refuses to replace an existing PDF unless asked. A report on
+the current state belongs in its own dated script.
+
+    python make_status_report.py            # writes if the PDF is absent
+    python make_status_report.py --force    # rewrite the snapshot
 """
 
 from __future__ import annotations
 
+import argparse
 import os
+import sys
 
 import matplotlib.font_manager as fm
 from reportlab.lib import colors
@@ -213,6 +223,22 @@ def build():
     return OUT
 
 
-if __name__ == "__main__":
+def main(argv=None):
+    ap = argparse.ArgumentParser(
+        description="Rebuild the frozen 27 May 2026 supervisor snapshot.")
+    ap.add_argument("--force", action="store_true",
+                    help="Overwrite an existing project_status_GR.pdf")
+    args = ap.parse_args(argv)
+    if os.path.exists(OUT) and not args.force:
+        sys.stderr.write(
+            f"{os.path.basename(OUT)} already exists and this script only "
+            "reproduces the 27 May 2026 snapshot, not the current state.\n"
+            "Pass --force to rewrite it.\n")
+        return 1
     path = build()
     print("Wrote", path, "(%.0f KB)" % (os.path.getsize(path) / 1024.0))
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

@@ -1,0 +1,478 @@
+{
+  "markov_order": {
+    "n_sequences": 3515,
+    "n_transitions": 56170,
+    "n_censored_final": 0,
+    "mean_drain_seconds": 372.0,
+    "H_next_given_cur_bits": 0.2981,
+    "info_gain_second_order_bits": 0.0252,
+    "info_gain_ci95": 0.0047,
+    "info_gain_null_mean_bits": 0.0001,
+    "info_gain_excess_bits": 0.0251,
+    "info_gain_excess_ci95": 0.0046,
+    "info_gain_perm_p": 0.005,
+    "mean_tv_first_vs_second": 0.0214,
+    "tv_ci95": 0.0014,
+    "tv_null_mean": 0.0019,
+    "tv_excess": 0.0195,
+    "tv_excess_ci95": 0.0014,
+    "tv_perm_p": 0.005,
+    "n_permutations": 200,
+    "perm_seed": 0,
+    "min_cell": 8,
+    "entropy_estimator": "miller_madow",
+    "sequence_source": "completed_state_histories",
+    "pooled": {
+      "n_sequences": 3515,
+      "n_transitions": 56170,
+      "mean_seq_len": 16.9800853485064,
+      "dense_second_order_mass": 52655,
+      "H_next_given_cur_bits": 0.3005,
+      "info_gain_second_order_bits": 0.0278,
+      "info_gain_null_mean_bits": 0.0,
+      "info_gain_excess_bits": 0.0277,
+      "info_gain_perm_p": 0.005,
+      "mean_tv_first_vs_second": 0.0221,
+      "tv_null_mean": 0.0006,
+      "tv_excess": 0.0215,
+      "tv_perm_p": 0.005,
+      "n_permutations": 200
+    }
+  },
+  "emergence": {
+    "perimeter_interior_ratio": 1.602,
+    "perimeter_ratio_ci95": 0.042,
+    "band_m": 2.5
+  },
+  "load": {
+    "arrivals": 3520,
+    "balked": 5,
+    "balked_frac": 0.0014
+  },
+  "protocol": {
+    "mode": "fixed_step",
+    "dt": 0.04,
+    "seed_base": 1000,
+    "seeds": [
+      1000,
+      1001,
+      1002,
+      1003,
+      1004,
+      1005,
+      1006,
+      1007,
+      1008,
+      1009
+    ],
+    "reps": 10,
+    "warmup_s": 600.0,
+    "collect_s": 2280.0,
+    "spawn": 0.22,
+    "cap": 45,
+    "workers": 10,
+    "framing": "terminating"
+  },
+  "per_rep": [
+    {
+      "rep": 0,
+      "seed": 1000,
+      "load": {
+        "arrivals": 321,
+        "balked": 0
+      },
+      "markov_order": {
+        "n_sequences": 321,
+        "n_transitions": 5120,
+        "mean_seq_len": 16.950155763239877,
+        "dense_second_order_mass": 4799,
+        "H_next_given_cur_bits": 0.2996,
+        "info_gain_second_order_bits": 0.0272,
+        "info_gain_null_mean_bits": 0.0001,
+        "info_gain_excess_bits": 0.0271,
+        "info_gain_perm_p": 0.005,
+        "mean_tv_first_vs_second": 0.022,
+        "tv_null_mean": 0.0019,
+        "tv_excess": 0.02,
+        "tv_perm_p": 0.005,
+        "n_permutations": 200,
+        "n_censored_final": 0,
+        "drain_seconds": 360.0
+      },
+      "emergence": {
+        "perimeter_mean_intensity": 0.2899,
+        "interior_mean_intensity": 0.186,
+        "perimeter_interior_ratio": 1.559,
+        "band_m": 2.5,
+        "band_sweep": {
+          "1.0": 0.499,
+          "1.5": 1.819,
+          "2.0": 1.452,
+          "2.5": 1.559,
+          "3.0": 1.355,
+          "4.0": 1.585
+        }
+      }
+    },
+    {
+      "rep": 1,
+      "seed": 1001,
+      "load": {
+        "arrivals": 377,
+        "balked": 0
+      },
+      "markov_order": {
+        "n_sequences": 377,
+        "n_transitions": 6172,
+        "mean_seq_len": 17.371352785145888,
+        "dense_second_order_mass": 5795,
+        "H_next_given_cur_bits": 0.3006,
+        "info_gain_second_order_bits": 0.0289,
+        "info_gain_null_mean_bits": 0.0001,
+        "info_gain_excess_bits": 0.0288,
+        "info_gain_perm_p": 0.005,
+        "mean_tv_first_vs_second": 0.0218,
+        "tv_null_mean": 0.0019,
+        "tv_excess": 0.0199,
+        "tv_perm_p": 0.005,
+        "n_permutations": 200,
+        "n_censored_final": 0,
+        "drain_seconds": 360.0
+      },
+      "emergence": {
+        "perimeter_mean_intensity": 0.3262,
+        "interior_mean_intensity": 0.2084,
+        "perimeter_interior_ratio": 1.565,
+        "band_m": 2.5,
+        "band_sweep": {
+          "1.0": 0.497,
+          "1.5": 1.81,
+          "2.0": 1.446,
+          "2.5": 1.565,
+          "3.0": 1.371,
+          "4.0": 1.611
+        }
+      }
+    },
+    {
+      "rep": 2,
+      "seed": 1002,
+      "load": {
+        "arrivals": 352,
+        "balked": 0
+      },
+      "markov_order": {
+        "n_sequences": 352,
+        "n_transitions": 5570,
+        "mean_seq_len": 16.823863636363637,
+        "dense_second_order_mass": 5218,
+        "H_next_given_cur_bits": 0.3092,
+        "info_gain_second_order_bits": 0.0314,
+        "info_gain_null_mean_bits": 0.0001,
+        "info_gain_excess_bits": 0.0313,
+        "info_gain_perm_p": 0.005,
+        "mean_tv_first_vs_second": 0.0236,
+        "tv_null_mean": 0.002,
+        "tv_excess": 0.0216,
+        "tv_perm_p": 0.005,
+        "n_permutations": 200,
+        "n_censored_final": 0,
+        "drain_seconds": 300.0
+      },
+      "emergence": {
+        "perimeter_mean_intensity": 0.3077,
+        "interior_mean_intensity": 0.1945,
+        "perimeter_interior_ratio": 1.582,
+        "band_m": 2.5,
+        "band_sweep": {
+          "1.0": 0.516,
+          "1.5": 1.793,
+          "2.0": 1.426,
+          "2.5": 1.582,
+          "3.0": 1.369,
+          "4.0": 1.577
+        }
+      }
+    },
+    {
+      "rep": 3,
+      "seed": 1003,
+      "load": {
+        "arrivals": 345,
+        "balked": 0
+      },
+      "markov_order": {
+        "n_sequences": 345,
+        "n_transitions": 5382,
+        "mean_seq_len": 16.6,
+        "dense_second_order_mass": 5031,
+        "H_next_given_cur_bits": 0.2899,
+        "info_gain_second_order_bits": 0.0168,
+        "info_gain_null_mean_bits": -0.0,
+        "info_gain_excess_bits": 0.0168,
+        "info_gain_perm_p": 0.005,
+        "mean_tv_first_vs_second": 0.0198,
+        "tv_null_mean": 0.0018,
+        "tv_excess": 0.018,
+        "tv_perm_p": 0.005,
+        "n_permutations": 200,
+        "n_censored_final": 0,
+        "drain_seconds": 420.0
+      },
+      "emergence": {
+        "perimeter_mean_intensity": 0.3029,
+        "interior_mean_intensity": 0.1815,
+        "perimeter_interior_ratio": 1.669,
+        "band_m": 2.5,
+        "band_sweep": {
+          "1.0": 0.492,
+          "1.5": 1.895,
+          "2.0": 1.509,
+          "2.5": 1.669,
+          "3.0": 1.441,
+          "4.0": 1.629
+        }
+      }
+    },
+    {
+      "rep": 4,
+      "seed": 1004,
+      "load": {
+        "arrivals": 328,
+        "balked": 0
+      },
+      "markov_order": {
+        "n_sequences": 328,
+        "n_transitions": 5284,
+        "mean_seq_len": 17.109756097560975,
+        "dense_second_order_mass": 4951,
+        "H_next_given_cur_bits": 0.283,
+        "info_gain_second_order_bits": 0.0156,
+        "info_gain_null_mean_bits": -0.0,
+        "info_gain_excess_bits": 0.0156,
+        "info_gain_perm_p": 0.005,
+        "mean_tv_first_vs_second": 0.0185,
+        "tv_null_mean": 0.0018,
+        "tv_excess": 0.0167,
+        "tv_perm_p": 0.005,
+        "n_permutations": 200,
+        "n_censored_final": 0,
+        "drain_seconds": 420.0
+      },
+      "emergence": {
+        "perimeter_mean_intensity": 0.3073,
+        "interior_mean_intensity": 0.1798,
+        "perimeter_interior_ratio": 1.709,
+        "band_m": 2.5,
+        "band_sweep": {
+          "1.0": 0.514,
+          "1.5": 1.973,
+          "2.0": 1.58,
+          "2.5": 1.709,
+          "3.0": 1.467,
+          "4.0": 1.726
+        }
+      }
+    },
+    {
+      "rep": 5,
+      "seed": 1005,
+      "load": {
+        "arrivals": 356,
+        "balked": 0
+      },
+      "markov_order": {
+        "n_sequences": 356,
+        "n_transitions": 5772,
+        "mean_seq_len": 17.213483146067414,
+        "dense_second_order_mass": 5409,
+        "H_next_given_cur_bits": 0.2836,
+        "info_gain_second_order_bits": 0.0153,
+        "info_gain_null_mean_bits": 0.0,
+        "info_gain_excess_bits": 0.0153,
+        "info_gain_perm_p": 0.005,
+        "mean_tv_first_vs_second": 0.0182,
+        "tv_null_mean": 0.002,
+        "tv_excess": 0.0162,
+        "tv_perm_p": 0.005,
+        "n_permutations": 200,
+        "n_censored_final": 0,
+        "drain_seconds": 360.0
+      },
+      "emergence": {
+        "perimeter_mean_intensity": 0.3196,
+        "interior_mean_intensity": 0.1986,
+        "perimeter_interior_ratio": 1.609,
+        "band_m": 2.5,
+        "band_sweep": {
+          "1.0": 0.492,
+          "1.5": 1.831,
+          "2.0": 1.479,
+          "2.5": 1.609,
+          "3.0": 1.405,
+          "4.0": 1.663
+        }
+      }
+    },
+    {
+      "rep": 6,
+      "seed": 1006,
+      "load": {
+        "arrivals": 356,
+        "balked": 1
+      },
+      "markov_order": {
+        "n_sequences": 355,
+        "n_transitions": 5732,
+        "mean_seq_len": 17.146478873239438,
+        "dense_second_order_mass": 5377,
+        "H_next_given_cur_bits": 0.2994,
+        "info_gain_second_order_bits": 0.0276,
+        "info_gain_null_mean_bits": 0.0001,
+        "info_gain_excess_bits": 0.0275,
+        "info_gain_perm_p": 0.005,
+        "mean_tv_first_vs_second": 0.0218,
+        "tv_null_mean": 0.002,
+        "tv_excess": 0.0197,
+        "tv_perm_p": 0.005,
+        "n_permutations": 200,
+        "n_censored_final": 0,
+        "drain_seconds": 300.0
+      },
+      "emergence": {
+        "perimeter_mean_intensity": 0.3028,
+        "interior_mean_intensity": 0.1941,
+        "perimeter_interior_ratio": 1.56,
+        "band_m": 2.5,
+        "band_sweep": {
+          "1.0": 0.502,
+          "1.5": 1.798,
+          "2.0": 1.441,
+          "2.5": 1.56,
+          "3.0": 1.343,
+          "4.0": 1.581
+        }
+      }
+    },
+    {
+      "rep": 7,
+      "seed": 1007,
+      "load": {
+        "arrivals": 365,
+        "balked": 3
+      },
+      "markov_order": {
+        "n_sequences": 362,
+        "n_transitions": 5650,
+        "mean_seq_len": 16.607734806629836,
+        "dense_second_order_mass": 5288,
+        "H_next_given_cur_bits": 0.3097,
+        "info_gain_second_order_bits": 0.031,
+        "info_gain_null_mean_bits": 0.0001,
+        "info_gain_excess_bits": 0.0309,
+        "info_gain_perm_p": 0.005,
+        "mean_tv_first_vs_second": 0.0238,
+        "tv_null_mean": 0.0019,
+        "tv_excess": 0.0219,
+        "tv_perm_p": 0.005,
+        "n_permutations": 200,
+        "n_censored_final": 0,
+        "drain_seconds": 360.0
+      },
+      "emergence": {
+        "perimeter_mean_intensity": 0.3221,
+        "interior_mean_intensity": 0.1953,
+        "perimeter_interior_ratio": 1.65,
+        "band_m": 2.5,
+        "band_sweep": {
+          "1.0": 0.519,
+          "1.5": 1.9,
+          "2.0": 1.521,
+          "2.5": 1.65,
+          "3.0": 1.434,
+          "4.0": 1.692
+        }
+      }
+    },
+    {
+      "rep": 8,
+      "seed": 1008,
+      "load": {
+        "arrivals": 393,
+        "balked": 1
+      },
+      "markov_order": {
+        "n_sequences": 392,
+        "n_transitions": 6192,
+        "mean_seq_len": 16.79591836734694,
+        "dense_second_order_mass": 5800,
+        "H_next_given_cur_bits": 0.3037,
+        "info_gain_second_order_bits": 0.0287,
+        "info_gain_null_mean_bits": 0.0001,
+        "info_gain_excess_bits": 0.0286,
+        "info_gain_perm_p": 0.005,
+        "mean_tv_first_vs_second": 0.0227,
+        "tv_null_mean": 0.002,
+        "tv_excess": 0.0207,
+        "tv_perm_p": 0.005,
+        "n_permutations": 200,
+        "n_censored_final": 0,
+        "drain_seconds": 420.0
+      },
+      "emergence": {
+        "perimeter_mean_intensity": 0.3328,
+        "interior_mean_intensity": 0.207,
+        "perimeter_interior_ratio": 1.608,
+        "band_m": 2.5,
+        "band_sweep": {
+          "1.0": 0.525,
+          "1.5": 1.86,
+          "2.0": 1.491,
+          "2.5": 1.608,
+          "3.0": 1.383,
+          "4.0": 1.598
+        }
+      }
+    },
+    {
+      "rep": 9,
+      "seed": 1009,
+      "load": {
+        "arrivals": 327,
+        "balked": 0
+      },
+      "markov_order": {
+        "n_sequences": 327,
+        "n_transitions": 5296,
+        "mean_seq_len": 17.195718654434252,
+        "dense_second_order_mass": 4969,
+        "H_next_given_cur_bits": 0.3024,
+        "info_gain_second_order_bits": 0.0292,
+        "info_gain_null_mean_bits": 0.0001,
+        "info_gain_excess_bits": 0.0291,
+        "info_gain_perm_p": 0.005,
+        "mean_tv_first_vs_second": 0.0222,
+        "tv_null_mean": 0.0019,
+        "tv_excess": 0.0203,
+        "tv_perm_p": 0.005,
+        "n_permutations": 200,
+        "n_censored_final": 0,
+        "drain_seconds": 420.0
+      },
+      "emergence": {
+        "perimeter_mean_intensity": 0.2862,
+        "interior_mean_intensity": 0.1892,
+        "perimeter_interior_ratio": 1.513,
+        "band_m": 2.5,
+        "band_sweep": {
+          "1.0": 0.469,
+          "1.5": 1.667,
+          "2.0": 1.346,
+          "2.5": 1.513,
+          "3.0": 1.315,
+          "4.0": 1.514
+        }
+      }
+    }
+  ]
+}

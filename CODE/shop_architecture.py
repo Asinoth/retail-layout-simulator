@@ -28,9 +28,14 @@ Output contract (matches the visualizer's existing dict shapes):
     {
       'walls': {name: {'position': (x, y), 'size': (w, h), ...}},
       'items': {name: {'position': (x, y), 'size': (w, h),
-                       'category': section_name}},
+                       'category': section_name,
+                       'zone': 'Section_...' wall containing the centre}},
       'door_position': (x, y) | None,
       'door_side': 'bottom' | None,
+      'archetype': 'grid' | 'racetrack' | 'freeform',
+      'dropped': [requested item names that did not fit],
+      'keepouts': [(x, y, w, h), ...],
+      'door_keepout': (x, y, w, h) | None,
     }
 
 Section zones are emitted as ``Section_<name>`` walls (non-blocking by
@@ -56,6 +61,16 @@ MAX_SEG = 3.2           # cap a single shelving segment (visual realism)
 WC_W, WC_H = 2.0, 1.5   # restroom footprint
 LANE_W, LANE_D = 0.9, 1.9    # one checkout lane (counter) footprint
 LANE_GAP = 1.1               # customer pass-gap between checkout lanes
+
+# Smallest floor the archetypes can furnish. Below this the mandatory
+# frame (entrance approach, checkout bank, restroom, back-wall fixtures
+# and their aisles) leaves no room for an interior, and the archetypes
+# start folding fixtures onto one another instead of failing.
+MIN_FLOOR_W, MIN_FLOOR_H = 12.0, 9.0
+
+# Build passes allowed while an assortment is trimmed to what the floor
+# holds (the first build plus up to three trimmed rebuilds).
+MAX_FIT_PASSES = 4
 
 SECTION_PALETTE = (
     '#4E79A7', '#F28E2B', '#E15759', '#76B7B2', '#59A14F', '#EDC948',
@@ -102,21 +117,28 @@ def _trim_interval(lo: float, hi: float,
     return max(pieces, key=lambda p: p[1] - p[0])
 
 
+def _run_capacity(span: float) -> int:
+    """How many MIN_SEG segments (SEG_GAP apart) a run of ``span`` holds."""
+    if span < MIN_SEG:
+        return 0
+    return int((span + SEG_GAP) // (MIN_SEG + SEG_GAP))
+
+
 def _segments_along(names: Sequence[str], lo: float, hi: float,
                     fixed: float, depth: float, horizontal: bool,
                     category: str) -> Dict[str, dict]:
     """Place item segments along the run [lo, hi].
 
     ``fixed`` is the run's constant coordinate (y for horizontal runs,
-    x for vertical). Capacity-aware: if the run cannot hold every name at
-    MIN_SEG it places as many as fit (the caller's catalog is scaled to
-    the shop, so trimming only occurs at extreme aspect ratios).
+    x for vertical). If the run cannot hold every name at MIN_SEG it
+    places as many as fit; ``generate_architecture`` reports the rest in
+    ``dropped``.
     Segments are capped at MAX_SEG and spread evenly so a short list on
     a long run still reads as continuous shelving, not one giant slab."""
     span = hi - lo
     if not names or span < MIN_SEG:
         return {}
-    cap = int((span + SEG_GAP) // (MIN_SEG + SEG_GAP))
+    cap = _run_capacity(span)
     use = list(names)[:cap]
     n = len(use)
     if n == 0:
@@ -154,9 +176,13 @@ def _zone(name: str, x, y, w, h, color) -> Tuple[str, dict]:
 def _frame(W, H, rng, is_main, wc_side='left', front_jitter=0.0):
     """Boundary walls (+entrance gap), checkout bank, WC.
 
-    Returns (walls, door_position, door_side, front_h, keepouts) where
-    ``keepouts`` are rects that fixture runs must avoid. ``wc_side``
-    puts the restroom in the back-left or back-right corner."""
+    Returns (walls, door_position, door_side, front_h, keepouts,
+    door_keepout) where ``keepouts`` are rects that fixture runs must
+    avoid and ``door_keepout`` is the doorway-approach one of them, named
+    separately because callers that place their own fixtures (the
+    impulse racks) must keep the entrance clear without also avoiding the
+    gaps between checkout lanes. ``wc_side`` puts the restroom in the
+    back-left or back-right corner."""
     walls: Dict[str, dict] = {}
     keepouts: List[Tuple[float, float, float, float]] = []
 
@@ -166,7 +192,7 @@ def _frame(W, H, rng, is_main, wc_side='left', front_jitter=0.0):
 
     if not is_main:
         walls['Wall_Bot'] = {'position': (0, 0), 'size': (W, T)}
-        return walls, None, None, max(1.2, H * 0.06), keepouts
+        return walls, None, None, max(1.2, H * 0.06), keepouts, None
 
     # Entrance on the FRONT (bottom) wall, offset right of centre -- the
     # standard configuration in the layouts the cited literature studies.
@@ -179,7 +205,8 @@ def _frame(W, H, rng, is_main, wc_side='left', front_jitter=0.0):
     door_position = (gap_x + DOOR_LEN / 2, 0)
     door_side = 'bottom'
     # Keep the doorway approach clear.
-    keepouts.append((gap_x - 0.6, 0, DOOR_LEN + 1.2, 3.0))
+    door_keepout = (gap_x - 0.6, 0, DOOR_LEN + 1.2, 3.0)
+    keepouts.append(door_keepout)
 
     # Front power aisle depth (scaled to the shop, clamped to sane range).
     front_h = max(2.4, min(3.4, H * 0.18 + front_jitter))
@@ -206,7 +233,7 @@ def _frame(W, H, rng, is_main, wc_side='left', front_jitter=0.0):
     keepouts.append((wc_x - 0.8, H - T - WC_H - 0.8,
                      WC_W + 1.6, WC_H + 0.8))
 
-    return walls, door_position, door_side, front_h, keepouts
+    return walls, door_position, door_side, front_h, keepouts, door_keepout
 
 
 def _keepouts_1d(keepouts, horizontal, band_lo, band_hi):
@@ -230,25 +257,45 @@ def _wall_interval(side, W, H, front_h, keepouts):
         lo, hi = _trim_interval(T + 0.3, W - T - 0.3,
                                 _keepouts_1d(keepouts, True, band_lo, H - T))
         return lo, hi, band_lo, True
+    # Side runs stop where the back cross-aisle begins (the WC corner's
+    # keepout already ends them there), so the side and back perimeter
+    # zones meet at the corner instead of overlapping.
     if side == 'left':
-        lo, hi = _trim_interval(front_h, H - T - FIX_D - 0.8,
+        lo, hi = _trim_interval(front_h, H - T - FIX_D - MIN_AISLE,
                                 _keepouts_1d(keepouts, False, T, T + FIX_D))
         return lo, hi, T, False
     band_lo = W - T - FIX_D
-    lo, hi = _trim_interval(front_h, H - T - FIX_D - 0.8,
+    lo, hi = _trim_interval(front_h, H - T - FIX_D - MIN_AISLE,
                             _keepouts_1d(keepouts, False, band_lo, W - T))
     return lo, hi, band_lo, False
 
 
-def _zone_for_run(side, lo, hi, fixed):
+def _zone_for_run(side, lo, hi, fixed, aisle=MIN_AISLE):
+    """Zone of a perimeter run: the fixture band plus the aisle in front
+    of it, ending exactly where the archetype's interior zones begin."""
     if side == 'top':
-        return (lo, fixed - MIN_AISLE - 0.2, hi - lo, FIX_D + MIN_AISLE + 0.2)
+        return (lo, fixed - aisle, hi - lo, FIX_D + aisle)
     if side == 'left':
-        return (T, lo, FIX_D + MIN_AISLE + 0.2, hi - lo)
-    return (fixed - MIN_AISLE - 0.2, lo, FIX_D + MIN_AISLE + 0.2, hi - lo)
+        return (T, lo, FIX_D + aisle, hi - lo)
+    return (fixed - aisle, lo, FIX_D + aisle, hi - lo)
 
 
-def _multi_wall_run(depts, side, W, H, front_h, keepouts, items, zones):
+def _slot_share(length, k, brk):
+    """Equal share of a run of ``length`` split among ``k`` departments
+    with ``brk`` breaks between them."""
+    return (length - (k - 1) * brk) / k
+
+
+def _slot_fits(depts, length, brk):
+    """True when every department's items fit its equal share of the run."""
+    if not depts:
+        return True
+    cap = _run_capacity(_slot_share(length, len(depts), brk))
+    return all(len(its) <= cap for _, its in depts)
+
+
+def _multi_wall_run(depts, side, W, H, front_h, keepouts, items, zones,
+                    aisle=MIN_AISLE):
     """One or more departments sharing a perimeter fixture wall; the
     usable band is subdivided among them with a 0.8 m break."""
     if not depts:
@@ -263,7 +310,8 @@ def _multi_wall_run(depts, side, W, H, front_h, keepouts, items, zones):
     for cat, cat_items in depts:
         items.update(_segments_along(cat_items, cur, cur + share,
                                      fixed, FIX_D, horizontal, cat))
-        zones.append((cat, _zone_for_run(side, cur, cur + share, fixed)))
+        zones.append((cat, _zone_for_run(side, cur, cur + share, fixed,
+                                         aisle)))
         cur += share + 0.8
 
 
@@ -297,8 +345,11 @@ def _grid(W, H, sections, rng, walls, items, zones, front_h, keepouts,
     # share a gondola (front half / back half); conversely, when there is
     # width to spare a department SPLITS across two gondolas (its items
     # divided between them) so big shops read as dense supermarkets
-    # instead of a few runs in an empty hall.
-    g_fit = max(1, int((zone_w + MIN_AISLE) // (GONDOLA_D + MIN_AISLE)))
+    # instead of a few runs in an empty hall. Each gondola is centred in
+    # a pitch cell of zone_w / g, so the aisle between neighbours is
+    # pitch - GONDOLA_D; capping g at zone_w // (GONDOLA_D + MIN_AISLE)
+    # keeps that aisle >= MIN_AISLE.
+    g_fit = max(1, int(zone_w // (GONDOLA_D + MIN_AISLE)))
     if g_fit >= 2 * n:
         assign = []
         for cat, its in interior:
@@ -320,7 +371,12 @@ def _grid(W, H, sections, rng, walls, items, zones, front_h, keepouts,
         depts = assign[gi]
         if not depts:
             continue
-        run_lo, run_hi = y0, y1
+        # A gondola in front of the checkout bank or the doorway starts
+        # behind that approach, the same clearance the perimeter runs keep.
+        run_lo = max([y0] + [ky + kh for kx, ky, kw, kh in keepouts
+                             if kx < gx + GONDOLA_D and kx + kw > gx
+                             and ky < y0 + MIN_AISLE])
+        run_hi = y1
         share = (run_hi - run_lo - (len(depts) - 1) * (MIN_AISLE * 0.6)) / len(depts)
         cur = run_lo
         for cat, cat_items in depts:
@@ -358,11 +414,55 @@ def _racetrack(W, H, sections, rng, walls, items, zones, front_h, keepouts,
     for i, dept in enumerate(cats):
         assign[slot_order[i % len(slot_order)]].append(dept)
 
+    # Round-robin can give a short island face more items than its run
+    # holds. Departments on such a slot move to the slot that keeps the
+    # largest share after taking them; slots that already fit are left
+    # alone, so shops with room keep the round-robin distribution.
+    run_len = {'islandL': ih - 0.4, 'islandR': ih - 0.4}
+    for s in ('top', 'left', 'right'):
+        lo, hi, _, _ = _wall_interval(s, W, H, front_h, keepouts)
+        run_len[s] = hi - lo
+    brk = {'top': 0.8, 'left': 0.8, 'right': 0.8,
+           'islandL': 0.6, 'islandR': 0.6}
+    moved = True
+    while moved:
+        moved = False
+        for s in slot_order:
+            if _slot_fits(assign[s], run_len[s], brk[s]):
+                continue
+            for di in range(len(assign[s]) - 1, -1, -1):
+                dept = assign[s][di]
+                targets = [t for t in slot_order if t != s and _slot_fits(
+                    assign[t] + [dept], run_len[t], brk[t])]
+                if not targets:
+                    continue
+                best = max(targets, key=lambda t: _slot_share(
+                    run_len[t], len(assign[t]) + 1, brk[t]))
+                assign[best].append(assign[s].pop(di))
+                moved = True
+                break
+
+    # A face whose departments still do not fit gets a taller island, up
+    # to the height the loop corridor allows.
+    need = 0.0
+    for s in ('islandL', 'islandR'):
+        if assign[s]:
+            k = len(assign[s])
+            m = max(len(its) for _, its in assign[s])
+            need = max(need, k * max(0.0, m * MIN_SEG + (m - 1) * SEG_GAP)
+                       + (k - 1) * 0.6 + 0.4 + 1e-6)
+    if need > ih:
+        ih = max(ih, min(ih_max, need))
+        iy = front_h + corr + max(0.0, (ih_max - ih) / 2)
+
     for side in ('top', 'left', 'right'):
         _multi_wall_run(assign[side], side, W, H, front_h, keepouts,
                         items, zones)
 
-    for side, sx, zx in (('islandL', ix, ix - 0.6),
+    # The island zones reach into the loop corridor by up to 0.6 m, but
+    # never past where the side perimeter zones end.
+    reach = min(0.6, max(0.0, ix - (T + FIX_D + MIN_AISLE)))
+    for side, sx, zx in (('islandL', ix, ix - reach),
                          ('islandR', ix + iw - 0.9, ix + iw / 2)):
         depts = assign[side]
         if not depts:
@@ -376,7 +476,7 @@ def _racetrack(W, H, sections, rng, walls, items, zones, front_h, keepouts,
         for cat, cat_items in depts:
             items.update(_segments_along(cat_items, cur, cur + share,
                                          sx, 0.9, False, cat))
-            zones.append((cat, (zx, cur, iw / 2 + 0.6, share)))
+            zones.append((cat, (zx, cur, iw / 2 + reach, share)))
             cur += share + 0.6
 
 
@@ -387,21 +487,35 @@ def _freeform(W, H, sections, rng, walls, items, zones, front_h, keepouts,
     many departments by tiling the floor in up to two zone rows and by
     packing tables in multiple columns inside a zone."""
     cats = list(sections)
-    _multi_wall_run([cats[0]], 'top', W, H, front_h, keepouts, items, zones)
-    _multi_wall_run([cats[1]], 'left', W, H, front_h, keepouts, items, zones)
+    aisle = MIN_AISLE * 0.9
+    # Slicing rather than indexing: a boutique with one or two departments
+    # simply leaves the second wall (and the floor) empty.
+    _multi_wall_run(cats[:1], 'top', W, H, front_h, keepouts, items, zones,
+                    aisle=aisle)
+    _multi_wall_run(cats[1:2], 'left', W, H, front_h, keepouts, items, zones,
+                    aisle=aisle)
 
     floor = cats[2:]
     if not floor:
         return
-    x0 = T + FIX_D + MIN_AISLE * 0.9
+    x0 = T + FIX_D + aisle
     x1 = W - T - 0.9
     y0 = front_h
-    y1 = H - T - FIX_D - MIN_AISLE * 0.9
+    y1 = H - T - FIX_D - aisle
 
     tab_w, tab_h = 1.5, 0.9
+    clear = 1.3             # clear gap kept between neighbouring tables
     nf = len(floor)
     n_rows = 2 if (nf > 4 and (y1 - y0) >= 2 * (tab_h + 1.6) + 0.8) else 1
     n_cols = int(math.ceil(nf / n_rows))
+    # A zone column narrower than a shelving run plus its clearance puts
+    # the neighbouring runs closer together than a customer can pass, so
+    # the floor is split by width first and the overflow goes into extra
+    # zone rows (a narrow, deep unit becomes a long file of zones).
+    max_cols = max(1, int((x1 - x0) // (0.9 + clear)))
+    if n_cols > max_cols:
+        n_cols = max_cols
+        n_rows = int(math.ceil(nf / n_cols))
     col_w = (x1 - x0) / n_cols
     row_h = (y1 - y0) / n_rows
 
@@ -409,24 +523,42 @@ def _freeform(W, H, sections, rng, walls, items, zones, front_h, keepouts,
         r_i, c_i = divmod(ci, n_cols)
         cx0 = x0 + c_i * col_w
         cy0 = y0 + r_i * row_h
-        zones.append((cat, (cx0, cy0, col_w, row_h)))
+        zone_h = row_h
+        if r_i == 0:
+            # Front-row zones start behind the checkout and doorway
+            # approaches, the same clearance the perimeter runs keep.
+            cy1 = cy0 + row_h
+            cy0 = max([cy0] + [ky + kh for kx, ky, kw, kh in keepouts
+                               if kx < cx0 + col_w and kx + kw > cx0
+                               and ky < y0 + MIN_AISLE])
+            zone_h = cy1 - cy0
+        zones.append((cat, (cx0, cy0, col_w, zone_h)))
         k = len(cat_items)
 
-        # Tables in up to two columns; column split only when the spacing
-        # keeps >= 1.3 m clear between neighbouring tables after jitter.
-        # Under ``vary`` a feasible split is taken or skipped at random.
-        can_split = (k > 3 and col_w >= 2 * (tab_w + 1.3))
+        # Tables in up to two columns. Every table stays clear/2 inside its
+        # slot, so neighbours in this zone or the next are >= ``clear``
+        # apart whatever the jitter. Under ``vary`` a feasible split is
+        # taken or skipped at random.
+        can_split = (k > 3 and col_w >= 2 * (tab_w + clear))
         t_cols = 2 if (can_split and (not vary or rng.random() < 0.7)) else 1
         t_rows = int(math.ceil(k / t_cols))
         slot_w = col_w / t_cols
-        slot_h = row_h / t_rows
-        if slot_h < tab_h + 1.2 or slot_w < tab_w + 1.0:
-            # Not enough clearance for free tables -- fall back to a
-            # vertical shelving run (still free-standing).
-            gx = cx0 + (col_w - 0.9) / 2
-            items.update(_segments_along(cat_items, cy0 + 0.3,
-                                         cy0 + row_h - 0.3, gx, 0.9,
-                                         False, cat))
+        slot_h = zone_h / t_rows
+        if slot_h < tab_h + clear or slot_w < tab_w + clear:
+            # Not enough clearance for free tables -- fall back to vertical
+            # shelving runs (still free-standing): one run centred in the
+            # zone, or as many parallel runs as the items need while
+            # neighbouring runs keep ``clear`` between them.
+            per_run = max(1, _run_capacity(zone_h - 0.6))
+            n_runs = max(1, min(int(math.ceil(k / per_run)),
+                                int(col_w // (0.9 + clear))))
+            pitch = col_w / n_runs
+            per = int(math.ceil(k / n_runs))
+            for j in range(n_runs):
+                gx = cx0 + (j + 0.5) * pitch - 0.45
+                items.update(_segments_along(cat_items[j * per:(j + 1) * per],
+                                             cy0 + 0.3, cy0 + zone_h - 0.3,
+                                             gx, 0.9, False, cat))
             continue
         for ki, nm in enumerate(cat_items):
             rr, cc = divmod(ki, t_cols)
@@ -434,41 +566,23 @@ def _freeform(W, H, sections, rng, walls, items, zones, front_h, keepouts,
             jy = rng.uniform(-0.2, 0.2)
             px = cx0 + cc * slot_w + (slot_w - tab_w) / 2 + jx
             py = cy0 + rr * slot_h + (slot_h - tab_h) / 2 + jy
-            px = max(cx0 + cc * slot_w + 0.5,
-                     min(px, cx0 + (cc + 1) * slot_w - tab_w - 0.5))
-            py = max(cy0 + rr * slot_h + 0.3,
-                     min(py, cy0 + (rr + 1) * slot_h - tab_h - 0.3))
+            px = max(cx0 + cc * slot_w + clear / 2,
+                     min(px, cx0 + (cc + 1) * slot_w - tab_w - clear / 2))
+            py = max(cy0 + rr * slot_h + clear / 2,
+                     min(py, cy0 + (rr + 1) * slot_h - tab_h - clear / 2))
             items[nm] = {'position': (px, py), 'size': (tab_w, tab_h),
                          'category': cat}
 
 
 # --- Entry point ----------------------------------------------------------
 
-def generate_architecture(width: float,
-                          height: float,
-                          shop_type: str,
-                          sections: Sequence[Tuple[str, Sequence[str]]],
-                          rng=None,
-                          is_main_floor: bool = True,
-                          vary: bool = True) -> dict:
-    """Generate a realistic floor plan for ``shop_type``.
-
-    ``sections`` is the [(section_name, [item names]), ...] list from the
-    Generate dialog (or ``scale_catalog``). Deterministic given the same
-    ``rng`` state.
-
-    ``vary=True`` (the Generate-button default) adds structural variety
-    between runs of the same shop type: the section-to-slot assignment is
-    shuffled, the restroom corner and front-aisle depth vary, and the
-    racetrack island proportions jitter. ``vary=False`` (used by the
-    dataset-import path) preserves the caller's section order exactly, so
-    e.g. a naive-baseline alphabetical ordering survives into the wall
-    insertion order."""
-    rng = rng or _random_mod
-    W, H = float(width), float(height)
+def _build_plan(W, H, shop_type, sections, rng, is_main_floor, vary) -> dict:
+    """One generation pass: frame, archetype, zones. See
+    ``generate_architecture`` for the output contract."""
     archetype = ARCHETYPE_BY_SHOP.get(shop_type, 'grid')
 
     secs = list(sections)
+    requested = [nm for _, names in secs for nm in names]
     wc_side = 'left'
     front_jitter = 0.0
     if vary:
@@ -476,7 +590,7 @@ def generate_architecture(width: float,
         wc_side = 'left' if rng.random() < 0.5 else 'right'
         front_jitter = rng.uniform(-0.35, 0.35)
 
-    walls, door_position, door_side, front_h, keepouts = _frame(
+    walls, door_position, door_side, front_h, keepouts, door_keepout = _frame(
         W, H, rng, is_main_floor, wc_side=wc_side, front_jitter=front_jitter)
 
     items: Dict[str, dict] = {}
@@ -489,6 +603,7 @@ def generate_architecture(width: float,
 
     # Emit section zones (clamped inside the boundary), colored from the
     # fixed palette so departments are visually distinct + reproducible.
+    zone_walls: Dict[str, List[Tuple[str, Tuple[float, float, float, float]]]] = {}
     for i, (cat, (zx, zy, zw, zh)) in enumerate(zones):
         zx2, zy2 = max(T, zx), max(T, zy)
         zw2 = min(W - T, zx + zw) - zx2
@@ -501,6 +616,22 @@ def generate_architecture(width: float,
         if name in walls:
             name = f'{name}_{i}'
         walls[name] = wall
+        zone_walls.setdefault(cat, []).append((name, (zx2, zy2, zw2, zh2)))
+
+    # A department split over several fixtures has one zone per fixture,
+    # so the category alone does not say which zone an item belongs to.
+    # Stamp the zone containing the item's centre (the nearest zone of its
+    # category if clamping left the centre outside every one).
+    for it in items.values():
+        cx = it['position'][0] + it['size'][0] / 2.0
+        cy = it['position'][1] + it['size'][1] / 2.0
+        best, best_d = None, math.inf
+        for name, (zx, zy, zw, zh) in zone_walls.get(it['category'], []):
+            d = math.hypot(max(zx - cx, 0.0, cx - (zx + zw)),
+                           max(zy - cy, 0.0, cy - (zy + zh)))
+            if d < best_d:
+                best, best_d = name, d
+        it['zone'] = best
 
     return {
         'walls': walls,
@@ -508,7 +639,89 @@ def generate_architecture(width: float,
         'door_position': door_position,
         'door_side': door_side,
         'archetype': archetype,
+        'dropped': [nm for nm in requested if nm not in items],
+        'keepouts': list(keepouts),
+        'door_keepout': door_keepout,
     }
+
+
+def generate_architecture(width: float,
+                          height: float,
+                          shop_type: str,
+                          sections: Sequence[Tuple[str, Sequence[str]]],
+                          rng=None,
+                          is_main_floor: bool = True,
+                          vary: bool = True,
+                          fit_assortment: bool = False) -> dict:
+    """Generate a realistic floor plan for ``shop_type``.
+
+    ``sections`` is the [(section_name, [item names]), ...] list from the
+    Generate dialog (or ``scale_catalog``). Deterministic given the same
+    ``rng`` state.
+
+    ``vary=True`` (the Generate-button default) adds structural variety
+    between runs of the same shop type: the section-to-slot assignment is
+    shuffled, the restroom corner and front-aisle depth vary, and the
+    racetrack island proportions jitter. ``vary=False`` (used by the
+    dataset-import path) preserves the caller's section order exactly, so
+    e.g. a naive-baseline alphabetical ordering survives into the wall
+    insertion order.
+
+    ``fit_assortment=True`` makes the plan carry what it says it carries:
+    the item-count heuristics only estimate fixture capacity, so when a
+    pass leaves items over they are removed from the assortment and the
+    floor is rebuilt from the same random state. The surviving items then
+    spread over the whole fixture length instead of the runs being cut
+    short, and the caller still learns the full shortfall from
+    ``dropped``.
+
+    Every item carries ``zone``: the name of the ``Section_`` wall that
+    contains its centre. ``dropped`` lists requested item names the floor
+    could not hold (empty whenever the whole assortment fits),
+    ``keepouts`` the door/checkout/WC approach rects fixtures avoid, and
+    ``door_keepout`` the doorway-approach rect on a main floor.
+
+    Raises ``ValueError`` for floors below ``MIN_FLOOR_W`` x
+    ``MIN_FLOOR_H``."""
+    rng = rng or _random_mod
+    W, H = float(width), float(height)
+    if W < MIN_FLOOR_W - 1e-9 or H < MIN_FLOOR_H - 1e-9:
+        raise ValueError(
+            f'{W:.6g}x{H:.6g} m is too small for a realistic layout; '
+            f'the archetypes need at least '
+            f'{MIN_FLOOR_W:.6g}x{MIN_FLOOR_H:.6g} m')
+
+    requested = [nm for _, names in sections for nm in names]
+    secs = [(cat, list(names)) for cat, names in sections]
+    # Rewinding the generator starts every retry from the first attempt's
+    # random state, so the retry keeps its slot shuffle, restroom corner
+    # and front depth unless a whole department drops out, and trimming
+    # changes the assortment rather than the shop. Generators without
+    # getstate/setstate (e.g. numpy's) take a single pass.
+    state = (rng.getstate() if fit_assortment and hasattr(rng, 'getstate')
+             else None)
+    best = None
+    for _ in range(MAX_FIT_PASSES):
+        if state is not None:
+            rng.setstate(state)
+        plan = _build_plan(W, H, shop_type, secs, rng, is_main_floor, vary)
+        # A smaller assortment can be spread differently over the slots, so
+        # on a floor that is short of fixture length either way a retry can
+        # come out one item worse; keep the fullest plan seen. A retry that
+        # places as many items wins the tie: it was laid out for exactly
+        # the items it holds, where the earlier pass cut its runs short.
+        if best is None or len(plan['items']) >= len(best['items']):
+            best = plan
+        if state is None or not plan['dropped']:
+            break
+        left_out = set(plan['dropped'])
+        secs = [(cat, [nm for nm in names if nm not in left_out])
+                for cat, names in secs]
+        secs = [(cat, names) for cat, names in secs if names]
+        if not secs:
+            break
+    best['dropped'] = [nm for nm in requested if nm not in best['items']]
+    return best
 
 
 # --- Section / item catalog + size-based scaling --------------------------
@@ -762,9 +975,10 @@ def dimensions_for_assortment(n_sections: int,
     """Shop (width, height) sized to carry the given assortment.
 
     Inverse of the ``scale_catalog`` area heuristics, plus a 15% safety
-    margin so the archetype engines never have to trim item segments.
-    Used by the dataset-import path: the floor dimensions follow from
-    how many sections/items the DATASET has, not from a fixed default."""
+    margin for fixture capacity. Used by the dataset-import path: the
+    floor dimensions follow from how many sections/items the DATASET has,
+    not from a fixed default. Only a lower bound is applied: capping the
+    size would silently shrink the floor below what the assortment needs."""
     n_sections = max(1, int(n_sections))
     n_items = max(1, int(max_items_per_section))
     area = max(60.0 * (n_sections - 3),
@@ -772,6 +986,6 @@ def dimensions_for_assortment(n_sections: int,
                220.0) * 1.15
     w = math.sqrt(area * aspect)
     h = area / w
-    w = max(14.0, min(44.0, w))
-    h = max(10.0, min(32.0, h))
+    w = max(14.0, w)
+    h = max(10.0, h)
     return round(w, 1), round(h, 1)

@@ -2,17 +2,26 @@
 
 Scans CODE/experiments/results/ for the latest run of each kind and emits
 LaTeX \\newcommand macros consumed by TOMACS_submission.tex, so the paper
-recompiles with fresh numbers after every re-run -- no hand-editing.
+recompiles with fresh numbers after every re-run — no hand-editing.
+
+Every artifact is checked against the design its numbers are quoted at
+before it can set a macro: the size of the experiment, and for the live
+diagnostics the measurement protocol as well. A family with no run that
+passes is reported on stderr and left out, rather than filled in from a
+run that does not support it.
 
     python make_results_macros.py            # writes ../paper_results_macros.tex
 """
 
 from __future__ import annotations
 
+import ast
 import csv
+import functools
 import glob
 import json
 import os
+import sys
 from collections import defaultdict
 
 import numpy as np
@@ -32,6 +41,30 @@ OUT = os.path.join(ROOT, 'paper_results_macros.tex')
 MIN_SCENARIOS = 10
 MIN_SEEDS = 5
 
+# Tolerance the regret distribution is summarised against, and the level
+# the per-scenario rank correlations are called significant at. Both are
+# quoted in the paper through macros, so the text cannot state one
+# threshold while the number beside it was computed at another.
+REGRET_TOL_PCT = 2.0
+SPEARMAN_ALPHA = 0.05
+
+# Operating constants the projection engine runs at, read from the
+# constants module so the horizon arithmetic in the paper cannot drift
+# from the engine's own defaults.
+LIT_SCRIPT = 'retail_literature.py'
+LIT_CONSTANTS = ('DEFAULT_OP_HOURS_PER_DAY', 'DEFAULT_WEEKEND_MULTIPLIER')
+
+
+def _traceable(side):
+    """True if a sidecar names the checkout the run started from.
+
+    Runners snapshot the checkout at start-up and record whether it moved
+    before the sidecar was written. Sidecars without that record read the
+    tree only when the run ended, hours later for a paper-grade run, so
+    their commit and diff hash need not describe the code that produced
+    the numbers, and such a run cannot back a paper number."""
+    return 'git_state_changed_during_run' in side
+
 
 def _sidecar_big_enough(d):
     """True if the run's sidecar reports a paper-scale design."""
@@ -43,7 +76,8 @@ def _sidecar_big_enough(d):
     except Exception:
         return False
     return (int(j.get('n_scenarios', 0)) >= MIN_SCENARIOS
-            and int(j.get('n_seeds_per_scenario', 0)) >= MIN_SEEDS)
+            and int(j.get('n_seeds_per_scenario', 0)) >= MIN_SEEDS
+            and _traceable(j))
 
 
 def _has_summary(d):
@@ -64,6 +98,340 @@ def _has_results_csv(d):
     R68, completing the sweep of unguarded lookups).
     """
     return os.path.exists(os.path.join(d, 'results.csv'))
+
+
+# The remaining artifact families are held to the design each paper number
+# is quoted at. A completion check alone lets a smoke run, or a runner's
+# lighter default, replace those macros in the same way.
+MIN_FIGC_REPLICATES = 30
+MIN_FIGC_MC_ITERS = 2000
+MIN_FIGC_SHEETS = 2          # both Online Retail II workbook years
+MIN_LHS_POINTS = 256
+MIN_LHS_SCENARIOS = 12
+# The GA budget behind every LHS layout. The runner's argparse defaults
+# are a lighter budget than the published sweep, so a run at the default
+# budget would otherwise pass on its point and scenario counts alone.
+MIN_LHS_DESIGN = {'n_seeds': 3, 'n_gens': 15, 'pop_size': 24,
+                  'mc_iters': 500}
+MIN_MCGT_SCENARIOS = 6
+MIN_MCGT_BUDGET_RATIO = 10
+MIN_MCGT_NORMAL_BUDGET = 750
+MIN_MCGT_MC_ITERS = 1000
+MIN_ABM_REPS = 10
+MIN_STRUCT_REPS = 5
+MIN_QUEUE_REPS = 5
+MIN_GOF_REPS = 5
+# The GA-sensitivity sweep and the headless paper figures are quoted at
+# the design the Makefile runs them at.
+MIN_GASENS = {'n_scenarios': 3, 'n_seeds': 2, 'n_gens': 25, 'mc_iters': 800,
+              'n_heldout_seeds': 10}
+MIN_FIGURES = {'n_seeds': 5, 'n_gens': 25, 'pop_size': 30, 'mc_iters': 2000}
+
+
+@functools.lru_cache(maxsize=None)
+def _script_constants(relpath, names):
+    """Module-level literal constants of a script under CODE/, read from its
+    source rather than imported.
+
+    The validators below hold a run to the design its script defines --
+    the live runners' protocol, the paper figures' scenario -- so reading
+    those values from the script itself means a retuned protocol moves the
+    check with it instead of leaving a stale copy here. Importing the
+    scripts would pull the simulator and dataset stack into this one,
+    which restyle_figures imports.
+    """
+    path = os.path.join(HERE, *relpath.split('/'))
+    with open(path, encoding='utf-8') as f:
+        tree = ast.parse(f.read(), filename=path)
+    found = {}
+    for node in tree.body:
+        if (isinstance(node, ast.Assign) and len(node.targets) == 1
+                and isinstance(node.targets[0], ast.Name)
+                and node.targets[0].id in names):
+            found[node.targets[0].id] = ast.literal_eval(node.value)
+    absent = [n for n in names if n not in found]
+    if absent:
+        raise RuntimeError(f"{relpath} no longer defines {', '.join(absent)}, "
+                           "which the artifact checks here are held to")
+    return found
+
+
+# The live diagnostics -- ABM, structural sweep, queueing, goodness of fit
+# -- share one measurement protocol: a fixed-step run, a deleted warm-up,
+# then a collection window at the nominal load. A paper number is taken
+# only from a run that used it: the replication count alone cannot tell a
+# paper-grade run from a quick one, because the runners' defaults are
+# exactly the minimums above, so a shorter window or a different arrival
+# rate would pass unnoticed. Each family is checked against the constants
+# of the runner that produced it.
+LIVE_MODE = 'fixed_step'
+# The simulator's fixed tick (run_headless's default, the GUI loop's frame
+# ceiling). A coarser tick moves agents in longer jumps, which is a
+# different model, not a faster run of the same one.
+LIVE_DT = 0.04
+_LIVE_NAMES = ('NOMINAL_SPAWN', 'NOMINAL_CAP', 'WARMUP_S', 'COLLECT_S')
+LIVE_RUNNERS = {'abm': 'experiments/run_abm_diagnostics.py',
+                'structural': 'experiments/run_structural_sensitivity.py',
+                'gof': 'experiments/run_validation_gof.py',
+                'queue': 'experiments/measure_queueing.py'}
+
+
+def _live_design(family):
+    names = _LIVE_NAMES + (('STRESS_SPAWN', 'STRESS_CAP')
+                           if family == 'queue' else ())
+    return _script_constants(LIVE_RUNNERS[family], names)
+
+
+def _live_protocol_ok(proto, spawn, cap, design, level='NOMINAL'):
+    """True if a live run used its runner's protocol at the ``level`` load."""
+    try:
+        return (proto.get('mode') == LIVE_MODE
+                and bool(np.isclose(float(proto.get('dt', 0)), LIVE_DT))
+                and float(proto.get('collect_s', 0)) >= design['COLLECT_S']
+                and float(proto.get('warmup_s', 0)) >= design['WARMUP_S']
+                and bool(np.isclose(float(spawn), design[f'{level}_SPAWN']))
+                and int(cap) == design[f'{level}_CAP'])
+    except Exception:
+        return False
+
+
+def balked_pct(load):
+    """Share of would-be arrivals the door turned away, as a percentage.
+
+    The live runners cap the number of agents in the store; an arrival
+    that meets a full store balks and is never simulated. How much of the
+    offered load that removed belongs next to any number measured under
+    the cap, since a cap that bites hard makes two loads less comparable
+    than their arrival rates suggest. Some runners store the fraction,
+    others only the two counts. Returns None when the run recorded
+    neither."""
+    if not isinstance(load, dict):
+        return None
+    if load.get('balked_frac') is not None:
+        return 100.0 * float(load['balked_frac'])
+    arrivals = float(load.get('arrivals') or 0.0)
+    if arrivals <= 0:
+        return None
+    return 100.0 * float(load.get('balked') or 0.0) / arrivals
+
+
+def _dir_summary_ok(d, pred):
+    """Apply ``pred`` to a finished run's summary.json."""
+    if not _has_summary(d):
+        return False
+    try:
+        return bool(pred(json.load(open(os.path.join(d, 'summary.json')))))
+    except Exception:
+        return False
+
+
+def _checked_json(path, pred):
+    """A figs/ copy of a run summary, or None when it fails ``pred``.
+
+    The queue runner and the GA-sensitivity sweep drop a copy of their
+    summary next to the figure they draw, which is where these numbers
+    used to be read from with no check at all. The copy goes through the
+    same check as a run directory, so a quick run that overwrote it
+    cannot set a macro.
+    """
+    if not os.path.exists(path):
+        return None
+    try:
+        s = json.load(open(path))
+        return s if pred(s) else None
+    except Exception:
+        return None
+
+
+def _figa_big_enough(d):
+    """Paper-scale synthetic run that also reports the reference solution
+    mapped onto the GA's feasible set. The regret is still taken against
+    the unrepaired reference; the mapped value is recorded beside it, and
+    runs from before the feasibility repair was shared do not carry it."""
+    if not (_sidecar_big_enough(d) and _has_results_csv(d)):
+        return False
+    try:
+        with open(os.path.join(d, 'results.csv'), newline='') as f:
+            return 'oracle_R_feasible' in next(csv.reader(f))
+    except Exception:
+        return False
+
+
+def _figb_big_enough(d):
+    """Paper-scale comparison run that records the annealing schedule its
+    simulated-annealing comparator ran under, so the equal-budget claim
+    rests on the run's own record."""
+    if not (_sidecar_big_enough(d) and _has_results_csv(d)):
+        return False
+    try:
+        j = json.load(open(os.path.join(d, 'sidecar.json')))
+        return isinstance(j.get('sa_schedule'), dict)
+    except Exception:
+        return False
+
+
+def _figc_big_enough(d):
+    """True if a finished real-data run used the paper-scale design and
+    records what the workbook reader did -- rows read per sheet and the
+    cross-sheet repeats dropped before the adapter saw the frame, without
+    which the row counts cannot be checked against the workbook."""
+    if not _has_results_csv(d):
+        return False
+    try:
+        j = json.load(open(os.path.join(d, 'sidecar.json')))
+        a = j.get('args', {})
+        sheets = [s for s in str(a.get('sheets', '')).split(',') if s.strip()]
+        return (int(a.get('n_mc_replicates', 0)) >= MIN_FIGC_REPLICATES
+                and int(a.get('mc_iters', 0)) >= MIN_FIGC_MC_ITERS
+                and len(sheets) >= MIN_FIGC_SHEETS
+                and isinstance(j.get('reader'), dict)
+                and _traceable(j))
+    except Exception:
+        return False
+
+
+def _lhs_big_enough(d):
+    """True if a finished LHS run covers the paper's design resolution and
+    sweeps every headline comparison rather than only the GA against the
+    popularity baseline, which is what the ``comparisons`` block records."""
+    if not _has_summary(d):
+        return False
+    try:
+        s = json.load(open(os.path.join(d, 'summary.json')))
+        cfg = s.get('config', {})
+        return (int(s.get('n_lhs_points', 0)) >= MIN_LHS_POINTS
+                and int(s.get('n_scenarios', 0)) >= MIN_LHS_SCENARIOS
+                and all(int(cfg.get(k, 0)) >= v
+                        for k, v in MIN_LHS_DESIGN.items())
+                and isinstance(s.get('comparisons'), dict))
+    except Exception:
+        return False
+
+
+def _mcgt_big_enough(d):
+    """True if a finished MC ground-truth run used the paper's budgets and
+    reports the smallest regret with the count that came out below zero,
+    without which the confirmation-noise tail cannot be quoted."""
+    if not _has_summary(d):
+        return False
+    try:
+        s = json.load(open(os.path.join(d, 'summary.json')))
+        normal = float(s.get('normal_budget', 0))
+        return (int(s.get('n_scenarios', 0)) >= MIN_MCGT_SCENARIOS
+                and normal >= MIN_MCGT_NORMAL_BUDGET
+                and float(s.get('big_budget', 0))
+                >= MIN_MCGT_BUDGET_RATIO * normal
+                and int(s.get('mc_iters', 0)) >= MIN_MCGT_MC_ITERS
+                and s.get('mc_regret_min_pct') is not None
+                and s.get('n_negative_regret') is not None)
+    except Exception:
+        return False
+
+
+def _abm_ok(s):
+    """The paper's replications, the shared protocol, no censored visit
+    and finite t-intervals. A single-replication run stores NaN
+    half-widths, which would otherwise be printed into the paper as
+    'nan'; a censored agent contributes a truncated state sequence."""
+    mk, em = s.get('markov_order', {}), s.get('emergence', {})
+    cis = (mk.get('info_gain_ci95'), mk.get('tv_ci95'),
+           em.get('perimeter_ratio_ci95'))
+    proto = s.get('protocol', {})
+    return (int(proto.get('reps', 0)) >= MIN_ABM_REPS
+            and _live_protocol_ok(proto, proto.get('spawn'), proto.get('cap'),
+                                  _live_design('abm'))
+            and int(mk.get('n_censored_final', -1)) == 0
+            and all(c is not None and np.isfinite(float(c)) for c in cis))
+
+
+def _abm_big_enough(d):
+    return _dir_summary_ok(d, _abm_ok)
+
+
+def _struct_ok(s):
+    """Replicated enough to judge between-setting spread against
+    within-setting noise, run under the shared protocol, and carrying the
+    per-replication tests the sweep is now read from."""
+    proto = s.get('protocol', {})
+    return (int(s.get('n_reps', 0)) >= MIN_STRUCT_REPS
+            and _live_protocol_ok(proto, proto.get('spawn'), proto.get('cap'),
+                                  _live_design('structural'))
+            and s.get('rev_per_cust_anova_p') is not None
+            and s.get('completions_anova_p') is not None)
+
+
+def _struct_big_enough(d):
+    return _dir_summary_ok(d, _struct_ok)
+
+
+def _queue_ok(s):
+    """Replicated queue measurement at both the nominal and the stress
+    load of the shared protocol, with the checkout that produced it. The
+    busy fraction swings widely between windows, so a single short run is
+    not a number the paper can quote."""
+    proto = s.get('protocol', {})
+    spawn, cap = proto.get('spawn'), proto.get('cap')
+    if not isinstance(spawn, dict) or not isinstance(cap, dict):
+        return False
+    design = _live_design('queue')
+    return (isinstance(s.get('provenance'), dict)
+            and int(proto.get('n_reps', 0)) >= MIN_QUEUE_REPS
+            and _live_protocol_ok(proto, spawn.get('nominal'),
+                                  cap.get('nominal'), design)
+            and _live_protocol_ok(proto, spawn.get('stress'),
+                                  cap.get('stress'), design, level='STRESS'))
+
+
+def _queue_big_enough(d):
+    return _dir_summary_ok(d, _queue_ok)
+
+
+def _gof_ok(s):
+    """Replicated goodness-of-fit run under the shared protocol, with the
+    pooled tests present."""
+    proto = s.get('protocol', {})
+    return (int(s.get('n_reps', 0)) >= MIN_GOF_REPS
+            and _live_protocol_ok(proto, proto.get('spawn'), proto.get('cap'),
+                                  _live_design('gof'))
+            and bool(s.get('pooled')))
+
+
+def _gof_big_enough(d):
+    return _dir_summary_ok(d, _gof_ok)
+
+
+def _gasens_ok(s):
+    """The Makefile's sweep design, with the settings compared on
+    re-scored held-out seeds rather than on the seeds they searched
+    under, and the checkout that produced it."""
+    cfg = s.get('config', {})
+    return (isinstance(s.get('provenance'), dict)
+            and all(int(cfg.get(k, 0)) >= v for k, v in MIN_GASENS.items())
+            and s.get('fitness_statistic') == 'heldout_mean')
+
+
+def _gasens_big_enough(d):
+    return _dir_summary_ok(d, _gasens_ok)
+
+
+FIGURES_SCRIPT = 'experiments/make_paper_figures.py'
+_FIGURE_SCENARIO = {'SCENARIO_SEED': 'scenario_seed', 'N_ITEMS': 'n_items',
+                    'MC_DAYS': 'mc_days'}
+
+
+def _figures_ok(s):
+    """The headless figure run's design and checkout, stamped next to the
+    realized scores it reports. The realized scores belong to one fixed
+    scenario, so a run on another one is a different number, not a
+    smaller version of the same one; and a file the script stopped
+    writing half-way has no Monte Carlo precision figure yet."""
+    cfg = s.get('config', {})
+    scenario = _script_constants(FIGURES_SCRIPT, tuple(_FIGURE_SCENARIO))
+    return (isinstance(s.get('provenance'), dict)
+            and all(int(cfg.get(k, 0)) >= v for k, v in MIN_FIGURES.items())
+            and all(cfg.get(key) == scenario[const]
+                    for const, key in _FIGURE_SCENARIO.items())
+            and s.get('mc_rse_pct') is not None)
 
 
 def latest(prefix, validator=None):
@@ -128,326 +496,769 @@ def money(v):
     return ("-" if v < 0 else "+") + "\\$" + s
 
 
-macros = {}
+def amount(v):
+    """Unsigned currency amount (a level, not a difference)."""
+    return "\\$" + f"{v:,.0f}"
 
-# Refuse to overwrite a good macros file from an artifact-less tree
-# (audit R15.1): on a clean checkout with experiments/results/ empty,
-# regenerating would silently replace the shipped numbers with TBD
-# fallbacks. The core experiment artifacts must be present.
-if (latest('synthetic_gt_', _sidecar_big_enough) is None
-        or latest('baseline_comparison_', _sidecar_big_enough) is None):
-    import sys
-    sys.stderr.write(
-        "make_results_macros: no synthetic_gt_*/baseline_comparison_* "
-        "artifacts under experiments/results/ -- refusing to overwrite "
-        f"{OUT}.\nEither run the experiments (make experiments-paper) or "
-        "keep the shipped paper_results_macros.tex, which was generated "
-        "from the released artifact files.\n")
-    sys.exit(1)
 
-# -- Figure A: synthetic ground truth -------------------------------------
-d = latest('synthetic_gt_', _sidecar_big_enough)
-if d:
-    rows = read_csv(os.path.join(d, 'results.csv'))
-    reg = np.array([float(r['regret_pct']) for r in rows])
-    macros.update({
-        'RegretMedian': f"{np.median(reg):.2f}\\%",
-        'RegretMean': f"{np.mean(reg):.2f}\\%",
-        'RegretMin': f"{np.min(reg):.2f}\\%",
-        'RegretPFive': f"{np.percentile(reg, 5):.2f}\\%",
-        'RegretPNinetyFive': f"{np.percentile(reg, 95):.2f}\\%",
-        'RegretNScen': str(len({r['scenario'] for r in rows})),
-        'RegretNSeeds': str(len({r['seed'] for r in rows})),
-        'OptimumRecovered': f"{100 - np.mean(reg):.1f}\\%",
-    })
-    # Reference-solver convergence diagnostic (audit R3.3): fraction of
-    # runs / scenarios where the GA's analytical revenue exceeds the
-    # analytical reference's own analytical revenue (i.e. the reference
-    # under-converged on its own objective).
-    try:
-        ga = np.array([float(r['ga_true_R']) for r in rows])
-        ref = np.array([float(r['oracle_R']) for r in rows])
-        beat = ga > ref
-        by_sc = defaultdict(list)
-        for r, b in zip(rows, beat):
-            by_sc[r['scenario']].append(bool(b))
-        macros['RefBeatFrac'] = f"{beat.mean()*100:.1f}\\%"
-        macros['RefBeatScenFrac'] = \
-            f"{np.mean([any(v) for v in by_sc.values()])*100:.1f}\\%"
-    except Exception:
-        pass
-    sp = os.path.join(d, 'spearman.csv')
-    if os.path.exists(sp):
-        rho = np.array([float(r['spearman_rho']) for r in read_csv(sp)])
-        # Fisher-z averaged mean (audit R3.4); report distribution, not
-        # just a point, and the power to detect rho=0.3 at n=100 layouts.
-        n_lay = 100
-        se_z = 1.0 / np.sqrt(n_lay - 3)
-        # two-sided 0.05 detectable |rho| at 80% power:
-        z_det = (1.96 + 0.84) * se_z
-        rho_det = np.tanh(z_det)
+def pfmt(p):
+    """A p-value at the precision the paper reports, without rounding a
+    small one to 0.000. The bound is wrapped in \\ensuremath so the macro
+    also works inside math, where the paper puts its p-values
+    (``$p=\\StructChiP{}$``); a literal ``$...$`` would close that math."""
+    p = float(p)
+    return f"{p:.3f}" if p >= 0.001 else "\\ensuremath{<0.001}"
+
+
+# Expected range of k independent normal samples in SD units (the
+# control-chart d2 constants): what spread between setting means a sweep
+# with no real effect shows anyway.
+D2_RANGE = {2: 1.128, 3: 1.693, 4: 2.059, 5: 2.326, 6: 2.534, 7: 2.704,
+            8: 2.847, 9: 2.970, 10: 3.078}
+
+N_POWER_SIMS = 2000
+
+
+def gamma_poisson(rng, mean, phi, size):
+    """Counts with mean ``mean`` and variance ``phi * mean``: Poisson when
+    the replications are no wider than Poisson, otherwise a gamma mixture
+    of Poissons at the dispersion they show."""
+    if phi <= 1.0:
+        return rng.poisson(mean, size).astype(float)
+    scale = phi - 1.0
+    lam = rng.gamma(shape=max(mean, 1e-9) / scale, scale=scale, size=size)
+    return rng.poisson(lam).astype(float)
+
+
+def main():
+    macros = {}
+    # Families with no artifact that passes its design check. Their macros
+    # are left out rather than filled from a run that does not support
+    # them, and the paper falls back to its TBD placeholders -- which is
+    # only useful if the reason is visible, so it is reported at the end.
+    missing = []
+    # Read the designs the validators check against up front: inside a
+    # validator a failure would only look like a family with no valid run.
+    for family in LIVE_RUNNERS:
+        _live_design(family)
+    _script_constants(FIGURES_SCRIPT, tuple(_FIGURE_SCENARIO))
+    _script_constants(LIT_SCRIPT, LIT_CONSTANTS)
+
+    # Refuse to overwrite a good macros file from an artifact-less tree
+    # (audit R15.1): on a clean checkout with experiments/results/ empty,
+    # regenerating would silently replace the shipped numbers with TBD
+    # fallbacks. The core experiment artifacts must be present.
+    if (latest('synthetic_gt_', _figa_big_enough) is None
+            or latest('baseline_comparison_', _figb_big_enough) is None):
+        sys.stderr.write(
+            "make_results_macros: no synthetic_gt_*/baseline_comparison_* "
+            "artifacts under experiments/results/ that pass the design "
+            "check -- refusing to overwrite "
+            f"{OUT}.\nEither run the experiments (make experiments-paper) or "
+            "keep the shipped paper_results_macros.tex, which was generated "
+            "from the released artifact files.\n")
+        sys.exit(1)
+
+    # -- Figure A: synthetic ground truth -------------------------------------
+    d = latest('synthetic_gt_', _figa_big_enough)
+    if d:
+        rows = read_csv(os.path.join(d, 'results.csv'))
+        reg = np.array([float(r['regret_pct']) for r in rows])
         macros.update({
-            'SpearmanMean': f"{fisher_mean_rho(rho):+.3f}",
-            'SpearmanMedian': f"{np.median(rho):+.3f}",
-            'SpearmanMax': f"{np.max(rho):+.3f}",
-            'SpearmanMin': f"{np.min(rho):+.3f}",
-            'SpearmanDetect': f"{rho_det:.2f}",
+            'RegretMedian': f"{np.median(reg):.2f}\\%",
+            'RegretMean': f"{np.mean(reg):.2f}\\%",
+            'RegretMin': f"{np.min(reg):.2f}\\%",
+            'RegretPFive': f"{np.percentile(reg, 5):.2f}\\%",
+            'RegretPNinetyFive': f"{np.percentile(reg, 95):.2f}\\%",
+            'RegretNScen': str(len({r['scenario'] for r in rows})),
+            'RegretNSeeds': str(len({r['seed'] for r in rows})),
+            'OptimumRecovered': f"{100 - np.mean(reg):.1f}\\%",
         })
-    macros['FigADir'] = os.path.basename(d).replace('_', '\\_')
-
-# -- Figure B: baseline comparison (paired differences) -------------------
-# Cluster (scenario-level) bootstrap + Bonferroni over the comparator
-# family (audits R3.1, R3.2). The divisor is derived from the data, not
-# hardcoded -- it was 5 before the two equal-budget metaheuristics were
-# added and is 7 now; ``NComparators`` records whatever it actually was.
-d = latest('baseline_comparison_', _sidecar_big_enough)
-if d:
-    rows = read_csv(os.path.join(d, 'results.csv'))
-    by = defaultdict(dict)      # (scenario, seed) -> {method: revenue}
-    for r in rows:
-        by[(r['scenario'], r['seed'])][r['method']] = float(r['mc_revenue'])
-    names = {'oracle': 'Oracle', 'popularity_rank': 'Pop',
-             'perimeter_only': 'Perim', 'random_valid': 'Random',
-             'greedy_swap': 'Greedy', 'random_search': 'RandSearch',
-             'simulated_annealing': 'SA'}
-    n_comparisons = len(names)
-    alpha_bonf = 0.05 / n_comparisons
-    npairs, nscen = 0, 0
-    for meth, short in names.items():
-        # group paired differences BY SCENARIO for the cluster bootstrap
-        clusters = defaultdict(list)
-        for (scen, seed), v in by.items():
-            if 'GA' in v and meth in v:
-                clusters[scen].append(v['GA'] - v[meth])
-        clustered = list(clusters.values())
-        if not clustered:
-            continue
-        npairs = max(npairs, sum(len(c) for c in clustered))
-        nscen = max(nscen, len(clustered))
-        mean, lo, hi = cluster_boot_ci(clustered, alpha=alpha_bonf)
-        macros[f'GAvs{short}'] = money(mean)
-        macros[f'GAvs{short}CI'] = f"[{money(lo)}, {money(hi)}]"
-        macros[f'GAvs{short}Sig'] = 'yes' if (lo > 0 or hi < 0) else 'no'
-    per_comp_level = 100 * (1 - alpha_bonf)
-    macros['PairedN'] = str(npairs)
-    macros['PairedNScen'] = str(nscen)
-    macros['NComparators'] = str(n_comparisons)
-    macros['BonfLevel'] = (f"{per_comp_level:.0f}\\%"
-                           if abs(per_comp_level - round(per_comp_level)) < 0.05
-                           else f"{per_comp_level:.1f}\\%")
-    macros['CIscheme'] = (f"scenario-level cluster bootstrap "
-                          f"({N_BOOT} resamples), Bonferroni-corrected "
-                          f"{macros['BonfLevel']} per-comparison")
-    macros['FigBDir'] = os.path.basename(d).replace('_', '\\_')
-
-# -- LHS elasticity robustness --------------------------------------------
-d = latest('elasticity_lhs_', _has_summary)
-if d and os.path.exists(os.path.join(d, 'summary.json')):
-    s = json.load(open(os.path.join(d, 'summary.json')))
-    macros.update({
-        'LhsFracPos': f"{s['frac_positive'] * 100:.1f}\\%",
-        'LhsMedian': money(s['lift_median']),
-        'LhsPFive': money(s['lift_p5']),
-        'LhsPNinetyFive': money(s['lift_p95']),
-        'LhsDraws': str(s['n_draws_total']),
-    })
-    # Design resolution vs evaluation count (audit R67): the LHS covers
-    # the 3-D elasticity box with n_lhs_points; scenarios x seeds
-    # replicate each point and must not be quoted as coverage. Older
-    # artifacts predate the field, so derive it when absent.
-    n_pts = s.get('n_lhs_points')
-    if n_pts is None and s.get('n_scenarios') and s.get('n_seeds'):
-        n_pts = int(s['n_draws_total']) // (int(s['n_scenarios'])
-                                            * int(s['n_seeds']))
-    if n_pts is None:
-        n_pts = int(s['n_draws_total']) // 36   # shipped 12 x 3 design
-    macros['LhsPoints'] = str(int(n_pts))
-
-# -- Figure C: real-data worked example ----------------------------------
-d = latest('real_data_uci_', _has_results_csv)
-if d:
-    rows = read_csv(os.path.join(d, 'results.csv'))
-    diffs = np.array([float(r['diff']) for r in rows])
-    base = np.array([float(r['baseline_revenue']) for r in rows])
-    opt = np.array([float(r['optimized_revenue']) for r in rows])
-    lo, hi = boot_ci(diffs)
-    pct = diffs.mean() / max(base.mean(), 1e-9) * 100
-    # Achieved relative standard error of the mean (audit R1.6): the MC
-    # estimator noise on the reported optimized mean.
-    rse = (opt.std(ddof=1) / np.sqrt(len(opt))) / max(opt.mean(), 1e-9) * 100
-    # RSE of the LIFT itself (audit R21.2b). The level RSE above is much
-    # smaller because the paired difference cancels the shared revenue
-    # base; the lift is the estimand the sentence is about, so report its
-    # own precision next to it rather than letting the reader borrow the
-    # level's.
-    lift_rse = (diffs.std(ddof=1) / np.sqrt(len(diffs))) \
-        / max(abs(diffs.mean()), 1e-9) * 100
-    macros.update({
-        'FigCLift': money(float(diffs.mean())).replace('\\$', '\\pounds '),
-        'FigCLiftCI': f"[{money(lo)}, {money(hi)}]".replace('\\$', '\\pounds '),
-        'FigCLiftPct': f"{pct:+.2f}\\%",
-        'FigCReps': str(len(rows)),
-        'FigCRSE': f"{rse:.2f}\\%",
-        'FigCLiftRSE': f"{lift_rse:.2f}\\%",
-    })
-    # Data-quality descriptors from the calibration sidecar (audit R7.3/R7.5).
-    sc = os.path.join(d, 'sidecar.json')
-    if os.path.exists(sc):
-        cs = json.load(open(sc)).get('calibration_summary', {})
-        if 'basket_units_median' in cs:
-            macros['BasketUnitsMed'] = f"{cs['basket_units_median']:.0f}"
-            macros['BasketDistinctMed'] = f"{cs['basket_distinct_median']:.0f}"
-        if 'category_fallback_frac' in cs:
-            macros['CatFallbackFrac'] = f"{cs['category_fallback_frac']*100:.0f}\\%"
-        if 'return_customer_rate' in cs:
-            macros['ReturnRate'] = f"{cs['return_customer_rate']*100:.0f}\\%"
-
-# -- Realized elasticities at realized scores (audit R2.3) ---------------
-rpath = os.path.join(ROOT, 'figs', 'realized_scores.json')
-if os.path.exists(rpath):
-    rs = json.load(open(rpath))
-    macros.update({
-        'RealizedScoreBaseline': f"{rs['score_baseline']:.3f}",
-        'RealizedScoreGA': f"{rs['score_ga']:.3f}",
-        'RealizedConvLift': f"{rs['conv_lift_pct']:+.1f}\\%",
-        'RealizedImpLift': f"{rs['impulse_lift_pct']:+.1f}\\%",
-        'RealizedBskLift': f"{rs['basket_lift_pct']:+.1f}\\%",
-    })
-    # MC estimator convergence (audit R3.8): relative SE of the mean at the
-    # 2000 iterations actually used.
-    if 'mc_rse_at_2000_pct' in rs:
-        macros['McRSEatUsed'] = f"{rs['mc_rse_at_2000_pct']:.2f}\\%"
-
-# -- Queue measurement (audit R1.7) --------------------------------------
-qpath = os.path.join(ROOT, 'figs', 'queue_summary.json')
-if os.path.exists(qpath):
-    q = json.load(open(qpath))
-    macros.update({
-        'QueuePeakAgents': str(q['nominal']['peak_agents']),
-        'QueueMaxOccNom': str(q['nominal']['max_lane_occupancy']),
-        'QueueMaxOccStress': str(q['stress']['max_lane_occupancy']),
-        'QueueBusyNom': f"{q['nominal']['busy_frac']*100:.0f}\\%",
-        'QueueBusyStress': f"{q['stress']['busy_frac']*100:.0f}\\%",
-        'QueueStressCap': str(q['stress']['cap']),
-    })
-    # Replication spread (audit R74). The nominal busy fraction varies
-    # enormously run-to-run -- quoting it as a point estimate, which we
-    # did, was not defensible; the nominal-vs-stress contrast is what
-    # replicates.
-    if q['nominal'].get('n_reps'):
-        macros['QueueReps'] = str(int(q['nominal']['n_reps']))
-        macros['QueueBusyNomSD'] = \
-            f"{q['nominal']['busy_frac_sd']*100:.0f}"
-        macros['QueueBusyStressSD'] = \
-            f"{q['stress']['busy_frac_sd']*100:.0f}"
-
-# -- MC-objective ground truth (audit R4.3) ------------------------------
-d = latest('mc_groundtruth_', _has_summary)
-if d and os.path.exists(os.path.join(d, 'summary.json')):
-    s = json.load(open(os.path.join(d, 'summary.json')))
-    ratio = int(round(s['big_budget'] / max(s['normal_budget'], 1)))
-    macros.update({
-        'McRegretMedian': f"{s['mc_regret_median_pct']:.2f}\\%",
-        'McRegretMean': f"{s['mc_regret_mean_pct']:.2f}\\%",
-        'McRegretMax': f"{s['mc_regret_max_pct']:.2f}\\%",
-        'McGTBudgetRatio': f"{ratio}\\times",
-        'McGTNScen': str(s['n_scenarios']),
-    })
-
-# -- GA hyperparameter sensitivity + diversity (audit R4.5) --------------
-sp = os.path.join(ROOT, 'figs', 'ga_sensitivity.json')
-if os.path.exists(sp):
-    s = json.load(open(sp))
-    macros.update({
-        'GAHyperSpread': f"{s['hyper_spread_median_pct']:.2f}\\%",
-        'GAHyperSpreadMax': f"{s['hyper_spread_max_pct']:.2f}\\%",
-        'GADefaultGap': f"{s['default_gap_median_pct']:.2f}\\%",
-        'GANSettings': str(s['n_settings']),
-        'GADivStart': f"{s['diversity_start']*100:.1f}\\%",
-        'GADivEnd': f"{s['diversity_end']*100:.1f}\\%",
-    })
-
-# -- ABM diagnostics: Markov order + emergence (audits R6.2, R6.4) -------
-d = latest('abm_diagnostics_', _has_summary)
-if d and os.path.exists(os.path.join(d, 'summary.json')):
-    s = json.load(open(os.path.join(d, 'summary.json')))
-    mk, em = s.get('markov_order', {}), s.get('emergence', {})
-    if mk:
+        # The shape of the regret distribution, not only its middle: the
+        # worst run of the design, and how much of the design sat inside
+        # the tolerance the text quotes. The threshold travels with the
+        # numbers, so a reworded sentence cannot quote a share that was
+        # computed at a different one.
+        inside = reg < REGRET_TOL_PCT
         macros.update({
-            'MarkovNSeq': str(mk['n_sequences']),
-            'MarkovInfoGain': f"{mk['info_gain_second_order_bits']:.3f}",
-            'MarkovTV': f"{mk['mean_tv_first_vs_second']:.3f}",
+            'RegretMax': f"{np.max(reg):.2f}\\%",
+            'RegretTol': f"{REGRET_TOL_PCT:g}\\%",
+            'RegretInsideTolRuns': str(int(inside.sum())),
+            'RegretInsideTolFrac': f"{inside.mean() * 100:.1f}\\%",
         })
-        # Replication half-widths (audit R11.5), present in the
-        # replicated-protocol schema only.
-        if 'info_gain_ci95' in mk:
-            macros['MarkovInfoGainCI'] = f"{mk['info_gain_ci95']:.3f}"
-            macros['MarkovTVCI'] = f"{mk['tv_ci95']:.3f}"
-        macros['MarkovHOne'] = f"{mk['H_next_given_cur_bits']:.2f}"
-    if em.get('perimeter_interior_ratio') is not None:
-        macros['PerimRatio'] = f"{em['perimeter_interior_ratio']:.2f}"
-        if 'perimeter_ratio_ci95' in em:
-            macros['PerimRatioCI'] = f"{em['perimeter_ratio_ci95']:.2f}"
-    proto = s.get('protocol', {})
-    if proto:
-        macros['AbmReps'] = str(proto['reps'])
-        macros['AbmWarmup'] = f"{proto['warmup_s']:.0f}"
+        # Reference-solver convergence diagnostic (audit R3.3): fraction of
+        # runs / scenarios where the GA's analytical revenue exceeds the
+        # analytical reference's own analytical revenue (i.e. the reference
+        # under-converged on its own objective).
+        try:
+            ga = np.array([float(r['ga_true_R']) for r in rows])
+            ref = np.array([float(r['oracle_R']) for r in rows])
+            beat = ga > ref
+            by_sc = defaultdict(list)
+            for r, b in zip(rows, beat):
+                by_sc[r['scenario']].append(bool(b))
+            macros['RefBeatFrac'] = f"{beat.mean()*100:.1f}\\%"
+            macros['RefBeatScenFrac'] = \
+                f"{np.mean([any(v) for v in by_sc.values()])*100:.1f}\\%"
+        except Exception:
+            pass
+        # Where the search starts. The GA is initialized from the
+        # shelf-order grid layout, whose analytical regret is measured
+        # against the same reference and on the same scale as the GA's
+        # own, so the two can be read next to each other. That layout does
+        # not depend on the seed, so it is summarised over scenarios --
+        # averaging over runs would count each scenario's single starting
+        # layout once per seed.
+        try:
+            per_scen = {}
+            for r in rows:
+                r_ref = float(r['oracle_R'])
+                per_scen[r['scenario']] = ((r_ref - float(r['grid_R']))
+                                           / max(r_ref, 1e-9) * 100)
+            grid_reg = np.array(list(per_scen.values()))
+            macros['GridRegretMean'] = f"{grid_reg.mean():.2f}\\%"
+            macros['GridRegretMedian'] = f"{np.median(grid_reg):.2f}\\%"
+            macros['GridRegretNScen'] = str(len(grid_reg))
+        except Exception:
+            pass
+        # Regret against the reference mapped onto the GA's feasible set.
+        # The headline regret is taken against the unrepaired reference,
+        # which the GA's constraints can put out of reach; this is the
+        # part of the same gap that the GA could actually have closed.
+        # Runs made before the repair was shared do not carry the column.
+        if 'oracle_R_feasible' in rows[0]:
+            ref_f = np.array([float(r['oracle_R_feasible']) for r in rows])
+            ref_u = np.array([float(r['oracle_R']) for r in rows])
+            ga_R = np.array([float(r['ga_true_R']) for r in rows])
+            reg_f = (ref_f - ga_R) / np.maximum(ref_f, 1e-9) * 100
+            macros.update({
+                'RegretFeasMean': f"{reg_f.mean():.2f}\\%",
+                'RegretFeasMedian': f"{np.median(reg_f):.2f}\\%",
+                'RegretFeasMax': f"{reg_f.max():.2f}\\%",
+                # Runs whose reference layout the repair moved at all: the
+                # rest have the two regrets equal by construction.
+                'RegretFeasMovedRuns': str(int((ref_f < ref_u).sum())),
+            })
+        sp = os.path.join(d, 'spearman.csv')
+        if os.path.exists(sp):
+            sp_rows = read_csv(sp)
+            rho = np.array([float(r['spearman_rho']) for r in sp_rows])
+            # Fisher-z averaged mean (audit R3.4); report distribution, not
+            # just a point, and the detectable |rho| at the number of layouts
+            # the run actually sampled per scenario. The z-scale SE for a
+            # Spearman coefficient is sqrt(1.06/(n-3)) (Fieller et al. 1957),
+            # wider than the Pearson 1/sqrt(n-3).
+            n_lay = int(json.load(open(os.path.join(d, 'sidecar.json')))
+                        ['args']['n_spearman_samples'])
+            se_z = np.sqrt(1.06 / (n_lay - 3))
+            # two-sided 0.05 detectable |rho| at 80% power:
+            z_det = (1.96 + 0.84) * se_z
+            rho_det = np.tanh(z_det)
+            macros.update({
+                'SpearmanMean': f"{fisher_mean_rho(rho):+.3f}",
+                'SpearmanMedian': f"{np.median(rho):+.3f}",
+                'SpearmanMax': f"{np.max(rho):+.3f}",
+                'SpearmanMin': f"{np.min(rho):+.3f}",
+                'SpearmanDetect': f"{rho_det:.2f}",
+                'SpearmanNLayouts': str(n_lay),
+            })
+            # How the scenarios split, rather than only where their
+            # average landed: a Fisher-z mean near zero is produced both
+            # by scenarios that all agree on no relationship and by
+            # scenarios that disagree in sign. The quartiles carry the
+            # spread the mean hides. Significance is the per-scenario test
+            # the runner stored, at the level quoted here.
+            if 'spearman_p' in sp_rows[0]:
+                pv = np.array([float(r['spearman_p']) for r in sp_rows])
+                sig = pv < SPEARMAN_ALPHA
+                macros.update({
+                    'SpearmanNScen': str(len(rho)),
+                    'SpearmanAlpha': f"{SPEARMAN_ALPHA:g}",
+                    'SpearmanNPos': str(int((sig & (rho > 0)).sum())),
+                    'SpearmanNNeg': str(int((sig & (rho < 0)).sum())),
+                    'SpearmanNNull': str(int((~sig).sum())),
+                })
+            macros['SpearmanQOne'] = f"{np.percentile(rho, 25):+.3f}"
+            macros['SpearmanQThree'] = f"{np.percentile(rho, 75):+.3f}"
+        macros['FigADir'] = os.path.basename(d).replace('_', '\\_')
 
-# -- Structural (micro-rule) sensitivity (audit R6.5) --------------------
-d = latest('structural_sensitivity_', _has_summary)
-if d and os.path.exists(os.path.join(d, 'summary.json')):
-    s = json.load(open(os.path.join(d, 'summary.json')))
-    if 'throughput_range_pct' in s:
-        macros['StructRangePct'] = f"{s['throughput_range_pct']:.1f}\\%"
-        macros['StructChiP'] = f"{s['chi2_p']:.2f}"
-    elif 'conversion_range_pp' in s:   # older artifact schema
-        macros['StructRangePP'] = f"{s['conversion_range_pp']:.1f}"
-        macros['StructChiP'] = f"{s['chi2_p']:.2f}"
-    # Basket-value response (audit R27). Throughput is flat across the
-    # sweep, but revenue per completing customer is not: strong
-    # separation pushes agents off the shelves, so they reach fewer
-    # items. Report it rather than let the throughput null stand in for
-    # every outcome.
-    # Power of the homogeneity test at the observed totals (audit R30).
-    # A null result is only informative if the design could have seen the
-    # effect; computed here from the stored counts so it tracks re-runs.
-    comp_counts = [int(r['completed']) for r in s.get('rows', [])]
-    if comp_counts:
-        from scipy.stats import chisquare as _chi2
-        n_tot, k_set = sum(comp_counts), len(comp_counts)
-        rng_p = np.random.default_rng(0)
-        for eff, key in ((0.30, 'StructPowerThirty'),
-                         (0.40, 'StructPowerForty')):
-            p_vec = np.ones(k_set) / k_set
-            p_vec[-1] *= (1.0 - eff)
-            p_vec = p_vec / p_vec.sum()
-            hits = sum(
-                1 for _ in range(2000)
-                if _chi2(rng_p.multinomial(n_tot, p_vec)).pvalue < 0.05)
-            macros[key] = f"{100.0 * hits / 2000:.0f}\\%"
+    # -- Figure B: baseline comparison (paired differences) -------------------
+    # Cluster (scenario-level) bootstrap + Bonferroni over the comparator
+    # family (audits R3.1, R3.2). The divisor is derived from the data, not
+    # hardcoded -- it was 5 before the two equal-budget metaheuristics were
+    # added and is 7 now; ``NComparators`` records whatever it actually was.
+    d = latest('baseline_comparison_', _figb_big_enough)
+    if d:
+        rows = read_csv(os.path.join(d, 'results.csv'))
+        by = defaultdict(dict)      # (scenario, seed) -> {method: revenue}
+        for r in rows:
+            by[(r['scenario'], r['seed'])][r['method']] = float(r['mc_revenue'])
+        names = {'oracle': 'Oracle', 'popularity_rank': 'Pop',
+                 'perimeter_only': 'Perim', 'random_valid': 'Random',
+                 'greedy_swap': 'Greedy', 'random_search': 'RandSearch',
+                 'simulated_annealing': 'SA'}
+        # Only comparators the artifact actually contains form the family; an
+        # older run without some methods must not be corrected for them.
+        present = [m for m in names
+                   if any('GA' in v and m in v for v in by.values())]
+        n_comparisons = len(present)
+        alpha_bonf = 0.05 / max(n_comparisons, 1)
+        npairs, nscen, n_sig = 0, 0, 0
+        for meth in present:
+            short = names[meth]
+            # group paired differences BY SCENARIO for the cluster bootstrap,
+            # carrying the comparator's own revenue alongside each difference
+            # so the margin can also be expressed relative to what it is a
+            # margin over.
+            clusters = defaultdict(list)
+            for (scen, seed), v in by.items():
+                if 'GA' in v and meth in v:
+                    clusters[scen].append((v['GA'] - v[meth], v[meth]))
+            clustered = [[d for d, _ in c] for c in clusters.values()]
+            comp_rev = np.array([b for c in clusters.values() for _, b in c])
+            npairs = max(npairs, sum(len(c) for c in clustered))
+            nscen = max(nscen, len(clustered))
+            mean, lo, hi = cluster_boot_ci(clustered, alpha=alpha_bonf)
+            sig = (lo > 0 or hi < 0)
+            n_sig += int(sig)
+            macros[f'GAvs{short}'] = money(mean)
+            macros[f'GAvs{short}CI'] = f"[{money(lo)}, {money(hi)}]"
+            macros[f'GAvs{short}Sig'] = 'yes' if sig else 'no'
+            # The same difference as a share of the comparator's revenue, so
+            # the size of a margin can be read without knowing the scale of
+            # the scenarios, and the win structure behind that average: a
+            # mean difference says nothing about how often it went the other
+            # way. A run is one (scenario, seed) pair; a scenario is won when
+            # its own mean difference is positive.
+            diffs = np.concatenate([np.asarray(c, dtype=float)
+                                    for c in clustered])
+            macros[f'GAvs{short}Pct'] = \
+                f"{mean / max(comp_rev.mean(), 1e-9) * 100:+.2f}\\%"
+            macros[f'GAvs{short}WinRuns'] = str(int((diffs > 0).sum()))
+            macros[f'GAvs{short}WinScen'] = \
+                str(int(sum(np.mean(c) > 0 for c in clustered)))
+        per_comp_level = 100 * (1 - alpha_bonf)
+        macros['PairedN'] = str(npairs)
+        macros['PairedNScen'] = str(nscen)
+        macros['NComparators'] = str(n_comparisons)
+        # How much of the comparator family the design separated at the
+        # corrected level, so the text does not have to count the table.
+        macros['NSigComparisons'] = str(n_sig)
+        macros['BonfLevel'] = (f"{per_comp_level:.0f}\\%"
+                               if abs(per_comp_level - round(per_comp_level)) < 0.05
+                               else f"{per_comp_level:.1f}\\%")
+        macros['CIscheme'] = (f"scenario-level cluster bootstrap "
+                              f"({N_BOOT} resamples), Bonferroni-corrected "
+                              f"{macros['BonfLevel']} per-comparison")
+        macros['FigBDir'] = os.path.basename(d).replace('_', '\\_')
+        # Annealing schedule of the equal-budget comparator. The starting
+        # temperature is calibrated per run from that run's own first
+        # block, so the paper quotes the acceptance probability it was
+        # calibrated to and the spread of the temperatures it produced.
+        side = json.load(open(os.path.join(d, 'sidecar.json')))
+        sched = side.get('sa_schedule', {})
+        t0s = [float(x['sa_T0']) for x in sched.get('sa_T0', [])
+               if x.get('sa_T0') is not None]
+        if t0s:
+            p0 = float(sched['sa_initial_accept'])
+            macros['SAInitialAccept'] = f"{p0:.2f}"
+            macros['SATZeroMedian'] = amount(float(np.median(t0s)))
+            macros['SATZeroRange'] = (f"[{amount(min(t0s))}, "
+                                      f"{amount(max(t0s))}]")
+        # The equal-budget claim, as the run recorded it: the evaluations
+        # each search method spent searching and then selecting its final
+        # layout. Quoted only when every method and every run spent the
+        # same number, which is what the claim says.
+        for key, macro in (('evaluation_counts', 'SearchEvals'),
+                           ('final_evaluation_counts', 'FinalSelectEvals')):
+            spent = {int(n) for ns in (side.get(key) or {}).values()
+                     for n in ns}
+            if len(spent) == 1 and len(side[key]) > 1:
+                macros[macro] = f"{spent.pop():,}"
 
-    # Per-customer revenue across settings, judged against replication
-    # noise. An earlier UNREPLICATED sweep appeared to show a large
-    # monotone decline; it did not survive a second run (audit R73), so
-    # what is reported now is the between-setting spread next to the
-    # within-setting spread, plus a one-way ANOVA.
-    if s.get('n_reps'):
-        m = np.array(s['rev_per_cust_mean'], dtype=float)
-        sd = np.array(s['rev_per_cust_sd'], dtype=float)
-        macros['StructReps'] = str(int(s['n_reps']))
-        macros['StructRevRange'] = f"{m.max() - m.min():.2f}"
-        macros['StructRevNoiseSD'] = f"{sd.mean():.2f}"
-        if s.get('rev_per_cust_anova_p') is not None:
-            macros['StructRevAnovaP'] = f"{float(s['rev_per_cust_anova_p']):.2f}"
-        macros['StructNCompletions'] = str(
-            int(sum(s.get('completed_per_setting', []))))
+    # -- LHS elasticity robustness --------------------------------------------
+    d = latest('elasticity_lhs_', _lhs_big_enough)
+    if d and os.path.exists(os.path.join(d, 'summary.json')):
+        s = json.load(open(os.path.join(d, 'summary.json')))
+        macros.update({
+            'LhsFracPos': f"{s['frac_positive'] * 100:.1f}\\%",
+            'LhsMedian': money(s['lift_median']),
+            'LhsPFive': money(s['lift_p5']),
+            'LhsPNinetyFive': money(s['lift_p95']),
+            'LhsDraws': str(s['n_draws_total']),
+        })
+        # Design resolution vs evaluation count (audit R67): the LHS covers
+        # the 3-D elasticity box with n_lhs_points; scenarios x seeds
+        # replicate each point and must not be quoted as coverage.
+        macros['LhsPoints'] = str(int(s['n_lhs_points']))
+        # The budget behind every layout in the sweep. The sweep re-scores
+        # fixed layouts analytically rather than re-running the search per
+        # draw, so this is the budget the layouts came from, and it is
+        # lighter than the headline runs' -- stating it keeps the two from
+        # being read as the same experiment.
+        cfg = s.get('config', {})
+        if cfg.get('n_gens'):
+            macros['LhsGens'] = str(int(cfg['n_gens']))
+            macros['LhsPop'] = str(int(cfg['pop_size']))
+            macros['LhsIters'] = f"{int(cfg['mc_iters']):,}"
+        # The projection horizon the lifts are summed over, counted the
+        # way the MC engine counts it (weekend days by their position in
+        # the week), so the text and the closed form cannot disagree.
+        if s.get('horizon_days') is not None:
+            macros['LhsHorizonDays'] = str(int(s['horizon_days']))
+            macros['LhsHorizonCustHours'] = \
+                f"{float(s['horizon_customer_hours']):.0f}"
+        # The same sweep over every headline comparison, not just the GA
+        # against the popularity baseline: the elasticity bands move all
+        # of the reported differences, so each one gets its own share of
+        # positive draws and its own spread.
+        # Same short names as the paired comparisons above, so a reader
+        # can put \LhsPopMedian next to \GAvsPop.
+        lhs_names = {'popularity_rank': 'Pop', 'oracle': 'Oracle',
+                     'random_search': 'RandSearch',
+                     'simulated_annealing': 'SA'}
+        for meth, st in (s.get('comparisons') or {}).items():
+            short = lhs_names.get(meth)
+            if not short:
+                continue
+            macros.update({
+                f'Lhs{short}FracPos': f"{st['frac_positive'] * 100:.1f}\\%",
+                f'Lhs{short}Median': money(st['lift_median']),
+                f'Lhs{short}PFive': money(st['lift_p5']),
+                f'Lhs{short}PNinetyFive': money(st['lift_p95']),
+            })
+    else:
+        missing.append('elasticity_lhs')
 
-macros.setdefault('ResultsGrade', 'current artifacts')
+    # -- Figure C: real-data worked example ----------------------------------
+    d = latest('real_data_uci_', _figc_big_enough)
+    if d:
+        rows = read_csv(os.path.join(d, 'results.csv'))
+        diffs = np.array([float(r['diff']) for r in rows])
+        base = np.array([float(r['baseline_revenue']) for r in rows])
+        opt = np.array([float(r['optimized_revenue']) for r in rows])
+        lo, hi = boot_ci(diffs)
+        pct = diffs.mean() / max(base.mean(), 1e-9) * 100
+        # Achieved relative standard error of the mean (audit R1.6): the MC
+        # estimator noise on the reported optimized mean.
+        rse = (opt.std(ddof=1) / np.sqrt(len(opt))) / max(opt.mean(), 1e-9) * 100
+        # RSE of the LIFT itself (audit R21.2b). The level RSE above is much
+        # smaller because the paired difference cancels the shared revenue
+        # base; the lift is the estimand the sentence is about, so report its
+        # own precision next to it rather than letting the reader borrow the
+        # level's.
+        lift_rse = (diffs.std(ddof=1) / np.sqrt(len(diffs))) \
+            / max(abs(diffs.mean()), 1e-9) * 100
+        macros.update({
+            'FigCLift': money(float(diffs.mean())).replace('\\$', '\\pounds '),
+            'FigCLiftCI': f"[{money(lo)}, {money(hi)}]".replace('\\$', '\\pounds '),
+            'FigCLiftPct': f"{pct:+.2f}\\%",
+            'FigCReps': str(len(rows)),
+            'FigCRSE': f"{rse:.2f}\\%",
+            'FigCLiftRSE': f"{lift_rse:.2f}\\%",
+        })
+        # Data-quality descriptors from the calibration sidecar (audit R7.3/R7.5).
+        sc = os.path.join(d, 'sidecar.json')
+        if os.path.exists(sc):
+            side = json.load(open(sc))
+            cs = side.get('calibration_summary', {})
+            # What the workbook reader handed the adapter. The sheets of
+            # this workbook overlap in time, so the rows the adapter saw
+            # are fewer than the rows read; both are reported, since only
+            # the first can be checked against the file itself.
+            rd = side.get('reader', {})
+            if rd.get('rows_read'):
+                macros['FigCRowsRead'] = f"{int(rd['rows_read']):,}"
+                macros['FigCRowsUsed'] = f"{int(rd['rows_after_dedup']):,}"
+                macros['FigCRowsDropped'] = \
+                    f"{int(rd['cross_sheet_duplicates_dropped']):,}"
+            # Rows left after the adapter's cleaning (cancellations,
+            # non-merchandise lines, missing ids, non-positive quantity or
+            # price), which is what calibration ran on.
+            kept = side.get('provenance', {}).get('rows_kept')
+            if kept is not None:
+                macros['FigCRowsKept'] = f"{int(kept):,}"
+            if 'basket_units_median' in cs:
+                macros['BasketUnitsMed'] = f"{cs['basket_units_median']:.0f}"
+                macros['BasketDistinctMed'] = f"{cs['basket_distinct_median']:.0f}"
+            if 'category_fallback_frac' in cs:
+                macros['CatFallbackFrac'] = f"{cs['category_fallback_frac']*100:.0f}\\%"
+            if 'return_customer_rate' in cs:
+                macros['ReturnRate'] = f"{cs['return_customer_rate']*100:.0f}\\%"
+            # The store the calibration produced. Its size follows from the
+            # assortment the data supports, so it is a result of the load,
+            # not a setting, and the text should not restate it by hand.
+            shop = side.get('shop_summary', {})
+            if shop.get('sections') is not None:
+                macros['FigCSections'] = str(int(shop['sections']))
+                macros['FigCItems'] = str(int(shop['items_placed']))
+            # The assortment the sections were built from. This is not the
+            # section count: the engine also lays out service zones, so the
+            # store has more sections than the data has categories.
+            if cs.get('n_unique_categories'):
+                macros['FigCCategories'] = str(int(cs['n_unique_categories']))
+            # The two arrival rates the projection engine is driven at.
+            # Buyers per open hour are observed in the invoices; visitors
+            # per open hour are that rate divided by the assumed conversion
+            # rate, which is an assumption and is flagged as one wherever
+            # the visitor figure is used.
+            if cs.get('arrivals_per_hour') and cs.get('visitors_per_hour'):
+                macros['FigCBuyersPerHour'] = f"{cs['arrivals_per_hour']:.1f}"
+                macros['FigCVisitorsPerHour'] = \
+                    f"{cs['visitors_per_hour']:.1f}"
+            if cs.get('assumed_conversion_rate') is not None:
+                macros['FigCAssumedConv'] = \
+                    f"{cs['assumed_conversion_rate']:.2f}"
+            # The span the invoices cover, which is what the calibrated
+            # daily rates are an average over.
+            if cs.get('span_seconds'):
+                macros['FigCSpanDays'] = \
+                    f"{float(cs['span_seconds']) / 86400.0:,.0f}"
+    else:
+        missing.append('real_data_uci')
 
-with open(OUT, 'w', encoding='utf-8') as f:
-    f.write('% AUTO-GENERATED by CODE/make_results_macros.py — do not edit.\n')
-    for k, v in sorted(macros.items()):
-        f.write(f'\\newcommand{{\\{k}}}{{{v}}}\n')
-print(f'wrote {OUT} with {len(macros)} macros')
-for k in sorted(macros):
-    print(f'  \\{k} = {macros[k]}')
+    # -- Realized elasticities at realized scores (audit R2.3) ---------------
+    rs = _checked_json(os.path.join(ROOT, 'figs', 'realized_scores.json'),
+                       _figures_ok)
+    if rs is None:
+        missing.append('realized_scores (make_paper_figures)')
+    else:
+        macros.update({
+            'RealizedScoreBaseline': f"{rs['score_baseline']:.3f}",
+            'RealizedScoreGA': f"{rs['score_ga']:.3f}",
+            'RealizedConvLift': f"{rs['conv_lift_pct']:+.1f}\\%",
+            'RealizedImpLift': f"{rs['impulse_lift_pct']:+.1f}\\%",
+            'RealizedBskLift': f"{rs['basket_lift_pct']:+.1f}\\%",
+        })
+        # MC estimator convergence: relative SE of the mean at the
+        # iteration count the experiments actually use, and that count, so
+        # the two cannot drift apart in the text.
+        if 'mc_rse_pct' in rs:
+            macros['McRSEatUsed'] = f"{rs['mc_rse_pct']:.2f}\\%"
+            macros['McRSEIters'] = str(int(rs['mc_rse_iters']))
+
+    # -- Queue measurement (audit R1.7) --------------------------------------
+    # From the newest validated run directory; the copy the runner leaves
+    # next to the figure is used only when it passes the same check.
+    d = latest('measure_queueing_', _queue_big_enough)
+    q = (json.load(open(os.path.join(d, 'summary.json'))) if d
+         else _checked_json(os.path.join(ROOT, 'figs', 'queue_summary.json'),
+                            _queue_ok))
+    if q is None:
+        missing.append('measure_queueing')
+    else:
+        macros.update({
+            'QueuePeakAgents': str(q['nominal']['peak_agents']),
+            'QueueMaxOccNom': str(q['nominal']['max_lane_occupancy']),
+            'QueueMaxOccStress': str(q['stress']['max_lane_occupancy']),
+            'QueueBusyNom': f"{q['nominal']['busy_frac']*100:.0f}\\%",
+            'QueueBusyStress': f"{q['stress']['busy_frac']*100:.0f}\\%",
+            'QueueStressCap': str(q['stress']['cap']),
+        })
+        # Replication spread (audit R74). The nominal busy fraction varies
+        # enormously run-to-run -- quoting it as a point estimate, which we
+        # did, was not defensible; the nominal-vs-stress contrast is what
+        # replicates.
+        if q['nominal'].get('n_reps'):
+            macros['QueueReps'] = str(int(q['nominal']['n_reps']))
+            macros['QueueBusyNomSD'] = \
+                f"{q['nominal']['busy_frac_sd']*100:.0f}"
+            macros['QueueBusyStressSD'] = \
+                f"{q['stress']['busy_frac_sd']*100:.0f}"
+        # Waiting-line statistics of the single-server FIFO lanes: mean
+        # number waiting, server occupancy and mean wait to service start.
+        if 'mean_waiting' in q['nominal']:
+            for level, tag in (('nominal', 'Nom'), ('stress', 'Stress')):
+                ql = q[level]
+                macros[f'QueueMeanWaiting{tag}'] = f"{ql['mean_waiting']:.2f}"
+                macros[f'QueueOcc{tag}'] = f"{ql['occupancy']*100:.0f}\\%"
+                if ql.get('mean_wait_s') is not None:
+                    macros[f'QueueMeanWait{tag}'] = f"{ql['mean_wait_s']:.1f}"
+        proto = q.get('protocol', {})
+        if proto.get('warmup_s') is not None:
+            macros['QueueWarmup'] = f"{proto['warmup_s']:.0f}"
+        if proto.get('collect_s') is not None:
+            macros['QueueCollect'] = f"{proto['collect_s']:.0f}"
+        # The protocol the live diagnostics share, read from the one run
+        # that carries both loads: the fixed tick, and the arrival rate and
+        # occupancy cap at each level. The stress cap is already reported
+        # above as QueueStressCap and is not repeated under a second name.
+        spawn, cap = proto.get('spawn') or {}, proto.get('cap') or {}
+        if spawn and cap:
+            macros['LiveDt'] = f"{float(proto['dt']):g}"
+            macros['LiveSpawnNom'] = f"{float(spawn['nominal']):.2f}"
+            macros['LiveSpawnStress'] = f"{float(spawn['stress']):.2f}"
+            macros['LiveCapNom'] = str(int(cap['nominal']))
+        # What each level turned away at the door. The stress level is the
+        # one whose cap could bind, so the two shares belong next to the
+        # rates rather than being left to the reader to assume away.
+        for level, tag in (('nominal', 'Nom'), ('stress', 'Stress')):
+            b = balked_pct(q.get(level, {}).get('load'))
+            if b is not None:
+                macros[f'QueueBalked{tag}'] = f"{b:.1f}\\%"
+
+    # -- MC-objective ground truth (audit R4.3) ------------------------------
+    d = latest('mc_groundtruth_', _mcgt_big_enough)
+    if d and os.path.exists(os.path.join(d, 'summary.json')):
+        s = json.load(open(os.path.join(d, 'summary.json')))
+        ratio = int(round(s['big_budget'] / max(s['normal_budget'], 1)))
+        macros.update({
+            'McRegretMedian': f"{s['mc_regret_median_pct']:.2f}\\%",
+            'McRegretMean': f"{s['mc_regret_mean_pct']:.2f}\\%",
+            'McRegretMax': f"{s['mc_regret_max_pct']:.2f}\\%",
+            'McGTBudgetRatio': f"{ratio}\\times",
+            'McGTNScen': str(s['n_scenarios']),
+        })
+        # The reference layout is chosen on one block of seeds and both
+        # layouts are then re-estimated on a disjoint block, so a regret
+        # can come out below zero on confirmation noise. Report the
+        # smallest one and how many scenarios did, rather than describing
+        # the design as non-negative.
+        if 'mc_regret_min_pct' in s:
+            macros['McRegretMin'] = f"{s['mc_regret_min_pct']:.2f}\\%"
+            macros['McRegretNegCount'] = str(int(s['n_negative_regret']))
+        # The normal-budget GA layout is itself a candidate for the
+        # best-known reference; where no larger search beat it, its regret
+        # is zero by construction, so the count belongs next to the median.
+        if s.get('n_best_known_is_ga_normal') is not None:
+            macros['McGTBestIsGANormal'] = \
+                str(int(s['n_best_known_is_ga_normal']))
+        # The estimator behind the comparison: the iterations each
+        # evaluation averaged over, and the size of the disjoint seed block
+        # both layouts were re-estimated on before their regret was taken.
+        macros['McGTIters'] = f"{int(s['mc_iters']):,}"
+        sc = os.path.join(d, 'sidecar.json')
+        if os.path.exists(sc):
+            a = json.load(open(sc)).get('args', {})
+            if a.get('confirm_seeds'):
+                macros['McGTConfirmSeeds'] = str(int(a['confirm_seeds']))
+    else:
+        missing.append('mc_groundtruth')
+
+    # -- GA hyperparameter sensitivity + diversity (audit R4.5) --------------
+    d = latest('ga_sensitivity_', _gasens_big_enough)
+    s = (json.load(open(os.path.join(d, 'summary.json'))) if d
+         else _checked_json(os.path.join(ROOT, 'figs', 'ga_sensitivity.json'),
+                            _gasens_ok))
+    if s is None:
+        missing.append('ga_sensitivity')
+    else:
+        macros.update({
+            'GAHyperSpread': f"{s['hyper_spread_median_pct']:.2f}\\%",
+            'GAHyperSpreadMax': f"{s['hyper_spread_max_pct']:.2f}\\%",
+            'GADefaultGap': f"{s['default_gap_median_pct']:.2f}\\%",
+            'GANSettings': str(s['n_settings']),
+            'GADivStart': f"{s['diversity_start']*100:.1f}\\%",
+            'GADivEnd': f"{s['diversity_end']*100:.1f}\\%",
+            # Settings are compared on seeds no run searched or selected
+            # under, so the spread measures the layouts and not the
+            # upward bias of picking a maximum of noisy estimates.
+            'GAHeldoutSeeds': str(int(s.get('heldout_seeds', 0))),
+        })
+
+    # -- ABM diagnostics: Markov order + emergence (audits R6.2, R6.4) -------
+    d = latest('abm_diagnostics_', _abm_big_enough)
+    if d and os.path.exists(os.path.join(d, 'summary.json')):
+        s = json.load(open(os.path.join(d, 'summary.json')))
+        mk, em = s.get('markov_order', {}), s.get('emergence', {})
+        if mk:
+            macros.update({
+                'MarkovNSeq': str(mk['n_sequences']),
+                'MarkovInfoGain': f"{mk['info_gain_second_order_bits']:.3f}",
+                'MarkovTV': f"{mk['mean_tv_first_vs_second']:.3f}",
+            })
+            # Replication half-widths (audit R11.5), present in the
+            # replicated-protocol schema only.
+            if 'info_gain_ci95' in mk:
+                macros['MarkovInfoGainCI'] = f"{mk['info_gain_ci95']:.3f}"
+                macros['MarkovTVCI'] = f"{mk['tv_ci95']:.3f}"
+            macros['MarkovHOne'] = f"{mk['H_next_given_cur_bits']:.2f}"
+            # The estimator is positive even for a first-order chain, so the
+            # memory is read against its permutation null.
+            if 'info_gain_null_mean_bits' in mk:
+                macros.update({
+                    'MarkovInfoGainNull': f"{mk['info_gain_null_mean_bits']:.3f}",
+                    'MarkovInfoGainExcess': f"{mk['info_gain_excess_bits']:.3f}",
+                    'MarkovInfoGainExcessCI': f"{mk['info_gain_excess_ci95']:.3f}",
+                    'MarkovPermP': f"{mk['info_gain_perm_p']:.3f}",
+                    'MarkovTVNull': f"{mk['tv_null_mean']:.3f}",
+                    'MarkovTVExcess': f"{mk['tv_excess']:.3f}",
+                    'MarkovNPerm': str(int(mk['n_permutations'])),
+                })
+        if em.get('perimeter_interior_ratio') is not None:
+            macros['PerimRatio'] = f"{em['perimeter_interior_ratio']:.2f}"
+            if 'perimeter_ratio_ci95' in em:
+                macros['PerimRatioCI'] = f"{em['perimeter_ratio_ci95']:.2f}"
+        proto = s.get('protocol', {})
+        if proto:
+            macros['AbmReps'] = str(proto['reps'])
+            macros['AbmWarmup'] = f"{proto['warmup_s']:.0f}"
+            macros['AbmCollect'] = f"{proto['collect_s']:.0f}"
+        # Every agent that arrived inside the window was followed until it
+        # left, so no visit is missing for being long; the drain is how
+        # far past the window that took.
+        if 'n_censored_final' in s.get('markov_order', {}):
+            macros['AbmCensored'] = str(int(mk['n_censored_final']))
+        if mk.get('mean_drain_seconds') is not None:
+            macros['AbmDrain'] = f"{float(mk['mean_drain_seconds']):.0f}"
+        b = balked_pct(s.get('load'))
+        if b is not None:
+            macros['AbmBalked'] = f"{b:.1f}\\%"
+    else:
+        missing.append('abm_diagnostics')
+
+    # -- Structural (micro-rule) sensitivity (audit R6.5) --------------------
+    d = latest('structural_sensitivity_', _struct_big_enough)
+    if d and os.path.exists(os.path.join(d, 'summary.json')):
+        s = json.load(open(os.path.join(d, 'summary.json')))
+        if 'throughput_range_pct' in s:
+            macros['StructRangePct'] = f"{s['throughput_range_pct']:.1f}\\%"
+            macros['StructChiP'] = f"{s['chi2_p']:.2f}"
+        elif 'conversion_range_pp' in s:   # older artifact schema
+            macros['StructRangePP'] = f"{s['conversion_range_pp']:.1f}"
+            macros['StructChiP'] = f"{s['chi2_p']:.2f}"
+        # The pooled chi-square treats the completions as Poisson. The
+        # replications say how wide they really are, so the primary test
+        # is the one-way ANOVA on the per-replication counts, and the
+        # chi-square is also reported corrected by the dispersion they
+        # show.
+        if s.get('completions_anova_p') is not None:
+            macros['StructCompAnovaP'] = pfmt(s['completions_anova_p'])
+        if s.get('dispersion_phi') is not None:
+            macros['StructDispersion'] = f"{float(s['dispersion_phi']):.2f}"
+        if s.get('quasi_poisson_p') is not None:
+            macros['StructQuasiP'] = pfmt(s['quasi_poisson_p'])
+
+        # Power of the test at the observed counts. A null
+        # result is only informative if the design could have seen the
+        # effect. The replications are the unit of the test and they are
+        # wider than Poisson, so the counts are simulated as gamma-Poisson
+        # at the dispersion the sweep measured -- a multinomial split of
+        # the pooled total would credit the design with precision the
+        # replications do not show.
+        comp_reps = [list(map(float, c))
+                     for c in s.get('completed_per_rep', []) if c]
+        if comp_reps:
+            from scipy.stats import f_oneway
+            phi = float(s.get('dispersion_phi') or 1.0)
+            k_set = len(comp_reps)
+            n_rep = min(len(c) for c in comp_reps)
+            base = float(np.mean([np.mean(c) for c in comp_reps]))
+            rng_p = np.random.default_rng(0)
+            for eff, key in ((0.30, 'StructPowerThirty'),
+                             (0.40, 'StructPowerForty')):
+                means = np.full(k_set, base)
+                means[-1] *= (1.0 - eff)
+                hits = 0
+                for _ in range(N_POWER_SIMS):
+                    groups = [gamma_poisson(rng_p, mu, phi, n_rep)
+                              for mu in means]
+                    pv = f_oneway(*groups).pvalue
+                    hits += int(np.isfinite(pv) and pv < 0.05)
+                macros[key] = f"{100.0 * hits / N_POWER_SIMS:.0f}\\%"
+
+        # Per-customer revenue across settings, judged against replication
+        # noise. An earlier UNREPLICATED sweep appeared to show a large
+        # monotone decline; it did not survive a second run (audit R73), so
+        # what is reported now is the between-setting spread next to the
+        # within-setting spread, plus a one-way ANOVA.
+        if s.get('n_reps'):
+            m = np.array(s['rev_per_cust_mean'], dtype=float)
+            sd = np.array(s['rev_per_cust_sd'], dtype=float)
+            n_reps = int(s['n_reps'])
+            macros['StructReps'] = str(n_reps)
+            macros['StructRevRange'] = f"{m.max() - m.min():.2f}"
+            # Pooled within-setting SD, i.e. the square root of the mean
+            # variance. Averaging the SDs themselves runs low.
+            pooled_sd = float(np.sqrt(np.mean(sd ** 2)))
+            macros['StructRevNoiseSD'] = f"{pooled_sd:.2f}"
+            # The range is taken over setting MEANS, so what it should be
+            # set against is the standard error of a mean and the range
+            # that a sweep with no effect at all would still show: the
+            # expected range of k normal draws is d2(k) standard errors.
+            se = pooled_sd / np.sqrt(n_reps)
+            macros['StructRevSE'] = f"{se:.2f}"
+            if len(m) in D2_RANGE:
+                macros['StructRevNullRange'] = f"{D2_RANGE[len(m)] * se:.2f}"
+            if s.get('rev_per_cust_anova_p') is not None:
+                macros['StructRevAnovaP'] = f"{float(s['rev_per_cust_anova_p']):.2f}"
+            macros['StructNCompletions'] = str(
+                int(sum(s.get('completed_per_setting', []))))
+        # Pooled over the sweep: every setting ran at the same load, so a
+        # large balked share would mean the settings were compared under a
+        # cap rather than under the rule being swept.
+        b = balked_pct(s.get('load'))
+        if b is not None:
+            macros['StructBalked'] = f"{b:.1f}\\%"
+    else:
+        missing.append('structural_sensitivity')
+
+    # -- Goodness of fit: live model vs its calibration ----------------------
+    # In-sample transfer checks: the parameters under test were estimated
+    # from the same distributions, so a pass says the calibration survives
+    # the pipeline, not that the model predicts unseen data.
+    d = latest('validation_gof_', _gof_big_enough)
+    if d:
+        s = json.load(open(os.path.join(d, 'summary.json')))
+        # Matched on what the test is about rather than on its exact
+        # label, which is written for the Validation tab and reads better
+        # when it is free to change.
+        tags = (('basket', 'Basket'), ('revenue', 'Revenue'),
+                ('categor', 'Category'), ('inter-arrival', 'Arrival'))
+        split = s.get('per_test_decisions', {})
+        for t in s.get('pooled', []):
+            name = str(t['test']).lower()
+            tag = next((v for k, v in tags if k in name), None)
+            if not tag or t.get('p_value') is None:
+                continue
+            macros.update({
+                f'Gof{tag}Stat': f"{t['statistic']:.3f}",
+                f'Gof{tag}P': pfmt(t['p_value']),
+                f'Gof{tag}Decision': t['decision'],
+                f'Gof{tag}NObs': f"{int(t['n_observed']):,}",
+                f'Gof{tag}NSim': f"{int(t['n_simulated']):,}",
+            })
+            # How many single windows reached the same verdict on their
+            # own: a pooled decision that rests on the pooled sample size
+            # shows up as a split here.
+            if t['test'] in split:
+                macros[f'Gof{tag}RepPass'] = str(int(split[t['test']]['PASS']))
+        macros['GofReps'] = str(int(s['n_reps']))
+        macros['GofAlpha'] = f"{float(s['alpha']):.2f}"
+        b = balked_pct(s.get('load'))
+        if b is not None:
+            macros['GofBalked'] = f"{b:.1f}\\%"
+    else:
+        missing.append('validation_gof')
+
+    # -- Operating constants the projection engine runs at -------------------
+    # Read from the constants module rather than restated in the text, so
+    # the horizon arithmetic in the paper (days, open hours, weekday /
+    # weekend mix) cannot drift from the engine that produced the numbers.
+    lit = _script_constants(LIT_SCRIPT, LIT_CONSTANTS)
+    macros['OpHoursPerDay'] = f"{lit['DEFAULT_OP_HOURS_PER_DAY']:g}"
+    macros['WeekendMultiplier'] = f"{lit['DEFAULT_WEEKEND_MULTIPLIER']:g}"
+
+    macros.setdefault('ResultsGrade', 'current artifacts')
+
+    with open(OUT, 'w', encoding='utf-8') as f:
+        f.write('% AUTO-GENERATED by CODE/make_results_macros.py — do not edit.\n')
+        for k, v in sorted(macros.items()):
+            f.write(f'\\newcommand{{\\{k}}}{{{v}}}\n')
+    print(f'wrote {OUT} with {len(macros)} macros')
+    for k in sorted(macros):
+        print(f'  \\{k} = {macros[k]}')
+    if missing:
+        # Say which numbers are absent and why. A silently shorter macros
+        # file turns into TBD placeholders in the PDF, which is easy to
+        # miss until a reader finds them.
+        sys.stderr.write(
+            'make_results_macros: no artifact passed the design check for: '
+            + ', '.join(missing) + '.\nThe macros those runs feed are left '
+            'out, so the paper falls back to its TBD placeholders; re-run '
+            'them at the paper design (make experiments-paper) to restore '
+            'the numbers.\n')
+
+
+if __name__ == '__main__':
+    main()

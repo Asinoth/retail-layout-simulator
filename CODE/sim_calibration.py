@@ -18,6 +18,13 @@ MARKOV_STATES = MARKOV_TRANSIENT + MARKOV_ABSORBING
 
 MIN_TRANSITIONS_FOR_EMPIRICAL = 25
 
+# Stand-in impulse share of purchases for a calibrated session. Transaction
+# data does not label impulse buys, so there is nothing to estimate it from;
+# 0.20 is the midpoint the headless calibrated path already assumes, kept
+# here so both paths read the same number. Omnichannel measures a per-family
+# impulse rate and overrides it.
+DEFAULT_CALIBRATED_IMPULSE_RATE = 0.20
+
 
 def new_markov_transition_counts():
     """Sparse (from, to) -> count for empirical P-hat."""
@@ -60,9 +67,18 @@ def build_empirical_transition_matrix(analytics):
     """
     counts = analytics.get('markov_transition_counts') or {}
     total_trans = sum(counts.values())
+    # The estimate is only worth using once outcomes have been observed.
+    # Counting every jump would declare the chain empirical from a handful
+    # of moving/shopping loops, before anyone has bought or left -- and
+    # then the absorption probabilities are pure Laplace smoothing (0.5
+    # each), not data. Downstream consumers read P(purchase | entering) as
+    # a conversion level, so that is not a harmless placeholder.
+    n_absorbed = sum(int(c) for (_, to), c in counts.items()
+                     if to in MARKOV_ABSORBING)
     meta = {
         'total_transitions': int(total_trans),
-        'empirical': total_trans >= MIN_TRANSITIONS_FOR_EMPIRICAL,
+        'absorptions_observed': int(n_absorbed),
+        'empirical': n_absorbed >= MIN_TRANSITIONS_FOR_EMPIRICAL,
         'laplace_alpha': 1.0,
     }
 
@@ -99,7 +115,11 @@ def _prior_transition_matrix(analytics, states, si):
     Calibration-preferring: when a dataset has been loaded, the counts come
     from ``analytics['calibration']`` (visitors, not just buyers) so the
     prior reflects the dataset's implied conversion + abandonment rather
-    than whatever a (possibly empty) live run has accumulated."""
+    than whatever a (possibly empty) live run has accumulated.
+
+    The heuristic edge weights set the shape of the chain; the abandonment
+    edges are then rescaled so P(purchase | entering) equals the same
+    conversion rate ``extract_simulation_parameters`` reports."""
     counts = defaultdict(int)
     total = max(1, int(_cval(analytics, 'total_customers', 0)))
     completed = int(_cval(analytics, 'completed_purchases', 0))
@@ -130,7 +150,41 @@ def _prior_transition_matrix(analytics, states, si):
     counts[('exiting', 'purchased')] = int(completed * 0.3)
     counts[('exiting', 'abandoned')] = int(abandoned)
 
-    return laplace_row_probs(counts, states, alpha=1.0)
+    T = laplace_row_probs(counts, states, alpha=1.0)
+
+    # The edge weights above mix raw counts with probability-scaled counts,
+    # so on their own they absorb into 'purchased' at a rate unrelated to
+    # the observed conversion (0.22 against 0.30 on a calibrated dataset).
+    # Consumers scale conversion by this probability, which would turn that
+    # mismatch into a layout-independent revenue bias. Multiply every
+    # transient->abandoned edge by one factor k (rows renormalized) and
+    # bisect log k: P(purchase | entering) is monotone decreasing in k, and
+    # Laplace smoothing keeps both absorbing columns positive, so any
+    # target in (0, 1) is reachable.
+    target = _observed_conversion_rate(analytics)
+    t_idx = [si[s] for s in MARKOV_TRANSIENT]
+    i_pur, i_ab = si['purchased'], si['abandoned']
+    eye = np.eye(len(t_idx))
+
+    def _scaled(log_k):
+        Ts = T.copy()
+        for i in t_idx:
+            Ts[i, i_ab] *= np.exp(log_k)
+            Ts[i] /= Ts[i].sum()
+        return Ts
+
+    def _p_purchase(Ts):
+        Q = Ts[np.ix_(t_idx, t_idx)]
+        return float(np.linalg.solve(eye - Q, Ts[t_idx, i_pur])[0])
+
+    lo, hi = -30.0, 30.0
+    for _ in range(60):
+        mid = 0.5 * (lo + hi)
+        if _p_purchase(_scaled(mid)) > target:
+            lo = mid
+        else:
+            hi = mid
+    return _scaled(0.5 * (lo + hi))
 
 
 def compute_absorbing_analysis(states, T):
@@ -209,6 +263,25 @@ def _cval(analytics, key, default=None):
     return default
 
 
+def _observed_conversion_rate(analytics):
+    """Conversion rate the MC / projection layers use, clamped to
+    [0.001, 0.999]: the calibrated assumption when a dataset is loaded,
+    else purchases over customers who have already left. Customers still in
+    the store have not had the chance to buy yet, so counting them in the
+    denominator biases the rate low on short live runs. Before anyone has
+    exited there is no evidence either way, so use the same 0.30
+    assumption the dataset path defaults to rather than 1/total."""
+    cal = _calib(analytics)
+    if 'conversion_rate' in cal:
+        rate = float(cal['conversion_rate'])
+    else:
+        completed = int(_cval(analytics, 'completed_purchases', 0))
+        abandoned = int(_cval(analytics, 'abandoned_carts', 0))
+        exited = completed + abandoned
+        rate = completed / exited if exited > 0 else 0.30
+    return max(0.001, min(rate, 0.999))
+
+
 def net_base_revenue(rev_mean, imp_rate, imp_val):
     """Base (non-impulse) revenue per converting customer.
 
@@ -248,24 +321,47 @@ def extract_simulation_parameters(sim):
     has_cal = bool(cal)
 
     total = max(1, int(_cval(A, 'total_customers', 0)))
-    completed = max(1, int(_cval(A, 'completed_purchases', 0)))
+    n_completed = int(_cval(A, 'completed_purchases', 0))
     abandoned = int(_cval(A, 'abandoned_carts', 0))
+    # Guarded denominator for per-purchase means only; the conversion and
+    # abandonment rates below divide by customers who have exited.
+    completed = max(1, n_completed)
 
     # Customers/hour: prefer the calibrated arrival rate, else derive from
     # live counters and the (floored) simulated-time clock. The calibration
     # path bypasses the ``sim_hours`` floor that otherwise inflates the rate
     # for short live runs.
-    if has_cal and cal.get('arrivals_per_hour'):
-        customers_per_hour = float(cal['arrivals_per_hour'])
+    #
+    # ``mc_engine`` draws visitors and applies conversion itself, so it needs
+    # the VISITOR rate. The calibrated ``arrivals_per_hour`` counts buyers
+    # (invoices); feeding it in directly would apply conversion twice.
+    # A calibration block without ``visitors_per_hour`` is converted here.
+    if has_cal and cal.get('visitors_per_hour'):
+        customers_per_hour = float(cal['visitors_per_hour'])
+    elif has_cal and cal.get('arrivals_per_hour'):
+        customers_per_hour = (float(cal['arrivals_per_hour'])
+                              / _observed_conversion_rate(A))
     else:
         run_sim_hrs = sim_hours(sim)
         customers_per_hour = total / run_sim_hrs
 
-    if has_cal and 'conversion_rate' in cal:
-        conversion_rate = float(cal['conversion_rate'])
+    conversion_rate = _observed_conversion_rate(A)
+    if 'conversion_rate' in cal:
+        # The calibrated abandoned count is implied non-buyers (visitors -
+        # invoices), i.e. 1 - conversion, not cart abandonment. At 0.70 it
+        # would saturate the 0.5 abandonment clamp in the fitness functions
+        # and inflate conversion even for layouts with no abandonment change.
+        # Use a dataset-provided rate if there is one, else the same
+        # assumption the headless calibrated path makes (10% of
+        # non-converters). A trajectory-only calibration carries no
+        # purchase counts, so it keeps the live rate below.
+        if 'abandonment_rate' in cal:
+            abandonment_rate = float(cal['abandonment_rate'])
+        else:
+            abandonment_rate = max(0.0, 1.0 - conversion_rate) * 0.10
     else:
-        conversion_rate = completed / total
-    abandonment_rate = abandoned / total
+        exited = n_completed + abandoned
+        abandonment_rate = abandoned / exited if exited > 0 else 0.0
 
     baskets = list(_cval(A, 'basket_sizes', []) or [])
     avg_basket = float(np.mean(baskets)) if baskets else 3.0
@@ -282,26 +378,51 @@ def extract_simulation_parameters(sim):
 
     rev_std = max(rev_std, 0.05)
 
-    # Impulse is a LIVE-only signal (the dataset can't observe planned vs
-    # impulse) -- except Omnichannel reports a per-family ``mean_impulse_rate``
-    # in calibration_extra, which we use as a fallback when no live impulses
-    # have been observed yet.
+    # Impulse share of purchases. Without a calibration this is a LIVE-only
+    # signal, with numerator and denominator both from the live counters:
+    # dividing live impulse items by a calibrated invoice count would drive
+    # the rate to ~0 as soon as a single live impulse sale is recorded.
+    #
+    # Once a dataset supplies the purchase side, the live counter is the
+    # wrong source: transaction records cannot label impulse buys, so the
+    # rate would sit at 0 until an agent happens to grab something at the
+    # till, which switches the impulse term off entirely and makes the
+    # numbers depend on how long the session ran. Use the literature
+    # stand-in instead -- the same one the headless calibrated path uses,
+    # so the two agree. A trajectory-only calibration carries no purchase
+    # data at all, so it keeps the live rate, as the conversion and
+    # abandonment rates above do. Omnichannel measures a per-family
+    # ``mean_impulse_rate`` and wins.
     impulse_purchases = A.get('impulse_purchases', 0)
-    impulse_rate = impulse_purchases / completed if completed else 0.0
-    if impulse_purchases == 0:
-        cal_imp = cal.get('mean_impulse_rate')
-        if cal_imp is not None and not (isinstance(cal_imp, float) and np.isnan(cal_imp)):
-            impulse_rate = float(cal_imp)
+    live_completed = max(int(A.get('completed_purchases', 0) or 0), 1)
+    impulse_rate = impulse_purchases / live_completed
+    impulse_rate_source = 'live_counter'
+    if 'conversion_rate' in cal:
+        impulse_rate = DEFAULT_CALIBRATED_IMPULSE_RATE
+        impulse_rate_source = 'literature_default'
+    cal_imp = cal.get('mean_impulse_rate')
+    if cal_imp is not None and not (isinstance(cal_imp, float) and np.isnan(cal_imp)):
+        impulse_rate = float(cal_imp)
+        impulse_rate_source = 'dataset'
 
     impulse_sales = A.get('impulse_item_sales', {})
     avg_impulse_val = 0.0
     if impulse_sales and impulse_purchases > 0:
         total_impulse_items = sum(impulse_sales.values())
         if total_impulse_items > 0:
-            shop = sim.shop
-            total_impulse_rev = sum(
-                _price(shop, name) * cnt for name, cnt in impulse_sales.items()
-            )
+            # Sales are keyed the way the analytics layer keys items, which
+            # on a multi-floor shop means 'F<floor>:<name>' for duplicated
+            # names -- so use the simulation's own resolver rather than a
+            # lookup that only understands plain names on the floor the user
+            # happens to be viewing.
+            price_of = getattr(sim, '_get_item_price', None)
+            if callable(price_of):
+                total_impulse_rev = sum(float(price_of(name)) * cnt
+                                        for name, cnt in impulse_sales.items())
+            else:
+                prices = getattr(sim.shop, 'prices', {}) or {}
+                total_impulse_rev = sum(float(prices.get(name, 0.0)) * cnt
+                                        for name, cnt in impulse_sales.items())
             avg_impulse_val = total_impulse_rev / total_impulse_items
     if avg_impulse_val <= 0.0:
         avg_impulse_val = max(rev_per_cust * 0.15, 0.01)
@@ -338,6 +459,7 @@ def extract_simulation_parameters(sim):
         'rev_per_customer_gross': rev_per_cust,
         'rev_std': rev_std,
         'impulse_rate': min(max(impulse_rate, 0.0), 1.0),
+        'impulse_rate_source': impulse_rate_source,
         'avg_impulse_value': avg_impulse_val,
         'impulse_value_std': imp_std,
         'area_revenue_shares': area_shares,
@@ -353,18 +475,164 @@ def extract_simulation_parameters(sim):
     }
 
 
-def _price(shop, item_name):
-    p = shop.prices.get(item_name)
-    if p is not None:
-        return float(p)
-    try:
-        for fdata in shop.floors.values():
-            p2 = fdata.get('prices', {}).get(item_name)
-            if p2 is not None:
-                return float(p2)
-    except Exception:
-        pass
-    return 0.0
+# Trial counts up to this size get a full cumulative table in
+# ``_binomial_icdf``; larger ones use a window around the mean. The cache
+# bound keeps a pathological arrival rate (millions of trials per day,
+# every iteration a different n) from filling memory with tables.
+_BINOM_FULL_TABLE_MAX = 512
+_BINOM_TABLE_CACHE_MAX = 4096
+_BINOM_EMPTY_TABLE = np.ones(1, dtype=np.float64)   # zero trials -> zero successes
+
+# A table only pays for itself when enough draws share its trial count.
+# Building one costs about as much as evaluating the binomial quantile
+# directly for _BINOM_TABLE_MIN_DRAWS draws, plus one more per
+# _BINOM_TABLE_ENTRIES_PER_DRAW entries. At high arrival rates the Poisson
+# spread and the day noise give almost every iteration a trial count of
+# its own, and a table of several hundred entries built to answer one
+# lookup costs tens of times more than the draw; those counts go to the
+# direct quantile instead. Both routes compute the same inverse CDF, so
+# the route changes the cost, not the draw.
+_BINOM_TABLE_MIN_DRAWS = 6
+_BINOM_TABLE_ENTRIES_PER_DRAW = 128
+
+# Days of draws generated per block in ``mc_engine`` are capped so that a
+# block holds about this many iterations x days; it bounds the block's
+# temporaries to a few MB whatever n_iter and the horizon are.
+_MC_BLOCK_DRAWS = 1 << 18
+
+
+def _binomial_window(n, p):
+    """``(k_lo, k_hi)``: the range of success counts the cumulative table
+    for ``n`` trials covers (``n`` may be an array)."""
+    n = np.asarray(n, dtype=np.float64)
+    sd = np.sqrt(n * p * (1.0 - p))
+    full = n <= _BINOM_FULL_TABLE_MAX
+    k_lo = np.where(full, 0.0,
+                    np.maximum(0.0, np.floor(n * p - 12.0 * sd - 20.0)))
+    k_hi = np.where(full, n,
+                    np.minimum(n, np.ceil(n * p + 12.0 * sd + 20.0)))
+    return k_lo.astype(np.int64), k_hi.astype(np.int64)
+
+
+def _binomial_cdf_table(n_val, p, log_ratio, window=None):
+    """Cumulative binomial probabilities for ``n_val`` trials, as
+    ``(k_lo, cdf)`` where ``cdf[j]`` is F(k_lo + j).
+
+    Built from the pmf recurrence pmf(k)/pmf(k-1) = (n-k+1)/k * p/(1-p) in
+    log space, which stays finite for any n (a direct q**n underflows).
+    For large n only a +-12 standard-deviation window around the mean is
+    tabulated; the omitted tails carry far less mass than double precision
+    can represent, and renormalizing the window absorbs them. ``window``
+    is ``_binomial_window(n_val, p)`` when the caller already has it.
+    """
+    if window is None:
+        window = _binomial_window(n_val, p)
+    k_lo, k_hi = (int(v) for v in window)
+    k = np.arange(k_lo + 1, k_hi + 1, dtype=np.float64)
+    log_pmf = np.empty(k_hi - k_lo + 1, dtype=np.float64)
+    log_pmf[0] = 0.0
+    np.cumsum(np.log((n_val - k + 1.0) / k) + log_ratio, out=log_pmf[1:])
+    log_pmf -= log_pmf.max()
+    cdf = np.cumsum(np.exp(log_pmf))
+    cdf /= cdf[-1]
+    return k_lo, cdf
+
+
+def _binomial_icdf(u, n, p, cache=None):
+    """Binomial draws by inverse CDF: the smallest k with F(k; n, p) >= u.
+
+    ``u`` holds one uniform per iteration, ``n`` the per-iteration trial
+    count, ``p`` is a scalar. Reading the count off a single uniform makes
+    it a monotone function of that uniform, so two parameter sets that are
+    handed the same uniforms share nearly all of their sampling variation
+    -- the property paired (common-random-number) comparisons rely on.
+    numpy's binomial sampler has neither property at these sizes: it is not
+    monotone in p, and it consumes a p-dependent number of uniforms, which
+    also knocks every later draw out of step.
+
+    Iterations are grouped by trial count so one cumulative table serves
+    every iteration sharing an n. ``cache`` (a dict owned by the caller,
+    one per probability) reuses those tables across calls, which is where
+    most of the work would otherwise be repeated. A trial count shared by
+    too few draws to pay for a table is answered by scipy's binomial
+    quantile, which evaluates the same inverse CDF directly.
+    """
+    n = np.asarray(n)
+    u = np.asarray(u)
+    out = np.zeros(n.shape, dtype=np.int64)
+    p = float(p)
+    if p <= 0.0 or out.size == 0:
+        return out
+    if p >= 1.0:
+        return n.astype(np.int64)
+    if cache is None:
+        cache = {}
+
+    log_ratio = float(np.log(p) - np.log1p(-p))
+    # Sort once so each trial count addresses a contiguous block, instead
+    # of building a boolean mask over the whole sample per distinct n.
+    order = np.argsort(n, kind='stable')
+    n_sorted = n[order]
+    u_sorted = u[order]
+    uniq, starts = np.unique(n_sorted, return_index=True)
+    sizes = np.append(starts[1:], n_sorted.size) - starts
+
+    k_lo_w, k_hi_w = _binomial_window(uniq, p)
+    in_cache = np.fromiter((int(v) in cache for v in uniq), dtype=bool,
+                           count=uniq.size)
+    tabulate = (in_cache | (uniq <= 0)
+                | (sizes >= _BINOM_TABLE_MIN_DRAWS
+                   + (k_hi_w - k_lo_w + 1) / _BINOM_TABLE_ENTRIES_PER_DRAW))
+
+    res_sorted = np.zeros(n_sorted.size, dtype=np.int64)
+    gid = np.repeat(np.arange(uniq.size), sizes)
+    by_table = tabulate[gid]
+
+    tab_groups = np.flatnonzero(tabulate)
+    if tab_groups.size:
+        tables, k_lo = [], np.zeros(tab_groups.size, dtype=np.int64)
+        for j, g in enumerate(tab_groups):
+            n_val = int(uniq[g])
+            if n_val <= 0:
+                # Binomial(0, p) is 0; a one-entry table keeps the lookup
+                # below uniform over groups.
+                tables.append(_BINOM_EMPTY_TABLE)
+                continue
+            entry = cache.get(n_val)
+            if entry is None:
+                entry = _binomial_cdf_table(n_val, p, log_ratio,
+                                            (k_lo_w[g], k_hi_w[g]))
+                if len(cache) < _BINOM_TABLE_CACHE_MAX:
+                    cache[n_val] = entry
+            k_lo[j] = entry[0]
+            tables.append(entry[1])
+
+        # Lay the per-n tables end to end, each block lifted by 2 * (its
+        # position). Table values live in [0, 1], so the concatenation is
+        # globally increasing and one search over it serves every iteration
+        # -- far cheaper than one call per distinct trial count.
+        lengths = np.fromiter((t.size for t in tables), dtype=np.int64,
+                              count=len(tables))
+        block_start = np.concatenate(([0], np.cumsum(lengths)[:-1]))
+        big = np.concatenate(tables) + 2.0 * np.repeat(
+            np.arange(tab_groups.size), lengths)
+        slot = np.zeros(uniq.size, dtype=np.int64)
+        slot[tab_groups] = np.arange(tab_groups.size)
+        tg = slot[gid[by_table]]
+        pos = np.searchsorted(big, u_sorted[by_table] + 2.0 * tg, side='left')
+        res_sorted[by_table] = pos - block_start[tg] + k_lo[tg]
+
+    direct = ~by_table
+    if direct.any():
+        from scipy.stats import binom
+        # ppf(0) is -1 by scipy's convention for discrete laws; a uniform of
+        # exactly 0 maps to the lowest count, as it does in a table.
+        res_sorted[direct] = np.clip(
+            binom.ppf(u_sorted[direct], n_sorted[direct], p),
+            0, n_sorted[direct]).astype(np.int64)
+
+    out[order] = res_sorted
+    return np.minimum(out, n.astype(np.int64))
 
 
 def mc_engine(
@@ -389,21 +657,53 @@ def mc_engine(
     """
     Monte Carlo daily revenue with:
     - Poisson arrivals (per simulated day)
-    - Binomial conversion
+    - Binomial conversion, drawn by inverse CDF
     - Per-converting-customer revenue draws (preserves variance)
-    - Optional lognormal day-level traffic multiplier (serial correlation)
+    - Optional lognormal day-level traffic multiplier, drawn independently
+      each day with log-factor ~ Normal(-sigma^2/2, sigma^2) so its mean is
+      exactly 1 and its spread does not grow with the horizon
+
+    Randomness is organised so that two parameter sets evaluated under the
+    same seed walk the same sample path (common random numbers). Each
+    family of draws -- day noise, arrivals, conversion uniforms, basket
+    normals, revenue normals, impulse uniforms, impulse normals -- runs on
+    its own child generator, and the counts are inverse-CDF functions of
+    their uniforms, so a small change in conversion or impulse rate moves
+    the result by a small amount instead of redrawing everything that
+    follows. Paired differences between nearby layouts therefore measure
+    the layouts, not the sampler.
 
     Note: within-day non-homogeneity (the empirical hour-of-day arrival
     shape) is applied to the LIVE simulator's spawn loop via
     ``simulation.hourly_profile``, but NOT to this MC daily aggregator.
-    The empirical hourly profile is mean-preserving (normalized to mean=1
-    over open hours), so daily expected arrivals are identical to the
-    homogeneous case. Modelling within-day Jensen-effects on conversion
-    or basket-size would require restructuring this engine to be hourly
-    rather than daily and is out of scope for the current paper.
+    A calibrated profile is scaled so that it sums to
+    ``DEFAULT_OP_HOURS_PER_DAY`` over the open hours, so a live day driven
+    at the calibrated visitor rate delivers the same expected daily volume
+    as ``cph * op_hours`` here. Modelling within-day Jensen-effects on
+    conversion or basket-size would require restructuring this engine to be
+    hourly rather than daily and is out of scope for the current paper.
     """
     if rng is None:
         rng = np.random
+
+    # One integer from the caller's stream seeds every draw family below,
+    # so seeding that stream (``np.random.seed(s)``, or a Generator handed
+    # in) still determines the whole result and equal inputs still give
+    # equal output. What it buys is independence between the families:
+    # layout-dependent parameters can no longer shift the position of the
+    # stream that later draws read from.
+    if hasattr(rng, 'integers'):
+        root_seed = int(rng.integers(0, 2 ** 63 - 1))
+    else:
+        root_seed = int(rng.randint(0, 2 ** 63 - 1, dtype=np.int64))
+    (day_rng, arr_rng, conv_rng, bsk_rng, rev_rng, imp_u_rng,
+     imp_z_rng) = [np.random.default_rng(s)
+                   for s in np.random.SeedSequence(root_seed).spawn(7)]
+
+    # Cumulative binomial tables, reused across blocks of days: the
+    # conversion and impulse probabilities are fixed for the whole call, so
+    # only the trial count changes from day to day.
+    conv_tables, imp_tables = {}, {}
 
     if impulse_value_std is None:
         impulse_value_std = max(imp_val * 0.3, 0.01)
@@ -417,7 +717,6 @@ def mc_engine(
     daily_converting = np.zeros((n_iter, n_days))
     daily_impulse_rev = np.zeros((n_iter, n_days))
     daily_baskets = np.zeros((n_iter, n_days))
-    log_day_factor = np.zeros(n_iter)
     obs_baskets = (
         list(observed_baskets) if observed_baskets and len(observed_baskets) >= 5
         else None
@@ -446,78 +745,83 @@ def mc_engine(
     if not np.isfinite(cph) or cph < 0:
         cph = 0.0
 
-    for d in range(n_days):
-        dow = d % 7
-        gf = 1.0 + monthly_growth * (d / 30.0)
-        lam = max(cph * op_hours * day_multipliers[dow] * gf, 0.1)
-        if not np.isfinite(lam):
-            lam = _LAM_CAP
-        lam = min(lam, _LAM_CAP)
+    # Days are drawn a block at a time, as (days, n_iter) arrays. Each
+    # family has a stream of its own, so a block yields exactly the values
+    # a day-by-day loop would; what the block buys is that the binomial
+    # lookups see every day in it at once, so a trial count that recurs
+    # across days is tabulated and searched once.
+    block_days = int(max(1, min(n_days, _MC_BLOCK_DRAWS // max(int(n_iter), 1))))
+    for d0 in range(0, n_days, block_days):
+        days = np.arange(d0, min(d0 + block_days, n_days))
+        cols = slice(d0, d0 + days.size)
+        shape = (days.size, n_iter)
+        gf = 1.0 + monthly_growth * (days / 30.0)
+        lam = np.maximum(cph * op_hours * day_multipliers[days % 7] * gf, 0.1)
+        lam = np.minimum(np.where(np.isfinite(lam), lam, _LAM_CAP),
+                         _LAM_CAP)[:, None]
 
         if day_noise_std > 0:
+            # A fresh factor per day keeps the traffic noise stationary, so
+            # its spread does not grow with the horizon. The -sigma^2/2 shift
+            # gives E[exp(log_day_factor)] = 1. The clip at 8 sigma only
+            # guards against overflow; its effect on the mean is far below
+            # floating-point noise.
+            half_var = 0.5 * day_noise_std ** 2
             log_day_factor = np.clip(
-                log_day_factor
-                + rng.normal(0.0, day_noise_std, n_iter)
-                - 0.5 * day_noise_std ** 2,
-                -0.5,
-                0.5,
+                day_rng.normal(0.0, day_noise_std, shape) - half_var,
+                -8.0 * day_noise_std - half_var,
+                8.0 * day_noise_std - half_var,
             )
             lam_vec = lam * np.exp(log_day_factor)
             lam_vec = np.clip(lam_vec, 0.0, _LAM_CAP)
         else:
-            lam_vec = lam
+            lam_vec = np.repeat(lam, n_iter, axis=1)
 
-        n_cust = rng.poisson(lam_vec, n_iter)
-        daily_cust[:, d] = n_cust
-        n_conv = rng.binomial(n_cust, min(max(conv, 0.001), 0.999))
-        daily_converting[:, d] = n_conv
+        n_cust = arr_rng.poisson(lam_vec)
+        daily_cust[:, cols] = n_cust.T
+        n_conv = _binomial_icdf(conv_rng.random(shape).ravel(), n_cust.ravel(),
+                                min(max(conv, 0.001), 0.999),
+                                conv_tables).reshape(shape)
+        daily_converting[:, cols] = n_conv.T
 
+        nc_f = n_conv.astype(np.float64)
+        nc_sqrt = np.sqrt(nc_f)
+        # Sum of n_conv i.i.d. basket draws is approximately
+        # N(n_conv*mu, sqrt(n_conv)*sigma) -- O(n_iter) per day instead of
+        # O(n_iter * max(n_conv)), which is what made the sensitivity loop
+        # allocate gigabytes. Writing it as mean + sd*z keeps the standard
+        # normals themselves free of the basket parameters, so basket size
+        # cannot shift any other draw.
+        z_bsk = bsk_rng.standard_normal(shape)
         if obs_baskets is not None:
-            # Sum of n_conv i.i.d. basket draws from the empirical distribution
-            # is approximately N(n_conv*mu_obs, sqrt(n_conv)*sigma_obs). This
-            # is O(n_iter) per day instead of O(n_iter * max(n_conv)) and uses
-            # tens of bytes instead of hundreds of MB.
-            nc_f = n_conv.astype(np.float64)
-            total_items = np.where(
-                n_conv > 0,
-                rng.normal(nc_f * obs_mean, np.sqrt(np.maximum(nc_f, 0)) * obs_std, n_iter),
-                0.0,
-            )
-            total_items = np.maximum(total_items, 0.0)
+            total_items = nc_f * obs_mean + nc_sqrt * obs_std * z_bsk
         else:
-            total_items = np.maximum(
-                rng.normal(avg_bsk, max(std_bsk, 0.5), n_iter) * n_conv, 0.0
-            )
-        daily_baskets[:, d] = total_items
+            # Scaling one per-customer draw by n_conv would give an SD of
+            # n_conv*sigma rather than sqrt(n_conv)*sigma.
+            total_items = nc_f * avg_bsk + nc_sqrt * max(std_bsk, 0.5) * z_bsk
+        total_items = np.maximum(total_items, 0.0)
+        daily_baskets[:, cols] = total_items.T
 
         # Sum of n i.i.d. N(mu, sigma) ~ N(n*mu, sqrt(n)*sigma)
         rs = max(rev_std, 0.01)
-        base_rev = np.where(
-            n_conv > 0,
-            rng.normal(
-                n_conv.astype(np.float64) * rev_mean,
-                np.sqrt(np.maximum(n_conv, 0).astype(np.float64)) * rs,
-                n_iter,
-            ),
+        base_rev = np.maximum(
+            nc_f * rev_mean + nc_sqrt * rs * rev_rng.standard_normal(shape),
             0.0,
         )
-        base_rev = np.maximum(base_rev, 0.0)
 
-        n_imp = rng.binomial(np.maximum(n_conv, 0), min(max(imp_rate, 0.0), 1.0))
+        n_imp = _binomial_icdf(imp_u_rng.random(shape).ravel(), n_conv.ravel(),
+                               min(max(imp_rate, 0.0), 1.0),
+                               imp_tables).reshape(shape)
+        ni_f = n_imp.astype(np.float64)
         is_ = max(impulse_value_std, 0.01)
-        imp_rev = np.where(
-            n_imp > 0,
-            rng.normal(
-                n_imp.astype(np.float64) * imp_val,
-                np.sqrt(np.maximum(n_imp, 0).astype(np.float64)) * is_,
-                n_iter,
-            ),
+        imp_rev = np.maximum(
+            ni_f * imp_val
+            + np.sqrt(ni_f) * is_ * imp_z_rng.standard_normal(shape),
             0.0,
         )
-        imp_rev = np.maximum(imp_rev, 0.0)
-        daily_impulse_rev[:, d] = imp_rev
+        daily_impulse_rev[:, cols] = imp_rev.T
 
-        daily_rev[:, d] = base_rev + imp_rev
+        daily_rev[:, cols] = (base_rev + imp_rev).T
 
     totals = daily_rev.sum(axis=1)
     return {

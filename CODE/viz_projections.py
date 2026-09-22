@@ -14,7 +14,8 @@ from matplotlib.figure import Figure
 from matplotlib.colors import LinearSegmentedColormap
 from drag import DraggableRectangle
 from simulation import CustomerFlowSimulation
-from sim_calibration import extract_simulation_parameters, mc_engine, _calibrated
+from sim_calibration import extract_simulation_parameters, mc_engine, _calib
+from retail_literature import DEFAULT_WEEKEND_MULTIPLIER
 
 import copy
 from scipy import stats as sp_stats
@@ -47,7 +48,7 @@ class ProjectionsMixin:
         tk.Entry(ctrl, textvariable=self._proj_iters, **ent_kw).grid(row=0, column=5, padx=4)
 
         tk.Label(ctrl, text="Weekend multiplier:", **lbl_kw).grid(row=0, column=6, padx=4)
-        self._proj_wknd = tk.DoubleVar(value=1.4)
+        self._proj_wknd = tk.DoubleVar(value=DEFAULT_WEEKEND_MULTIPLIER)
         tk.Entry(ctrl, textvariable=self._proj_wknd, **ent_kw).grid(row=0, column=7, padx=4)
 
         tk.Label(ctrl, text="Monthly growth %:", **lbl_kw).grid(row=0, column=8, padx=4)
@@ -88,7 +89,12 @@ class ProjectionsMixin:
 
     def _run_monte_carlo(self):
         A = self.customer_simulation.analytics
-        if not _calibrated(A) and A.get('total_customers', 0) < 5:
+        # A trajectory-only dataset fills the calibration block with spatial
+        # keys but no arrival or conversion rate, so it cannot stand in for
+        # observed customers.
+        cal = _calib(A)
+        has_tx = bool(cal.get('arrivals_per_hour')) and 'conversion_rate' in cal
+        if not has_tx and A.get('total_customers', 0) < 5:
             messagebox.showwarning(
                 "Insufficient Data",
                 "Run the real-time simulation for a while first to gather\n"
@@ -174,6 +180,7 @@ class ProjectionsMixin:
         total_mean = cr[:, -1].mean()
         total_lo = np.percentile(cr[:, -1], 5)
         total_hi = np.percentile(cr[:, -1], 95)
+        total_mc_err = 1.96 * cr[:, -1].std(ddof=1) / np.sqrt(max(ni, 1))
 
         mean_daily_cust = dc.mean()
         mean_conv = dcv.mean()
@@ -228,7 +235,11 @@ class ProjectionsMixin:
             f"  Mean:     ${overall_daily_mean:>10,.2f}",
             f"  Median:   ${overall_daily_med:>10,.2f}",
             f"  Std Dev:  ${overall_daily_std:>10,.2f}",
-            f"  90% CI:   ${lo_daily.mean():>10,.2f}  –"
+            # 5th-95th percentile of the simulated days, averaged over the
+            # days of the projection: the spread of outcomes, not an
+            # uncertainty interval for the projected mean.
+            f"  Typical-day 5-95% range:",
+            f"            ${lo_daily.mean():>10,.2f}  –"
             f"  ${hi_daily.mean():>10,.2f}",
             f"  Best day  (day {best_day_idx+1}):"
             f" ${mean_daily_rev[best_day_idx]:,.2f}",
@@ -238,22 +249,31 @@ class ProjectionsMixin:
             "WEEKLY REVENUE (week 1)",
             "-" * 42,
             f"  Mean:     ${w1_mean:>10,.2f}",
-            f"  90% CI:   ${w1_lo:>10,.2f}  –  ${w1_hi:>10,.2f}",
+            f"  5-95% of simulated weeks:",
+            f"            ${w1_lo:>10,.2f}  –  ${w1_hi:>10,.2f}",
             "",
             "MONTHLY REVENUE (month 1)",
             "-" * 42,
             f"  Mean:     ${m1_mean:>10,.2f}",
-            f"  90% CI:   ${m1_lo:>10,.2f}  –  ${m1_hi:>10,.2f}",
+            f"  5-95% of simulated months:",
+            f"            ${m1_lo:>10,.2f}  –  ${m1_hi:>10,.2f}",
             "",
             f"TOTAL OVER {nd} DAYS",
             "-" * 42,
             f"  Mean:     ${total_mean:>10,.2f}",
-            f"  90% CI:   ${total_lo:>10,.2f}  –  ${total_hi:>10,.2f}",
+            f"  5-95% of simulated totals:",
+            f"            ${total_lo:>10,.2f}  –  ${total_hi:>10,.2f}",
+            # Uncertainty about the projected mean itself, which shrinks
+            # with the iteration count while the outcome range above does
+            # not.
+            f"  MC error of the mean (95%):  +/- ${total_mc_err:>10,.2f}",
             "",
             "ANNUALISED ESTIMATE",
             "-" * 42,
             f"  Mean:     ${annual_proj:>10,.2f}",
-            f"  Range:    ${annual_lo:>10,.2f}  –  ${annual_hi:>10,.2f}",
+            f"  Day-to-day spread x365 (5-95% of per-day mean",
+            f"  revenue; not an uncertainty interval):",
+            f"            ${annual_lo:>10,.2f}  –  ${annual_hi:>10,.2f}",
             "",
             "CUSTOMER METRICS (daily avg)",
             "-" * 42,
@@ -282,11 +302,11 @@ class ProjectionsMixin:
         self._proj_fig.clear()
         axes_color = 'white'
 
-        # 1) Daily revenue with 90% CI band
+        # 1) Daily revenue with the 5-95% band of simulated days
         ax1 = self._proj_fig.add_subplot(2, 2, 1)
         days_x = np.arange(1, nd + 1)
         ax1.fill_between(days_x, lo_daily, hi_daily,
-                        alpha=0.3, color='#FF6B35', label='90% CI')
+                        alpha=0.3, color='#FF6B35', label='5-95% of sims')
         ax1.plot(days_x, mean_daily_rev, color='#FF6B35',
                 linewidth=1.5, label='Mean')
         ax1.set_title("Daily Revenue Projection", color=axes_color, fontsize=10)
@@ -296,7 +316,7 @@ class ProjectionsMixin:
         ax1.set_facecolor('#001a33')
         ax1.tick_params(colors=axes_color, labelsize=7)
 
-        # 2) Cumulative revenue with CI
+        # 2) Cumulative revenue with the 5-95% band of simulated paths
         ax2 = self._proj_fig.add_subplot(2, 2, 2)
         cum_mean = cr.mean(axis=0)
         cum_lo = np.percentile(cr, 5, axis=0)

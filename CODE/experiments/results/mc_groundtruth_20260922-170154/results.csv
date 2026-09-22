@@ -1,0 +1,7 @@
+scenario,ga_normal_mc,best_known_mc,mc_regret_pct,best_known_source
+0,89109.7188,89132.2131,0.0252,GA_big
+1,34705.8847,34709.8235,0.0113,GA_big
+2,44876.3880,45011.6420,0.3005,simulated_annealing_big
+3,80465.4790,80697.1658,0.2871,simulated_annealing_big
+4,42521.4425,42582.7880,0.1441,simulated_annealing_big
+5,67190.5161,67441.1849,0.3717,simulated_annealing_big

@@ -11,6 +11,8 @@ class DraggableRectangle:
         self.corner = corner
         self.main_patch = getattr(patch, 'main_patch', None)
         self.origin = None
+        # Geometry of the resized patch when this drag started; see on_press.
+        self.resize_start = None
         self._orig_fc = None
         self._orig_ec = None
         self._orig_alpha=None
@@ -27,6 +29,12 @@ class DraggableRectangle:
     def on_press(self, event):
         if self.owner and getattr(self.owner, 'hand_mode', False) == True:
             return
+        # A double-click opens the modal edit dialog inside this same press
+        # event and its release is consumed while the dialog is open, so a
+        # drag started here would never see a release and would follow the
+        # mouse after the dialog closes.
+        if getattr(event, 'dblclick', False):
+            return
         if event.inaxes != self.patch.axes:
             return
         if not event.button == 1:
@@ -39,6 +47,11 @@ class DraggableRectangle:
             else:
                 if self.owner.selected_patch is not self.patch:
                     return
+                # A press on one of this patch's resize handles is a resize,
+                # handled by the handle's own DraggableRectangle, not a move.
+                if any(h.patch.contains(event)[0]
+                       for h in getattr(self.owner, 'resize_handles', ())):
+                    return
 
         contains, _ = self.patch.contains(event)
         if contains == False:
@@ -47,6 +60,16 @@ class DraggableRectangle:
         x0, y0 = self.patch.get_xy()
         self.press = (x0, y0, event.xdata, event.ydata)
         self.origin = (x0,y0)
+        if self.corner and self.main_patch is not None:
+            # A resize is measured against the size the object had when the
+            # drag began. Measuring against the live geometry instead lets an
+            # edge that was pushed to the far side by the collision fallback
+            # feed its own displacement back into the next motion event, so
+            # the object keeps growing while the mouse stands still.
+            mx0, my0 = self.main_patch.get_xy()
+            self.resize_start = (mx0, my0,
+                                 self.main_patch.get_width(),
+                                 self.main_patch.get_height())
         self._orig_fc = self.patch.get_facecolor()
         self._orig_ec = self.patch.get_edgecolor()
         self._orig_alpha = self.patch.get_alpha()
@@ -225,6 +248,7 @@ class DraggableRectangle:
 
         self.press = None
         self.origin = None
+        self.resize_start = None
         self._orig_fc = None
         self._orig_ec = None
         self._orig_alpha = None

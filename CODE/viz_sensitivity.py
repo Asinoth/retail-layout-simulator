@@ -18,7 +18,8 @@ from simulation import CustomerFlowSimulation
 import copy
 from scipy import stats as sp_stats
 
-from sim_calibration import _calibrated
+from sim_calibration import _calib, mc_engine
+from retail_literature import DEFAULT_WEEKEND_MULTIPLIER
 
 
 class SensitivityMixin:
@@ -86,7 +87,12 @@ class SensitivityMixin:
 
     def _run_sensitivity_analysis(self):
         A = self.customer_simulation.analytics
-        if not _calibrated(A) and A.get('total_customers', 0) < 5:
+        # A trajectory-only dataset fills the calibration block with spatial
+        # keys but no arrival or conversion rate, so it cannot stand in for
+        # observed customers.
+        cal = _calib(A)
+        has_tx = bool(cal.get('arrivals_per_hour')) and 'conversion_rate' in cal
+        if not has_tx and A.get('total_customers', 0) < 5:
             messagebox.showwarning(
                 "Insufficient Data",
                 "Run the real-time simulation first (at least 5 customers).",
@@ -100,7 +106,7 @@ class SensitivityMixin:
         n_iter = max(100, self._sa_iters.get())
         n_days = max(1, self._sa_days.get())
         op_hours = max(1.0, self._sa_hours.get())
-        wknd_mult = 1.4
+        wknd_mult = DEFAULT_WEEKEND_MULTIPLIER
         growth = 0.0
 
         param_defs = {
@@ -109,7 +115,9 @@ class SensitivityMixin:
             'Revenue/customer':('rev_per_converting_customer', 0.01,       None),
             'Impulse rate':    ('impulse_rate',                0.0,        0.999),
             'Impulse value':   ('avg_impulse_value',           0.01,       None),
-            'Basket size':     ('avg_basket_size',             0.5,        None),
+            # mc_engine draws basket sizes but never prices them, so this
+            # parameter has no path to revenue.
+            'Basket size (not monetized)': ('avg_basket_size',   0.5,        None),
             'Op. hours':       (None,                          1.0,        24.0),
             'Weekend mult.':   (None,                          1.0,        3.0),
         }
@@ -149,18 +157,39 @@ class SensitivityMixin:
                 monthly_growth=growth,
             )
 
+        # Every evaluation replays the same random stream (common random
+        # numbers), so a swing measures the parameter change rather than
+        # independent Monte Carlo noise, and a parameter with no path to
+        # revenue shows no swing. A private RandomState also keeps the live
+        # simulation thread's draws out of the stream.
+        sa_seed = 12345
+
+        def run_mc(overrides):
+            return mc_engine(**build_mc_kwargs(overrides),
+                             rng=np.random.RandomState(sa_seed))
+
         self._sa_progress.set("Running baseline...")
         self.tk_root.update_idletasks()
 
-        baseline = self._mc_engine(**build_mc_kwargs({}))
+        baseline = run_mc({})
         base_rev = baseline['mean']
 
         tornado = {}
         spider = {}
-        total_runs = len(param_defs) * (2 + n_steps)
+        # A parameter whose baseline is 0 (impulse rate, for instance, in a
+        # live session before any impulse purchase) cannot be moved by a
+        # multiplicative perturbation, and an additive one would add revenue
+        # the base revenue per customer already carries. Report those
+        # separately instead of ranking them at a zero swing, which reads as
+        # "this channel does not matter".
+        not_perturbable = [label for label in param_defs
+                           if abs(get_baseline(label)) <= 0.0]
+        active = {label: defs for label, defs in param_defs.items()
+                  if label not in not_perturbable}
+        total_runs = len(active) * (2 + n_steps)
         run_count = 0
 
-        for label, (pkey, lo_clamp, hi_clamp) in param_defs.items():
+        for label, (pkey, lo_clamp, hi_clamp) in active.items():
             bval = get_baseline(label)
             lo_val = bval * (1.0 - pct)
             hi_val = bval * (1.0 + pct)
@@ -182,12 +211,12 @@ class SensitivityMixin:
             run_count += 1
             self._sa_progress.set(f"Tornado {label} low... ({run_count}/{total_runs})")
             self.tk_root.update_idletasks()
-            lo_res = self._mc_engine(**build_mc_kwargs(make_override(lo_val)))
+            lo_res = run_mc(make_override(lo_val))
 
             run_count += 1
             self._sa_progress.set(f"Tornado {label} high... ({run_count}/{total_runs})")
             self.tk_root.update_idletasks()
-            hi_res = self._mc_engine(**build_mc_kwargs(make_override(hi_val)))
+            hi_res = run_mc(make_override(hi_val))
 
             tornado[label] = {
                 'baseline': bval,
@@ -201,6 +230,11 @@ class SensitivityMixin:
             spider_y = []
             for frac in fracs:
                 run_count += 1
+                if abs(frac) < 1e-12:
+                    # The unperturbed point is the baseline run itself.
+                    spider_x.append(0.0)
+                    spider_y.append(base_rev)
+                    continue
                 val = bval * (1.0 + frac)
                 if lo_clamp is not None:
                     val = max(lo_clamp, val)
@@ -210,18 +244,22 @@ class SensitivityMixin:
                 self._sa_progress.set(f"Spider {label} {frac:+.0%}... ({run_count}/{total_runs})")
                 self.tk_root.update_idletasks()
 
-                res = self._mc_engine(**build_mc_kwargs(make_override(val)))
-                spider_x.append(frac * 100)
+                res = run_mc(make_override(val))
+                # Plot the change actually applied, which is smaller than the
+                # requested fraction whenever a clamp binds.
+                spider_x.append((val / bval - 1.0) * 100)
                 spider_y.append(res['mean'])
             spider[label] = (spider_x, spider_y)
 
         self._sa_progress.set("Rendering...")
         self.tk_root.update_idletasks()
 
-        self._display_sensitivity_results(tornado, spider, base_rev, pct, n_days, n_iter)
+        self._display_sensitivity_results(tornado, spider, base_rev, pct, n_days,
+                                          n_iter, not_perturbable)
         self._sa_progress.set("Done.")
 
-    def _display_sensitivity_results(self, tornado, spider, base_rev, pct, n_days, n_iter):
+    def _display_sensitivity_results(self, tornado, spider, base_rev, pct, n_days,
+                                     n_iter, not_perturbable=()):
         sorted_t = sorted(tornado.items(), key=lambda kv: kv[1]['swing'], reverse=True)
         total_swing = sum(v['swing'] for v in tornado.values()) or 1.0
 
@@ -248,6 +286,16 @@ class SensitivityMixin:
             lines.append(f"       Swing:       ${d['swing']:>10,.2f}"
                          f"  ({pct_impact:.1f}% of baseline)")
             lines.append(f"       Contribution: {contribution:.1f}%")
+            lines.append("")
+
+        if not_perturbable:
+            lines.append("NOT PERTURBABLE (baseline 0)")
+            lines.append("-" * 44)
+            for label in not_perturbable:
+                lines.append(f"  {label}")
+            lines.append("  A +/- % change of zero is still zero, so these")
+            lines.append("  parameters are left out of the ranking rather")
+            lines.append("  than shown with no influence on revenue.")
             lines.append("")
 
         lines.append("INTERPRETATION")

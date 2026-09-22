@@ -19,6 +19,10 @@ seeds. Two artefacts:
 Important constraint: every method is evaluated with the SAME mc seed
 on the SAME scenario, so the comparison is a paired difference (not an
 independent-samples test). This removes MC noise from the comparison.
+The evaluation seed is held out: it lies outside every seed the GA,
+random search and SA use while searching. Every non-GA layout is mapped
+through ``feasible_layout`` (the GA's repair chain) before it is scored,
+so all methods are compared on the same feasible set.
 
 Smoke:
     python -m experiments.run_baseline_comparison --n-scenarios 3 \
@@ -27,6 +31,8 @@ Smoke:
 Paper-grade:
     python -m experiments.run_baseline_comparison --n-scenarios 30 \
         --n-seeds 10 --mc-iters 2000 --n-gens 25
+
+``--workers N`` runs scenarios in N processes; the CSV is unchanged.
 """
 
 from __future__ import annotations
@@ -36,7 +42,8 @@ import csv
 import os
 import sys
 import time
-from typing import Dict, List
+from concurrent.futures import ProcessPoolExecutor, as_completed
+from typing import Dict, List, Tuple
 
 import numpy as np
 
@@ -47,14 +54,15 @@ from synthetic_shops import generate_synthetic_shop, analytical_revenue
 from oracle import solve_oracle
 from baselines import (
     random_valid, perimeter_only, popularity_rank, greedy_swap,
-    assert_layout_valid,
+    assert_layout_valid, assert_no_strict_overlap,
 )
 from experiments._common import (
     build_headless_shop, base_params_for,
     paired_mc_revenue, run_ga_headless, chromosome_to_layout,
-    bootstrap_ci, make_run_dir, write_sidecar,
+    feasible_layout, bootstrap_ci, make_run_dir, write_sidecar,
 )
-from experiments.metaheuristics import random_search, simulated_annealing
+from experiments.metaheuristics import (random_search, simulated_annealing,
+                                        DEFAULT_INITIAL_ACCEPT)
 
 
 METHODS = [
@@ -78,15 +86,44 @@ def parse_args() -> argparse.Namespace:
     p.add_argument('--mc-days', type=int, default=30)
     p.add_argument('--n-gens', type=int, default=25)
     p.add_argument('--pop-size', type=int, default=30)
+    p.add_argument('--sa-initial-accept', type=float,
+                   default=DEFAULT_INITIAL_ACCEPT,
+                   help="Acceptance probability of a median worsening move "
+                        "at the annealer's starting temperature")
+    p.add_argument('--workers', type=int, default=1,
+                   help="Processes running scenarios in parallel")
     p.add_argument('--out-root', type=str,
                    default=os.path.join(_HERE, 'results'))
-    return p.parse_args()
+    args = p.parse_args()
+    if args.workers < 1:
+        p.error("--workers must be >= 1")
+    if not 0.0 < args.sa_initial_accept < 1.0:
+        p.error("--sa-initial-accept must lie strictly between 0 and 1")
+    # Search seeds of run seed s are s*1000 + [0, n_gens + 6) (generation or
+    # block seeds, a gap, then 5 final-selection seeds). These bounds keep
+    # each run's range clear of the next and all of them below the held-out
+    # evaluation seeds of ``eval_seed``.
+    if args.n_seeds > 1000 or args.n_gens + 6 > 1000:
+        p.error("--n-seeds and --n-gens + 6 must both be <= 1000 so search "
+                "and evaluation seeds stay disjoint")
+    return args
+
+
+def eval_seed(scenario_idx: int, seed: int) -> int:
+    """Held-out MC seed for the paired evaluation of one (scenario, seed).
+
+    Starts at 1_000_000, above every search seed (see ``parse_args``), so no
+    method has scored or selected a candidate under the noise draw it is
+    finally compared on."""
+    return 1_000_000 + 1000 * scenario_idx + seed
 
 
 def evaluate_methods_one_scenario(scenario_idx: int,
                                   seeds: List[int],
-                                  args: argparse.Namespace) -> List[Dict]:
-    """Returns a flat list of per-(method, seed) records for this scenario.
+                                  args: argparse.Namespace
+                                  ) -> Tuple[List[Dict], List[Dict]]:
+    """Returns the flat list of per-(method, seed) records for this
+    scenario, and per seed the fitness evaluations each search method spent.
 
     All MC evaluations share the same mc_seed -- the comparison is the
     PAIRED difference between method outputs."""
@@ -99,6 +136,10 @@ def evaluate_methods_one_scenario(scenario_idx: int,
     shop = build_headless_shop(shop_synth)
     item_names = [it.name for it in shop_synth.items]
     base_params = base_params_for(shop_synth)
+    # Every GA run starts from the as-built layout, whatever positions
+    # earlier calls on this shop have left behind.
+    init_layout = {n: tuple(shop.floors[1]['items'][n]['position'])
+                   for n in item_names}
 
     print(f"\n[scenario {scenario_idx:>3d}] shop dims "
           f"{shop_synth.width:.1f}x{shop_synth.height:.1f}, "
@@ -116,16 +157,26 @@ def evaluate_methods_one_scenario(scenario_idx: int,
     oracle_result = solve_oracle(shop_synth, n_restarts=24)
     pre_layouts['oracle'] = oracle_result.layout
     oracle_wall = time.perf_counter() - oracle_t0
+    # Score every method on the GA's feasible set: GA candidates always go
+    # through its repair (zone clipping, impulse projection, overlap
+    # resolution), so an unrepaired layout would be judged on different
+    # rules.
+    pre_layouts = {name: feasible_layout(shop, item_names, lay)
+                   for name, lay in pre_layouts.items()}
 
-    # Validate baselines (raise if any are bad)
+    # Validate the layouts that are scored (raise if any are bad). The
+    # simulator fitness penalizes any positive overlap, so the reference
+    # also gets the zero-tolerance check: solver contact residue would
+    # otherwise pass the tolerant check and still collapse its revenue.
     for name, lay in pre_layouts.items():
-        if name == 'oracle':
-            continue  # oracle isn't section-confined the same way
         assert_layout_valid(shop_synth, lay)
+        if name == 'oracle':
+            assert_no_strict_overlap(shop_synth, lay)
 
     # For each seed, run the GA fresh; baselines re-use their layout
     # but get re-evaluated against the same mc_seed for paired comparison.
     records: List[Dict] = []
+    eval_counts: List[Dict] = []
     for seed in seeds:
         t_seed = time.perf_counter()
         # GA run (fresh per seed)
@@ -139,32 +190,65 @@ def evaluate_methods_one_scenario(scenario_idx: int,
             mc_iters=args.mc_iters,
             mc_days=args.mc_days,
             rng_seed=seed,
+            init_layout=init_layout,
         )
         ga_layout = chromosome_to_layout(ga_out['best_chrom'], item_names)
         ga_wall = time.perf_counter() - ga_t0
 
         # Equal-budget metaheuristic comparators (audit R4.1, R4.2): each
         # searches the SAME MC objective under the GA's evaluation budget
-        # (pop_size * n_gens). Run fresh per seed, like the GA.
+        # (pop_size * n_gens search evaluations with one shared seed per
+        # pop_size block, then pop_size candidates under the GA's final
+        # selection seeds). Run fresh per seed, like the GA.
         budget = args.pop_size * args.n_gens
+        rs_stats: Dict = {}
         rs_t0 = time.perf_counter()
         rs_layout = random_search(
             shop, shop_synth, item_names, base_params,
-            seed=seed, budget=budget,
-            mc_iters=args.mc_iters, mc_days=args.mc_days)
+            seed=seed, budget=budget, block=args.pop_size,
+            mc_iters=args.mc_iters, mc_days=args.mc_days, stats=rs_stats)
         rs_wall = time.perf_counter() - rs_t0
+        sa_stats: Dict = {}
         sa_t0 = time.perf_counter()
         sa_layout = simulated_annealing(
             shop, shop_synth, item_names, base_params,
-            seed=seed, budget=budget,
-            mc_iters=args.mc_iters, mc_days=args.mc_days)
+            seed=seed, budget=budget, block=args.pop_size,
+            mc_iters=args.mc_iters, mc_days=args.mc_days,
+            initial_accept=args.sa_initial_accept, stats=sa_stats)
         sa_wall = time.perf_counter() - sa_t0
 
-        # Paired-MC evaluation: same mc_seed for all methods on this scenario+seed
-        mc_seed = 5000 + scenario_idx * 100 + seed
+        # The equal-budget check is on the SEARCH evaluations, which is what
+        # the budget argument buys. The final selection stage is not held to
+        # equality: SA ranks distinct archived states, so a search that
+        # revisits a state hands fewer than pop_size candidates to the final
+        # seeds, while the GA always re-evaluates a full population. Both
+        # counts are recorded so the difference stays visible.
+        counts = {'GA': ga_out['n_search_evals'],
+                  'random_search': rs_stats['n_search_evals'],
+                  'simulated_annealing': sa_stats['n_search_evals']}
+        if len(set(counts.values())) != 1:
+            raise AssertionError(
+                f"scenario {scenario_idx} seed {seed}: search methods spent "
+                f"unequal search-evaluation budgets {counts}")
+        eval_counts.append({
+            'scenario': scenario_idx, 'seed': seed, **counts,
+            'final_evals': {'GA': ga_out['n_final_evals'],
+                            'random_search': rs_stats['n_final_evals'],
+                            'simulated_annealing': sa_stats['n_final_evals']},
+            'sa_T0': sa_stats.get('sa_T0'),
+            'sa_initial_accept': sa_stats.get('sa_initial_accept'),
+        })
+
+        # Paired-MC evaluation: same held-out mc_seed for all methods on
+        # this scenario+seed.
+        mc_seed = eval_seed(scenario_idx, seed)
         all_layouts = dict(pre_layouts)
-        all_layouts['random_search'] = rs_layout
-        all_layouts['simulated_annealing'] = sa_layout
+        # Both searchers only evaluate repaired candidates, so these are
+        # fixed points of the repair; mapping them keeps the rule uniform.
+        all_layouts['random_search'] = feasible_layout(shop, item_names,
+                                                       rs_layout)
+        all_layouts['simulated_annealing'] = feasible_layout(shop, item_names,
+                                                             sa_layout)
         all_layouts['GA'] = ga_layout
 
         for method, lay in all_layouts.items():
@@ -202,7 +286,33 @@ def evaluate_methods_one_scenario(scenario_idx: int,
               f"({seed_wall:.1f}s: GA {ga_wall:.1f}s, "
               f"RS {rs_wall:.1f}s, SA {sa_wall:.1f}s)",
               flush=True)
-    return records
+    return records, eval_counts
+
+
+def _map_scenarios(fn, n_scenarios: int, workers: int, *fn_args) -> list:
+    """``[fn(s, *fn_args) for s in range(n_scenarios)]``, in scenario order.
+
+    With ``workers`` > 1 the scenarios run in separate processes. They are
+    independent (each builds its own shop and reseeds every RNG it draws
+    from), and results are put back in scenario order, so the output is
+    identical to the serial run."""
+    if workers <= 1:
+        return [fn(s, *fn_args) for s in range(n_scenarios)]
+    done = {}
+    pool = ProcessPoolExecutor(max_workers=workers)
+    try:
+        futures = {pool.submit(fn, s, *fn_args): s for s in range(n_scenarios)}
+        for fut in as_completed(futures):
+            done[futures[fut]] = fut.result()
+    except BaseException:
+        # Leaving the pool's context manager would wait for every queued
+        # scenario first, so a scenario that fails minutes into a run of
+        # hours would only report at the end. Drop what has not started and
+        # let the error out now.
+        pool.shutdown(wait=False, cancel_futures=True)
+        raise
+    pool.shutdown(wait=True)
+    return [done[s] for s in sorted(done)]
 
 
 def write_results_csv(out_dir: str, all_records: List[Dict]) -> str:
@@ -303,8 +413,12 @@ def main() -> int:
     wall_t0 = time.perf_counter()
 
     all_records: List[Dict] = []
-    for s in range(args.n_scenarios):
-        all_records.extend(evaluate_methods_one_scenario(s, seeds, args))
+    all_counts: List[Dict] = []
+    for records, counts in _map_scenarios(evaluate_methods_one_scenario,
+                                          args.n_scenarios, args.workers,
+                                          seeds, args):
+        all_records.extend(records)
+        all_counts.extend(counts)
 
     wall = time.perf_counter() - wall_t0
     print(f"\nTotal wall: {wall:.1f}s  ({len(all_records)} records)",
@@ -344,6 +458,27 @@ def main() -> int:
         'paired_diff_GA_minus_X': diffs,
         'n_scenarios': args.n_scenarios,
         'n_seeds_per_scenario': args.n_seeds,
+        'workers': args.workers,
+        'paired_eval_seed': '1_000_000 + 1000*scenario + seed',
+        # Distinct per-run search-evaluation totals of each search method
+        # (checked equal within every run), and the final-selection
+        # evaluations each spent on top of them.
+        'evaluation_counts': {
+            m: sorted({c[m] for c in all_counts})
+            for m in ('GA', 'random_search', 'simulated_annealing')
+        },
+        'final_evaluation_counts': {
+            m: sorted({c['final_evals'][m] for c in all_counts})
+            for m in ('GA', 'random_search', 'simulated_annealing')
+        },
+        # The annealing schedule each run actually used: T0 is calibrated
+        # per run from its own first block, so it is recorded per run
+        # rather than assumed constant.
+        'sa_schedule': {
+            'sa_initial_accept': args.sa_initial_accept,
+            'sa_T0': [{'scenario': c['scenario'], 'seed': c['seed'],
+                       'sa_T0': c['sa_T0']} for c in all_counts],
+        },
     })
     print(f"\nArtifacts in: {out_dir}")
     return 0

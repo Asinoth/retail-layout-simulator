@@ -12,10 +12,16 @@ Provides:
   * ``paired_mc_revenue(shop, item_names, layout, base_params, seed,
     mc_iters, mc_days)`` -- evaluate one layout's revenue under the
     simulator's fitness function with a FIXED RNG seed; paired across
-    layouts to remove MC noise from method comparisons.
+    layouts to remove MC noise from method comparisons. Leaves the
+    shop's item positions as it found them.
+  * ``feasible_layout(shop, item_names, layout)`` -- the GA's repair
+    chain as a layout -> layout map; every method's layouts go through
+    it before MC scoring.
   * ``bootstrap_ci(samples, alpha, n_boot)`` -- percentile bootstrap CI.
   * ``write_sidecar(out_dir, payload)`` -- JSON sidecar with seed +
-    git SHA + elasticity snapshot for reproducibility.
+    git SHA + elasticity snapshot for reproducibility. The git state
+    comes from a ``provenance_snapshot()`` taken when the run started,
+    not from the tree as it stands hours later when the file is written.
 
 Anti-Tk guarantee: ``build_headless_shop`` constructs an instance of
 ``HeadlessShop`` (defined here) which inherits the GA / projection /
@@ -57,6 +63,16 @@ from retail_literature import (
     ELASTICITY_IMP_BASE,  ELASTICITY_IMP_GAIN_MAX,
     ELASTICITY_BSK_BASE,  ELASTICITY_BSK_GAIN_MAX,
 )
+
+
+#: Tags mixed into the GA's array seeds. An array seed goes through
+#: MT19937's init_by_array, a different initialisation from the plain
+#: integer seeding used for the Monte Carlo evaluation seeds
+#: (``rng_seed*1000 + gen``), so the population and operator streams of one
+#: replication cannot silently repeat another replication's evaluation
+#: stream.
+_INIT_POP_STREAM_TAG = 0x1A17
+_OPERATOR_STREAM_TAG = 0x06A0
 
 
 # --- Headless shop class -------------------------------------------------
@@ -235,8 +251,9 @@ def build_headless_shop(synthetic: SyntheticShop) -> HeadlessShop:
     }
     # Per-category dwell time varies. Use literature-grounded ranges:
     # food categories ~15-25s, electronics ~60-120s (browse-heavy),
-    # impulse ~5-10s. Random within these bands so the dwell_alignment
-    # term in the GA composite isn't a constant.
+    # impulse ~5-10s. The GA composite does not score dwell; these
+    # samples only keep the analytics block complete for parameter
+    # extraction, which reads dwell_times_by_zone.
     dwell_ranges = {
         'Beverages':   (15.0, 25.0),
         'Snacks':      (15.0, 25.0),
@@ -471,7 +488,11 @@ def base_params_for_calibration(params: CalibratedParams) -> Dict[str, Any]:
     work without modification.
 
     Notes on the per-field derivation:
-      * ``customers_per_hour`` comes from the calibrated arrival rate.
+      * ``customers_per_hour`` is the calibrated VISITOR rate. The
+        transactional data only records buyers (invoices per open hour),
+        so visitors = buyers / assumed conversion; the MC engine applies
+        the conversion rate again, which makes simulated purchases
+        reproduce the observed invoice volume.
       * ``conversion_rate`` is the asserted assumption (not measured);
         same caveat as ``seed_into`` records under
         ``analytics['calibration']['conversion_rate_source']``.
@@ -492,7 +513,7 @@ def base_params_for_calibration(params: CalibratedParams) -> Dict[str, Any]:
     gross = float(revs.mean()) if revs.size else 1.0
     imp_val = max(gross * 0.15, 0.5)
     return {
-        'customers_per_hour': float(params.arrivals_per_hour),
+        'customers_per_hour': float(params.visitors_per_hour),
         'conversion_rate': float(params.assumed_conversion_rate),
         # NET of the expected impulse spend (audit #3).
         'rev_per_converting_customer': net_base_revenue(gross, 0.20, imp_val),
@@ -550,12 +571,26 @@ def paired_mc_revenue(shop: HeadlessShop,
     Paired-MC: callers MUST use the same ``seed`` across all candidates
     on the same scenario; this removes MC noise from the comparison
     so the per-method differences reflect real fitness gaps, not RNG
-    variance."""
-    apply_layout(shop, layout)
-    chrom = layout_to_chromosome(layout, item_names)
-    np.random.seed(seed)   # _mc_engine via _ga_fitness uses np.random
-    return float(shop._ga_fitness(chrom, item_names, base_params,
-                                  mc_days=mc_days, mc_iters=mc_iters))
+    variance.
+
+    The shop's previous item positions are restored before returning.
+    ``run_ga_headless`` seeds its population from the shop's positions
+    when no ``init_layout`` is given, so leaving the evaluated layout in
+    place would let one evaluation warm-start a later, supposedly
+    independent GA run."""
+    f1_items = shop.floors[1]['items']
+    saved = {n: f1_items[n]['position'] for n in layout if n in f1_items}
+    try:
+        apply_layout(shop, layout)
+        chrom = layout_to_chromosome(layout, item_names)
+        np.random.seed(seed)   # _mc_engine via _ga_fitness uses np.random
+        return float(shop._ga_fitness(chrom, item_names, base_params,
+                                      mc_days=mc_days, mc_iters=mc_iters))
+    finally:
+        # apply_layout rebinds 'position' to a new list, so the saved
+        # objects are the untouched originals.
+        for n, pos in saved.items():
+            f1_items[n]['position'] = pos
 
 
 # --- Headless GA loop ----------------------------------------------------
@@ -571,34 +606,36 @@ def _repair_chrom_overlaps(shop: "HeadlessShop",
     at overlapping positions -- the GA's overlap_penalty crushes the
     score and the GA can never escape the initial layout.
 
-    This is a 2D-aware repair: items within a section are sorted by
+    This is a 2D-aware repair: items within a zone are sorted by
     current position into a row-major grid, then snapped to evenly-
     spaced non-overlapping slots that preserve relative order. The
     chromosome's positional information is therefore retained as
-    *rank* (left-to-right, then top-to-bottom) rather than absolute
-    coordinates -- but a non-overlapping layout is always achievable
-    as long as the section can fit the items in a grid, which the
-    ``dataset_layout`` builder ensures by construction."""
+    *rank* (rows by y, then left-to-right by x within each row) rather
+    than absolute coordinates -- a non-overlapping layout is achievable
+    as long as the zone can fit its items in a grid.
+
+    Items are grouped by the section wall they belong to (``zone``, or
+    ``Section_<category>`` when the item carries no zone). A department
+    split over several zones is repaired zone by zone, so its items are
+    not pulled into one of them."""
     import math as _math
     out = chrom.copy()
 
-    # Group items by section
-    by_cat: Dict[str, List[int]] = {}
+    # Group items by zone
+    by_zone: Dict[str, List[int]] = {}
     sizes: List[Tuple[float, float]] = []
-    cats: List[str] = []
     for i, n in enumerate(item_names):
         d = shop._ga_get_item_data(n)
-        cat = d.get('category', '')
-        cats.append(cat)
+        zone = d.get('zone') or f"Section_{d.get('category', '')}"
         sizes.append(tuple(d.get('size', (1.0, 1.0))))
-        by_cat.setdefault(cat, []).append(i)
+        by_zone.setdefault(zone, []).append(i)
 
     walls = shop.floors[1].get('walls', {})
 
-    for cat, idx_list in by_cat.items():
+    for zone, idx_list in by_zone.items():
         if len(idx_list) < 2:
             continue
-        sec_wall = walls.get(f"Section_{cat}")
+        sec_wall = walls.get(zone)
         if sec_wall is None:
             continue
         sx, sy = sec_wall['position']
@@ -637,29 +674,45 @@ def _repair_chrom_overlaps(shop: "HeadlessShop",
             # Doesn't fit in this many cols; try the other orientation
             rows_needed = max(1, int(_math.floor((avail_h + gap) / (max_h + gap))))
             cols = int(_math.ceil(n / rows_needed))
-        # Sort items by current position (row-major: y then x) so we
-        # preserve the *rank* the GA chose.
-        sorted_idx = sorted(
-            idx_list,
-            key=lambda i: (out[i, 1], out[i, 0])
-        )
+        # Preserve the rank the GA chose on both axes: y decides the row,
+        # x decides the column within that row. A plain (y, x) sort would
+        # order columns by y as well, since real-valued y almost never ties.
+        by_y = sorted(idx_list, key=lambda i: out[i, 1])
+        rows = [sorted(by_y[r * cols:(r + 1) * cols], key=lambda i: out[i, 0])
+                for r in range(rows_needed)]
         step_x = (avail_w - max_w) / max(cols - 1, 1) if cols > 1 else 0.0
         step_y = (avail_h - max_h) / max(rows_needed - 1, 1) if rows_needed > 1 else 0.0
         # Ensure step >= item dim + gap (else overlap)
         step_x = max(step_x, max_w + gap)
         step_y = max(step_y, max_h + gap)
-        for k, i in enumerate(sorted_idx):
-            r = k // cols
-            c = k % cols
-            wi, hi = sizes[i]
-            x = sx + pad + c * step_x
-            y = sy + pad + r * step_y
-            # Clip to section (in case step pushed past)
-            x = max(sx + pad, min(x, sx + sw - wi - pad))
-            y = max(sy + pad, min(y, sy + sh - hi - pad))
-            out[i, 0] = x
-            out[i, 1] = y
+        for r, row in enumerate(rows):
+            for c, i in enumerate(row):
+                wi, hi = sizes[i]
+                x = sx + pad + c * step_x
+                y = sy + pad + r * step_y
+                # Clip to section (in case step pushed past)
+                x = max(sx + pad, min(x, sx + sw - wi - pad))
+                y = max(sy + pad, min(y, sy + sh - hi - pad))
+                out[i, 0] = x
+                out[i, 1] = y
     return out
+
+
+def feasible_layout(shop: "HeadlessShop",
+                    item_names: List[str],
+                    layout: Dict[str, Tuple[float, float]]
+                    ) -> Dict[str, Tuple[float, float]]:
+    """Map a layout onto the GA's feasible set.
+
+    Runs exactly the repair chain every GA candidate goes through
+    (``_ga_repair``: zone clipping and the impulse projection toward the
+    checkout; then ``_repair_chrom_overlaps``). Every method's layouts
+    pass through this before MC scoring so all methods are compared on,
+    and search over, the same feasible set. Deterministic: no RNG draws."""
+    chrom = layout_to_chromosome(layout, item_names)
+    chrom = shop._ga_repair(chrom, item_names)
+    chrom = _repair_chrom_overlaps(shop, chrom, item_names)
+    return chromosome_to_layout(chrom, item_names)
 
 
 def run_ga_headless(shop: HeadlessShop,
@@ -673,6 +726,7 @@ def run_ga_headless(shop: HeadlessShop,
                     mc_days: int = 30,
                     rng_seed: int = 0,
                     verbose: bool = False,
+                    init_layout: Optional[Dict[str, Tuple[float, float]]] = None,
                     ) -> Dict[str, Any]:
     """Run the same GA the GUI does, headlessly, with a fixed seed.
 
@@ -684,7 +738,18 @@ def run_ga_headless(shop: HeadlessShop,
           'history_best': [float] of length n_gens,
           'history_avg':  [float],
           'history_diversity': [float],
+          'n_search_evals': n_gens * pop_size,
+          'n_final_evals':  n_final_seeds * pop_size,
+          'n_evals':        total fitness evaluations,
         }
+
+    ``init_layout`` fixes the starting point: the initial population is
+    seeded from it instead of the shop's current item positions, so a
+    run does not depend on whatever layout earlier code left on the shop.
+    Search evaluations use MC seeds ``rng_seed*1000 + gen`` for gen in
+    [0, n_gens); final selection uses ``rng_seed*1000 + n_gens + 1 + s``
+    for s in [0, n_final_seeds). ``experiments.metaheuristics`` uses the
+    same namespaces and budget.
 
     Determinism / threading contract (audit R5.4): reproducibility from
     ``rng_seed`` relies on the GLOBAL numpy RNG (``np.random.seed`` inside
@@ -695,12 +760,25 @@ def run_ga_headless(shop: HeadlessShop,
     thread, so bit-identical reproducibility is NOT claimed for interactive
     runs; the paper's figures come from this headless path. See
     ``tests/test_ga_determinism.py``.
+
+    The population and operator streams are array-seeded so they stay
+    disjoint from the integer MC evaluation seeds above (see
+    ``_INIT_POP_STREAM_TAG``).
     """
-    np.random.seed(rng_seed)
+    np.random.seed([rng_seed, _INIT_POP_STREAM_TAG])
 
     n_elite = max(1, int(pop_size * elite_frac))
-    current = shop._ga_encode(item_names)
-    population: List[np.ndarray] = [current.copy()]
+    if init_layout is not None:
+        current = layout_to_chromosome(init_layout, item_names)
+    else:
+        current = shop._ga_encode(item_names)
+    # The starting layout enters through the same repair as every other
+    # candidate: an as-built fixture can sit flush on its zone edge, inside
+    # the clearance the repair enforces, and the GA must only ever score
+    # and return layouts from the feasible set its comparators are mapped to.
+    start = shop._ga_repair(current.copy(), item_names)
+    population: List[np.ndarray] = [
+        _repair_chrom_overlaps(shop, start, item_names)]
     for _ in range(pop_size - 1):
         noisy = current.copy()
         for i, n in enumerate(item_names):
@@ -734,6 +812,7 @@ def run_ga_headless(shop: HeadlessShop,
     history_avg:  List[float] = []
     history_diversity: List[float] = []
     _ga_diag = float(np.hypot(shop.width, shop.height))
+    n_evals = [0]
 
     def _paired_fitness(pop: List[np.ndarray], mc_seed: int) -> np.ndarray:
         """Evaluate every chromosome in ``pop`` under the SAME RNG seed
@@ -748,6 +827,7 @@ def run_ga_headless(shop: HeadlessShop,
             np.random.seed(mc_seed)
             out[k] = shop._ga_fitness(p, item_names, base_params,
                                       mc_days, mc_iters)
+        n_evals[0] += len(pop)
         return out
 
     # GA-loop RNG (used for crossover/mutation/tournament) is separated
@@ -755,7 +835,7 @@ def run_ga_headless(shop: HeadlessShop,
     # candidates without disturbing the former. We use Python's random
     # for GA-loop choices via numpy, and reseed np.random freshly inside
     # ``_paired_fitness`` for each MC eval.
-    ga_rng = np.random.RandomState(rng_seed + 1)
+    ga_rng = np.random.RandomState([rng_seed, _OPERATOR_STREAM_TAG])
 
     for gen in range(n_gens):
         # Every candidate in this generation shares one MC seed -> the
@@ -818,6 +898,7 @@ def run_ga_headless(shop: HeadlessShop,
     # ``n_final_seeds`` seeds reduces SE by sqrt(n) and lets the GA's
     # genuine improvements show through.
     n_final_seeds = 5
+    n_search_evals = n_evals[0]
     final_fits_stack = np.zeros((n_final_seeds, len(population)), dtype=np.float64)
     for s_idx in range(n_final_seeds):
         seed_s = rng_seed * 1000 + n_gens + 1 + s_idx
@@ -830,6 +911,9 @@ def run_ga_headless(shop: HeadlessShop,
         'history_best': history_best,
         'history_avg':  history_avg,
         'history_diversity': history_diversity,
+        'n_search_evals': n_search_evals,
+        'n_final_evals':  n_evals[0] - n_search_evals,
+        'n_evals':        n_evals[0],
     }
 
 
@@ -869,6 +953,52 @@ def git_sha() -> str:
         return "no-git"
 
 
+def git_worktree_state() -> Dict[str, Any]:
+    """Uncommitted state of the checkout the run was made from.
+
+    ``git_sha`` names HEAD only; a run made from a working tree with edits
+    on top of it would otherwise point at a commit that does not contain
+    the code that produced its numbers. Tracked edits are captured by
+    hashing ``git diff HEAD`` over the executable files only (``*.py`` plus
+    the build entry points), so that two runs of the same code hash the
+    same even when the manuscript or the notes have moved in between.
+    Untracked ``.py`` files are hashed as well, since a new module can
+    change results without appearing in that diff. Other untracked paths
+    (result directories, including this run's own) are ignored so that a
+    clean checkout does not read as dirty.
+    """
+    cwd = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+    def _git(*args: str) -> bytes:
+        return subprocess.check_output(['git', *args],
+                                       stderr=subprocess.DEVNULL, cwd=cwd)
+
+    try:
+        top = _git('rev-parse', '--show-toplevel').decode().strip()
+        modified = _git('status', '--porcelain',
+                        '--untracked-files=no').decode().splitlines()
+        untracked = [p for p in _git('ls-files', '--others',
+                                     '--exclude-standard', '--full-name',
+                                     '-z', '--', ':(top)*.py')
+                     .decode().split('\0') if p]
+        h = hashlib.sha256(_git('diff', 'HEAD', '--no-ext-diff', '--',
+                                ':(top)*.py', ':(top)Makefile',
+                                ':(top)reproduce.ps1',
+                                ':(top)requirements.txt'))
+        for rel in sorted(untracked):
+            h.update(rel.encode())
+            with open(os.path.join(top, rel), 'rb') as f:
+                h.update(f.read())
+        return {
+            'git_dirty':        bool(modified or untracked),
+            'git_diff_sha256':  h.hexdigest(),
+            'git_modified':     modified,
+            'git_untracked_py': sorted(untracked),
+        }
+    except Exception:
+        return {'git_dirty': None, 'git_diff_sha256': None}
+
+
 def elasticity_snapshot() -> Dict[str, Any]:
     return {
         'GA_weights': asdict(GaWeights()),
@@ -895,12 +1025,39 @@ def package_versions() -> Dict[str, str]:
     return out
 
 
-def write_sidecar(out_dir: str, payload: Dict[str, Any]) -> str:
+def provenance_snapshot() -> Dict[str, Any]:
+    """HEAD plus the uncommitted state of the checkout, as of right now.
+
+    Runners take this at start-up and hand it to ``write_sidecar``: a
+    paper-grade run can finish hours after its code was imported, and the
+    working tree may have moved on in between, so reading the tree when the
+    sidecar is written would describe code the run never executed."""
+    return {'git_sha': git_sha(), **git_worktree_state()}
+
+
+# Fallback for callers that do not take their own snapshot: the state as
+# the experiment code was imported, which is at least no later than the
+# first line of the run.
+_PROVENANCE_AT_IMPORT: Dict[str, Any] = provenance_snapshot()
+
+
+def write_sidecar(out_dir: str, payload: Dict[str, Any],
+                  provenance: Optional[Dict[str, Any]] = None) -> str:
     """Write a JSON sidecar with the merged payload + provenance fields.
-    Returns the absolute path."""
+    Returns the absolute path.
+
+    ``provenance`` is a ``provenance_snapshot()`` taken when the run
+    started; without it the import-time snapshot is used. The checkout is
+    read again here, and ``git_state_changed_during_run`` records whether
+    it moved while the run was in flight."""
     os.makedirs(out_dir, exist_ok=True)
+    prov = dict(provenance if provenance is not None else _PROVENANCE_AT_IMPORT)
+    at_write = provenance_snapshot()
+    prov['git_state_changed_during_run'] = bool(
+        at_write.get('git_sha') != prov.get('git_sha')
+        or at_write.get('git_diff_sha256') != prov.get('git_diff_sha256'))
     full = {
-        'git_sha':           git_sha(),
+        **prov,
         'python':            sys.version.split()[0],
         'platform':          platform.platform(),
         'packages':          package_versions(),
@@ -916,8 +1073,21 @@ def write_sidecar(out_dir: str, payload: Dict[str, Any]) -> str:
 
 def make_run_dir(parent: str, prefix: str) -> str:
     """Create a timestamped subdirectory under ``parent`` for one run.
-    Returns the absolute path."""
+    Returns the absolute path.
+
+    The directory is created exclusively: two runs of the same experiment
+    started within the same second would otherwise share a directory and
+    overwrite each other's results, with nothing to show for it. The
+    disambiguating suffix goes AFTER the timestamp, zero-padded so that it
+    stays in numeric order past the ninth, and the newest-by-name ordering
+    the macro tooling relies on still holds."""
     stamp = time.strftime('%Y%m%d-%H%M%S')
-    out = os.path.join(parent, f'{prefix}_{stamp}')
-    os.makedirs(out, exist_ok=True)
-    return out
+    base = os.path.join(parent, f'{prefix}_{stamp}')
+    for attempt in range(1, 100):
+        out = base if attempt == 1 else f'{base}-{attempt:02d}'
+        try:
+            os.makedirs(out)
+            return out
+        except FileExistsError:
+            continue
+    raise RuntimeError(f"could not create a fresh run directory for {base}")

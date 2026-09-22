@@ -33,9 +33,15 @@ if __name__ == "__main__":
     root = tk.Tk()
     root.withdraw()
 
-    area  = simpledialog.askfloat("Shop Size", "Total area (m²):", parent=root)
-    width = simpledialog.askfloat("Shop Size", "Width (m):",        parent=root)
-    depth = simpledialog.askfloat("Shop Size", "Depth (m):",        parent=root)
+    # The dimensions size the heat-map arrays and every geometry cache, so a
+    # zero or negative entry either opens a degenerate shop or fails while the
+    # simulation is being built. askfloat keeps re-asking below its minimum.
+    area  = simpledialog.askfloat("Shop Size", "Total area (m²):", parent=root,
+                                  minvalue=1.0)
+    width = simpledialog.askfloat("Shop Size", "Width (m):",        parent=root,
+                                  minvalue=1.0)
+    depth = simpledialog.askfloat("Shop Size", "Depth (m):",        parent=root,
+                                  minvalue=1.0)
 
     if None in (area, width, depth):
         print("Cancelled.")

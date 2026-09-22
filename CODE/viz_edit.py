@@ -116,7 +116,7 @@ class EditMixin:
             dlg,
             text="Rotate 90°",
             width=10,
-            command=lambda: [self._rotate_item(), dlg.destroy()]
+            command=lambda: [self._rotate_item(obj_name, obj_type), dlg.destroy()]
         ).grid(row=6, column=0, columnspan=2, pady=5)
 
         # 8) Duplicate & Delete
@@ -143,7 +143,10 @@ class EditMixin:
                     "Name cannot be empty",
                     parent=dlg)
                 return
-            if new_nm != obj_name and new_nm in target:
+            # Items and walls share one name space on a floor (the add and
+            # connector-rename paths check both), so a rename must not collide
+            # with either.
+            if new_nm != obj_name and (new_nm in self.items or new_nm in self.walls):
                 messagebox.showerror("Error",
                     f"Name '{new_nm}' already exists",
                     parent=dlg)
@@ -152,6 +155,36 @@ class EditMixin:
             # apply changes
             if new_nm != obj_name:
                 target[new_nm] = target.pop(obj_name)
+                # Prices are keyed by item name; move the (possibly calibrated)
+                # price with the item so the new name is not given a random
+                # default price at the next simulation start.
+                if obj_type == 'item' and obj_name in self.prices:
+                    self.prices[new_nm] = self.prices.pop(obj_name)
+                if obj_type == 'item':
+                    if 'source_name' in target[new_nm]:
+                        target[new_nm]['source_name'] = new_nm
+                    # The calibration is keyed on floor 1's item names, the
+                    # floor a dataset layout is built on; a same-named item
+                    # on another floor does not own those entries.
+                    if self.current_floor == 1:
+                        self._rekey_item_calibration(obj_name, new_nm)
+                elif obj_name.startswith('Section_'):
+                    # Generated and dataset-built fixtures name their
+                    # department's Section_ wall in 'zone', and the optimizer
+                    # keeps each item inside that rectangle. Follow the
+                    # rename; a name without the prefix is no longer a
+                    # section, so the stamp is dropped rather than pointing
+                    # the items at an ordinary wall.
+                    for itm in self.items.values():
+                        if itm.get('zone') == obj_name:
+                            if new_nm.startswith('Section_'):
+                                itm['zone'] = new_nm
+                            else:
+                                itm.pop('zone', None)
+                # Walkability follows the name ('Checkout*' and 'Section_'
+                # walls are walk-up areas), and the zone table is built from
+                # the section names, so a rename changes the live geometry.
+                self._invalidate_sim_geometry()
             target[new_nm]['color']     = new_color
             target[new_nm]['textcolor'] = new_text_color
             target[new_nm]['font']      = font_var.get()
@@ -173,7 +206,39 @@ class EditMixin:
         dlg.geometry(f"{w}x{h}+{x0}+{y0}")
         dlg.grab_set()
         self.tk_root.wait_window(dlg)
-        
+
+    def _rekey_item_calibration(self, old_name, new_name):
+        """Move an item's calibrated data onto its new name.
+
+        The dataset pipeline keys popularity, per-item conversion and the
+        co-purchase pairs on the shop's item names, so a rename would leave
+        them behind and the item would be scored and optimized as if it had
+        never been observed."""
+        sim = getattr(self, 'customer_simulation', None)
+        cal = (getattr(sim, 'analytics', None) or {}).get('calibration')
+        if not cal:
+            return
+        for key in ('popular_items', 'item_conversion_rates'):
+            d = cal.get(key)
+            if isinstance(d, dict) and old_name in d:
+                d[new_name] = d.pop(old_name)
+        cross = cal.get('cross_merchandising')
+        if isinstance(cross, dict):
+            renamed = {}
+            for pair, count in list(cross.items()):
+                a, sep, b = str(pair).partition('|')
+                if not sep or old_name not in (a, b):
+                    continue
+                cross.pop(pair, None)
+                a = new_name if a == old_name else a
+                b = new_name if b == old_name else b
+                renamed[f"{a}|{b}"] = count
+            cross.update(renamed)
+        # Spawning agents cache basket weights built from these dicts.
+        try:
+            sim._basket_struct_cache = None
+        except Exception:
+            pass
 
     def _on_handle_drag(self, dr, mx, my):
         """Resize with collision detection and opposite-side fallback.
@@ -185,8 +250,13 @@ class EditMixin:
         patch = dr.main_patch
         if patch is None:
             return
-        x0, y0 = patch.get_xy()
-        w0, h0 = patch.get_width(), patch.get_height()
+        # Anchor on the geometry the drag started from (drag.py records it on
+        # press), so a candidate that moved the far edge cannot be measured
+        # against itself on the next motion event.
+        geom = getattr(dr, 'resize_start', None)
+        if geom is None:
+            geom = (*patch.get_xy(), patch.get_width(), patch.get_height())
+        x0, y0, w0, h0 = geom
         corner = dr.corner
         right = x0 + w0
         top = y0 + h0
@@ -198,9 +268,10 @@ class EditMixin:
             nat_x = x0
             opp_x = right - des_w
         elif corner in ('ll', 'ml', 'ul'):
-            # Left edge follows mouse
+            # Left edge follows mouse; the right edge stays put even when
+            # the width is clamped to its minimum.
             des_w = max(right - mx, 0.1)
-            nat_x = mx
+            nat_x = right - des_w
             opp_x = x0
         else:  # 'tm', 'bm' -- width unchanged
             des_w = w0
@@ -208,16 +279,18 @@ class EditMixin:
             opp_x = x0
 
         # -- Y axis: compute desired height + natural/opposite origins --
+        # The layout axes are y-up: 'ul'/'ur'/'tm' handles sit on the top
+        # edge (y0 + h0) and 'll'/'lr'/'bm' handles on the bottom edge (y0).
         if corner in ('lr', 'll', 'bm'):
-            # Lower edge follows mouse
+            # Bottom edge follows mouse
+            des_h = max(top - my, 0.1)
+            nat_y = top - des_h
+            opp_y = y0
+        elif corner in ('ur', 'ul', 'tm'):
+            # Top edge follows mouse
             des_h = max(my - y0, 0.1)
             nat_y = y0
             opp_y = top - des_h
-        elif corner in ('ur', 'ul', 'tm'):
-            # Upper edge follows mouse
-            des_h = max(top - my, 0.1)
-            nat_y = my
-            opp_y = y0
         else:  # 'ml', 'mr' -- height unchanged
             des_h = h0
             nat_y = y0
@@ -249,8 +322,27 @@ class EditMixin:
                 patch.set_width(nw)
                 patch.set_height(nh)
                 self._on_patch_moved(patch)
-                self._remove_resize_handles()
-                self._show_resize_handles(patch)
+                # Move the existing handles instead of rebuilding them:
+                # rebuilding disconnects the handle being dragged, so the
+                # resize would stop after the first motion event. The
+                # dimension labels are dropped until release, when drag.py's
+                # on_release rebuilds handles and labels at the final size.
+                hs = dr.patch.get_width()
+                handle_positions = {
+                    'ul': (nx - hs/2, ny + nh - hs/2),
+                    'ur': (nx + nw - hs/2, ny + nh - hs/2),
+                    'll': (nx - hs/2, ny - hs/2),
+                    'lr': (nx + nw - hs/2, ny - hs/2),
+                    'tm': (nx + nw/2 - hs/2, ny + nh - hs/2),
+                    'bm': (nx + nw/2 - hs/2, ny - hs/2),
+                    'ml': (nx - hs/2, ny + nh/2 - hs/2),
+                    'mr': (nx + nw - hs/2, ny + nh/2 - hs/2),
+                }
+                for handle in self.resize_handles:
+                    if handle.corner in handle_positions:
+                        handle.patch.set_xy(handle_positions[handle.corner])
+                self._remove_dimension_annotations()
+                self._update_status_bar()
                 self.canvas.draw_idle()
                 return
         # All candidates collide -- don't resize

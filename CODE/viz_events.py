@@ -22,11 +22,38 @@ from scipy import stats as sp_stats
 class EventsMixin:
     """Mouse / keyboard / context-menu / rotate / color / resize event handlers."""
 
+    def _handles_at_press(self, mouse):
+        """The resize handles that were already on screen for this mouse event.
+
+        Figure.pick fires one pick per artist under the cursor in draw order,
+        so a section picked first has built its own handles before the item
+        drawn on top of it is picked. Testing the item's pick against those
+        brand-new handles would give the section the selection for every
+        click that happens to land in one of its handle squares, which on a
+        generated layout is where most shelf items sit.
+        """
+        if getattr(self, '_pick_mouse_event', None) is not mouse:
+            self._pick_mouse_event = mouse
+            self._press_handle_patches = [dr.patch for dr in self.resize_handles]
+        return [h for h in self._press_handle_patches if h.axes is not None]
+
     def _on_patch_picked(self, event):
         if getattr(self, 'hand_mode', False):
             return
         patch = event.artist
         if any(dr.patch is patch for dr in self.resize_handles):
+            return
+        mouse = getattr(event, 'mouseevent', None)
+        # matplotlib routes scroll events through pick as well, so without
+        # this a wheel zoom over an object would select it and drop the
+        # selection the user was working with.
+        if mouse is not None and mouse.name != 'button_press_event':
+            return
+        # A press on a resize handle belongs to the handle. Re-selecting here
+        # runs before the handle's own press callback and would rebuild (and
+        # disconnect) the handles, or hand the selection to a Section below.
+        if mouse is not None and any(h.contains(mouse)[0]
+                                     for h in self._handles_at_press(mouse)):
             return
         if self.selected_patch and self.selected_patch is not patch:
             self.selected_patch.set_edgecolor('black')
@@ -75,6 +102,10 @@ class EventsMixin:
                     self._open_edit_dialog(p)
                 return
 
+        # Resize handles stick out past the selected patch; a press on one
+        # starts a resize and must not deselect the patch.
+        if any(dr.patch.contains(event)[0] for dr in self.resize_handles):
+            return
         for p in list(self.item_patches.values()) + list(self.wall_patches.values()):
             contains, _ = p.contains(event)
             if contains:
@@ -306,8 +337,7 @@ class EventsMixin:
         if self.selected_patch is not None:
             self.selected_patch = None
         self._remove_resize_handles()
-        if hasattr(self, 'customer_simulation'):
-            self.customer_simulation.geometry_dirty = True
+        self._invalidate_sim_geometry()
         self.redraw()
 
     def _on_color_btn_for(self, patch, name, obj_type):
@@ -326,24 +356,49 @@ class EventsMixin:
         orig = self.items[name]
         x, y = orig['position']
         w, h = orig['size']
-        new_x = x + w + 0.2
-        if new_x + w > self.width:
-            new_x = max(0, x - w - 0.2)
+        # Try beside, then above/below the original, then the nearest free
+        # spot. _connector_position_is_free applies the item drag rules
+        # (shop bounds, non-section walls, other items), so the copy never
+        # lands on a neighbour.
+        floor_id = self.current_floor
+        new_pos = None
+        for cx, cy in ((x + w + 0.2, y), (x - w - 0.2, y),
+                       (x, y + h + 0.2), (x, y - h - 0.2)):
+            if self._connector_position_is_free(floor_id, cx, cy, w, h):
+                new_pos = (cx, cy)
+                break
+        if new_pos is None:
+            cx, cy = self._find_connector_position(floor_id, x + w + 0.2, y,
+                                                   size=(w, h))
+            if self._connector_position_is_free(floor_id, cx, cy, w, h):
+                new_pos = (cx, cy)
+        if new_pos is None:
+            messagebox.showwarning(
+                "Duplicate",
+                f"No free space found for a copy of '{name}'.",
+                parent=self.tk_root
+            )
+            return
         new_name = f"{name}_copy"
         idx = 2
         while new_name in self.items:
             new_name = f"{name}_copy{idx}"
             idx += 1
-        self.items[new_name] = {
-            "position": (new_x, y),
-            "size":     (w, h),
-            "category": orig.get('category', ''),
-            "color":     orig.get('color'),
-            "textcolor": orig.get('textcolor'),
-            "font":      orig.get('font'),
-            "fontsize":  orig.get('fontsize'),
-            "price":     orig.get('price'),
-        }
+        # Deep-copy so keys the original lacks stay absent (a stored None
+        # fontsize or price breaks redraw and checkout) and dataset metadata
+        # such as product_id is kept.
+        new = copy.deepcopy(orig)
+        new['position'] = new_pos
+        # Dataset layouts stamp the source row's name on every fixture, and
+        # the analytics rollups key an item's visits, conversion and price on
+        # it. The copy is a new fixture with no history of its own, so it has
+        # to carry its own name or it would be scored like the original.
+        if 'source_name' in new:
+            new['source_name'] = new_name
+        self.items[new_name] = new
+        if name in self.prices:
+            self.prices[new_name] = self.prices[name]
+        self._invalidate_sim_geometry()
         self.redraw()
 
     def _context_delete(self, name, obj_type):
@@ -391,7 +446,23 @@ class EventsMixin:
             )
             return
 
+        # Apply the same overlap rules as drag and handle resize.
+        patches = self.item_patches if obj_type == 'item' else self.wall_patches
+        patch = patches.get(name)
+        if patch is not None and self._resize_collides(patch, x, y, h, w):
+            messagebox.showwarning(
+                "Rotate",
+                f"Rotating '{name}' would overlap another object.",
+                parent=self.tk_root
+            )
+            return
+
         entry['size'] = (h, w)
+        # A running simulation only rebuilds its path grid and zone cache
+        # when told the geometry changed.
+        if hasattr(self, 'customer_simulation'):
+            self.customer_simulation.geometry_dirty = True
+            self.customer_simulation.invalidate_zones_cache()
         self.redraw()
 
 
@@ -498,6 +569,19 @@ class EventsMixin:
                         messagebox.showerror("Error",
                             f"Resize overlaps item '{iname}'.", parent=dlg)
                         return
+            elif obj_type == 'wall' and obj_name.startswith('Section_'):
+                # Sections contain items by design; as with drag and handle
+                # resize, a section only must not overlap other sections.
+                for wname, wdict in self.walls.items():
+                    if wname == obj_name or not wname.startswith('Section_'):
+                        continue
+                    wx, wy = wdict['position']
+                    ww, wh = wdict['size']
+                    if not (x + new_w <= wx or x >= wx + ww or
+                            y + new_h <= wy or y >= wy + wh):
+                        messagebox.showerror("Error",
+                            f"Resize overlaps section '{wname}'.", parent=dlg)
+                        return
             elif obj_type == 'wall':
                 for iname, idata in self.items.items():
                     ix, iy = idata['position']
@@ -512,6 +596,10 @@ class EventsMixin:
                 self.items[obj_name]['size'] = (new_w, new_h)
             else:
                 self.walls[obj_name]['size'] = (new_w, new_h)
+            # redraw() only repaints; the live loop keeps walking the old
+            # path grid, and agents keep being credited to the old section
+            # rectangles, until the caches are flagged.
+            self._invalidate_sim_geometry()
             dlg.destroy()
             self.redraw()
 

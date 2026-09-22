@@ -67,7 +67,7 @@ def main():
         params = DC.calibrate_transactional(norm, currency='GBP')
         # small per-category cap keeps item labels legible in the figure
         build_layout_from_calibration(v, params, max_items_per_category=4)
-        params.seed_into(v.customer_simulation)
+        params.seed_into(v.customer_simulation, shop=v)
         v.current_tab = 'Layout'
         v.redraw()
         _save_canvas(root, v, os.path.join(FIGS, 'gui_layout.png'))

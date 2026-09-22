@@ -1,0 +1,198 @@
+{
+  "git_sha": "a59978624f510c90f89d4bd758295e0b65c62f12",
+  "git_dirty": true,
+  "git_diff_sha256": "659115dd80658672d6864bd0c6dffc913819f9bc9de4a3b12bcba36de01a1b91",
+  "git_modified": [
+    " M CODE/architecture_smoke.py",
+    " M CODE/baselines.py",
+    " M CODE/customer.py",
+    " M CODE/customer_pathfinding.py",
+    " M CODE/dataset_adapters.py",
+    " M CODE/dataset_calibration.py",
+    " M CODE/dataset_layout.py",
+    " M CODE/dataset_provenance.py",
+    " M CODE/dataset_schema.py",
+    " M CODE/dataset_smoke.py",
+    " M CODE/dataset_validation.py",
+    " M CODE/drag.py",
+    " M CODE/experiments/_common.py",
+    " M CODE/experiments/make_paper_figures.py",
+    " M CODE/experiments/measure_queueing.py",
+    " M CODE/experiments/metaheuristics.py",
+    " M CODE/experiments/restyle_figures.py",
+    " M CODE/experiments/run_abm_diagnostics.py",
+    " M CODE/experiments/run_baseline_comparison.py",
+    " M CODE/experiments/run_elasticity_lhs.py",
+    " M CODE/experiments/run_ga_sensitivity.py",
+    " M CODE/experiments/run_mc_groundtruth.py",
+    " M CODE/experiments/run_real_data_example.py",
+    " M CODE/experiments/run_structural_sensitivity.py",
+    " M CODE/experiments/run_synthetic_gt.py",
+    " M CODE/figstyle.py",
+    " M CODE/main.py",
+    " M CODE/make_gui_figures.py",
+    " M CODE/make_results_macros.py",
+    " M CODE/make_status_report.py",
+    " M CODE/oracle.py",
+    " M CODE/retail_literature.py",
+    " M CODE/shop_architecture.py",
+    " M CODE/sim_analytics.py",
+    " M CODE/sim_calibration.py",
+    " M CODE/sim_geometry.py",
+    " M CODE/simulation.py",
+    " M CODE/synthetic_shops.py",
+    " M CODE/tests/test_dataset_cleaning.py",
+    " M CODE/tests/test_elasticity.py",
+    " M CODE/tests/test_ga_determinism.py",
+    " M CODE/tests/test_layout_feasibility.py",
+    " M CODE/tests/test_markov.py",
+    " M CODE/tests/test_mc_engine.py",
+    " M CODE/visualizer.py",
+    " M CODE/viz_addops.py",
+    " M CODE/viz_dataset.py",
+    " M CODE/viz_edit.py",
+    " M CODE/viz_events.py",
+    " M CODE/viz_ga.py",
+    " M CODE/viz_ga_run.py",
+    " M CODE/viz_generate.py",
+    " M CODE/viz_heatmap.py",
+    " M CODE/viz_layout.py",
+    " M CODE/viz_markov.py",
+    " M CODE/viz_metrics.py",
+    " M CODE/viz_optimize.py",
+    " M CODE/viz_optimize_helpers.py",
+    " M CODE/viz_optimize_results.py",
+    " M CODE/viz_projections.py",
+    " M CODE/viz_sensitivity.py",
+    " M CODE/viz_simtab.py",
+    " M CODE/viz_validation.py",
+    " M CODE/viz_whatif.py",
+    " M Makefile",
+    " M reproduce.ps1"
+  ],
+  "git_untracked_py": [
+    "CODE/experiments/make_layout_previews.py",
+    "CODE/experiments/run_validation_gof.py",
+    "CODE/tests/test_arrival_process.py",
+    "CODE/tests/test_calibration_rates.py",
+    "CODE/tests/test_feasibility_parity.py",
+    "CODE/tests/test_fixed_step.py",
+    "CODE/tests/test_live_agent.py",
+    "CODE/tests/test_live_runner_workers.py",
+    "CODE/tests/test_obstacles.py"
+  ],
+  "git_state_changed_during_run": false,
+  "python": "3.13.2",
+  "platform": "Windows-11-10.0.26200-SP0",
+  "packages": {
+    "numpy": "2.2.4",
+    "scipy": "1.15.3",
+    "pandas": "2.2.3",
+    "matplotlib": "3.10.1",
+    "openpyxl": "3.1.5"
+  },
+  "iso_time": "2026-09-22T17:09:55",
+  "elasticities": {
+    "GA_weights": {
+      "traffic": 0.16,
+      "cross_merch": 0.16,
+      "impulse": 0.16,
+      "flow": 0.16,
+      "revenue_placement": 0.16,
+      "section_compliance": 0.16,
+      "accessibility": 0.04,
+      "overlap_penalty": 0.8,
+      "bottleneck_penalty": 0.2
+    },
+    "ELASTICITY_CONV_BASE": 0.2,
+    "ELASTICITY_CONV_GAIN_MAX": 0.3,
+    "ELASTICITY_IMP_BASE": 0.3,
+    "ELASTICITY_IMP_GAIN_MAX": 0.4,
+    "ELASTICITY_BSK_BASE": 0.1,
+    "ELASTICITY_BSK_GAIN_MAX": 0.2
+  },
+  "experiment": "mc_groundtruth",
+  "args": {
+    "n_scenarios": 6,
+    "n_items": 8,
+    "normal_budget": 750,
+    "big_budget": 7500,
+    "mc_iters": 1000,
+    "mc_days": 30,
+    "confirm_seeds": 15,
+    "sa_initial_accept": 0.8,
+    "workers": 6,
+    "out_root": "C:\\Users\\alext\\OneDrive\\Desktop\\refactor\\CODE\\experiments\\results"
+  },
+  "wall_seconds": 480.9075002999998,
+  "workers": 6,
+  "evaluation_counts": {
+    "random_search_big": [
+      7500
+    ],
+    "simulated_annealing_big": [
+      7500
+    ],
+    "GA_big": [
+      7500
+    ],
+    "GA_normal": [
+      750
+    ]
+  },
+  "final_evaluation_counts": {
+    "random_search_big": [
+      150
+    ],
+    "simulated_annealing_big": [
+      150
+    ],
+    "GA_big": [
+      150
+    ],
+    "GA_normal": [
+      150
+    ]
+  },
+  "sa_schedule": {
+    "sa_initial_accept": 0.8,
+    "sa_T0": [
+      {
+        "scenario": 0,
+        "sa_T0": 145.5370495818323
+      },
+      {
+        "scenario": 1,
+        "sa_T0": 39.55571114549219
+      },
+      {
+        "scenario": 2,
+        "sa_T0": 21.689592215880175
+      },
+      {
+        "scenario": 3,
+        "sa_T0": 43.24033892165121
+      },
+      {
+        "scenario": 4,
+        "sa_T0": 47.78437501267449
+      },
+      {
+        "scenario": 5,
+        "sa_T0": 40.47546154540339
+      }
+    ]
+  },
+  "summary": {
+    "mc_regret_median_pct": 0.21558408122958994,
+    "mc_regret_mean_pct": 0.18998746441086242,
+    "mc_regret_max_pct": 0.37168508244549,
+    "mc_regret_min_pct": 0.011347777301980982,
+    "n_negative_regret": 0,
+    "n_best_known_is_ga_normal": 0,
+    "n_scenarios": 6,
+    "normal_budget": 750,
+    "big_budget": 7500,
+    "mc_iters": 1000
+  }
+}

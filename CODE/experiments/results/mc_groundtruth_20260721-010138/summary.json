@@ -1,9 +1,0 @@
-{
-  "mc_regret_median_pct": 0.09385500951061865,
-  "mc_regret_mean_pct": 0.04256373315334739,
-  "mc_regret_max_pct": 0.19226228115168084,
-  "n_scenarios": 6,
-  "normal_budget": 750,
-  "big_budget": 7500,
-  "mc_iters": 1000
-}

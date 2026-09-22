@@ -36,6 +36,15 @@ from dataset_schema import (
 )
 
 
+# Version of the readers in this module (sheet concatenation and
+# cross-sheet de-duplication, separator/encoding detection, the choice of
+# files inside the Omnichannel bundle). Callers stamp it into provenance
+# next to the adapter version so a record identifies the whole ingestion
+# path, not the adapter alone. Bump it, like an adapter's own ``version``,
+# whenever the rows a source yields change.
+READER_VERSION = "1.1"
+
+
 # --- Helpers --------------------------------------------------------------
 
 def _norm(s: str) -> str:
@@ -43,21 +52,99 @@ def _norm(s: str) -> str:
     return re.sub(r"[\s_\-]+", "", str(s).lower())
 
 
-def _find_col(df: pd.DataFrame, patterns: List[str]) -> Optional[str]:
+def _col_tokens(s) -> set:
+    """Words of a column name, split on separators and camelCase
+    ('agentID' -> {'agent', 'id'})."""
+    s = re.sub(r"([a-z0-9])([A-Z])", r"\1 \2", str(s))
+    return {t for t in re.split(r"[^a-z0-9]+", s.lower()) if t}
+
+
+# Everyday words that must match a whole word of the column name. As raw
+# substrings they bind unrelated columns: 'count' sits inside 'Country' and
+# 'Discount', 'item' inside 'Itemized tax', 'order' inside 'Reorder level'.
+_WHOLE_WORD_PATTERNS = {"type", "class", "count", "name", "item", "order",
+                        "cost", "amount"}
+
+
+def _exact_col(df: pd.DataFrame, patterns: List[str]) -> Optional[str]:
+    """Column whose normalized name equals one of ``patterns`` -- the
+    equality pass of ``_find_col`` on its own, for fields where a near miss
+    is worse than no match at all."""
+    norm_to_orig = {_norm(c): c for c in df.columns}
+    for p in patterns:
+        hit = norm_to_orig.get(_norm(p))
+        if hit is not None:
+            return hit
+    return None
+
+
+def _find_col(df: pd.DataFrame, patterns: List[str],
+              exclude: Tuple[str, ...] = (),
+              skip: Tuple[str, ...] = ()) -> Optional[str]:
     """Return the first column whose normalized name matches any pattern.
 
-    Match rule: equality first, then substring.
+    Match rule: equality first, then substring. In the substring pass a
+    pattern shorter than 3 characters, or one of the everyday words in
+    ``_WHOLE_WORD_PATTERNS``, must equal a whole word of the column name (a
+    raw substring test lets 't' hit 'agent_id', 'x' hit 'max_qty' and
+    'count' hit 'Country'). Columns whose normalized name contains an
+    ``exclude`` needle are skipped (e.g. an invoice field must not bind
+    'InvoiceDate'), and so are the columns named in ``skip``, which callers
+    use to keep one column from being bound to two fields.
     """
-    norm_to_orig = {_norm(c): c for c in df.columns}
+    skipped = {str(c) for c in skip}
+    norm_to_orig = {_norm(c): c for c in df.columns if str(c) not in skipped}
     pats = [_norm(p) for p in patterns]
     for p in pats:
         if p in norm_to_orig:
             return norm_to_orig[p]
+    excl = [_norm(x) for x in exclude]
     for p in pats:
         for n, orig in norm_to_orig.items():
-            if p in n:
+            if any(x in n for x in excl):
+                continue
+            if len(p) < 3 or p in _WHOLE_WORD_PATTERNS:
+                if p in _col_tokens(orig):
+                    return orig
+            elif p in n:
                 return orig
     return None
+
+
+def _names_all_exact(df: pd.DataFrame, pattern_groups: List[List[str]]) -> bool:
+    """True if every pattern group has a column whose normalized name equals
+    one of its patterns (the equality pass of ``_find_col`` only)."""
+    cols = {_norm(c) for c in df.columns}
+    return all(cols & {_norm(p) for p in group} for group in pattern_groups)
+
+
+def _filename_has_hint(filename: str, hints: List[str]) -> bool:
+    """True if one of ``hints`` names the file itself, as a whole word.
+
+    Only the basename is checked (a folder called 'Students' says nothing
+    about the file inside it), and a hint may not be flanked by letters, so
+    'atc' matches 'atc-20121024.csv' but not 'batch_orders.csv'. Spaces,
+    underscores and hyphens inside a hint are interchangeable."""
+    base = os.path.basename(str(filename)).lower()
+    for h in hints:
+        words = [w for w in re.split(r"[\s_\-]+", h.lower()) if w]
+        if not words:
+            continue
+        pat = (r"(?<![a-z])" + r"[\s_\-]*".join(map(re.escape, words))
+               + r"(?![a-z])")
+        if re.search(pat, base):
+            return True
+    return False
+
+
+def _str_or_na(s: pd.Series) -> pd.Series:
+    """``astype(str)`` that keeps missing cells missing.
+
+    Plain ``astype(str)`` turns NaN/None into the strings 'nan'/'None',
+    which then slip past ``fillna`` and ``dropna``. Blank or
+    whitespace-only cells count as missing too."""
+    text = s.astype(str)
+    return text.where(s.notna() & (text.str.strip() != ""))
 
 
 def _all_numeric_labels(cols) -> bool:
@@ -122,10 +209,29 @@ _UCI_NONPRODUCT_CODES = {
 }
 _UCI_NONPRODUCT_RE = r"^(GIFT|TEST|BANK)"
 
+# Fee and non-merchandise lines that carry ordinary product codes as well
+# (23444 'Next Day Carriage', 23574 'PACKING CHARGE', 22016 'Dotcomgiftshop
+# Gift Voucher', numeric-coded 'samples' and 'adjustment' notes). Matched on
+# the trimmed, lower-cased, space-collapsed description. Words that also
+# occur in real product names are anchored to the whole description:
+# 'FRENCH CARRIAGE LANTERN', 'BAROQUE CARRIAGE CLOCK' and 'PIGGY BANK' stay.
+_UCI_NONPRODUCT_DESC_RE = re.compile(
+    r"^(?:next day )?carriage$"
+    r"|^(?:dotcom )?postage$"
+    r"|^packing charge$"
+    r"|gift voucher"
+    r"|^manual$"
+    r"|^discount$"
+    r"|\badjust(?:ment)?\b"
+    r"|^bank charges?$"
+    r"|^amazon fee$"
+    r"|\bsamples?\b"
+)
+
 
 class OnlineRetailIIAdapter(BaseTransactionalAdapter):
     name = "uci_online_retail_ii"
-    version = "1.0"
+    version = "1.1"
     CAN_HANDLE_HINTS = ["online_retail", "online retail", "onlineretail", "retail_ii"]
 
     UCI_KEYWORDS_TO_CATEGORY = {
@@ -168,10 +274,8 @@ class OnlineRetailIIAdapter(BaseTransactionalAdapter):
     }
 
     def confidence(self, df: pd.DataFrame, filename: str = "") -> float:
-        fname = _norm(filename)
-        for h in self.CAN_HANDLE_HINTS:
-            if _norm(h) in fname:
-                return 1.0
+        if _filename_has_hint(filename, self.CAN_HANDLE_HINTS):
+            return 1.0
         # Column-signature match
         cols = {_norm(c) for c in df.columns}
         signature = {"invoice", "stockcode", "description",
@@ -185,35 +289,49 @@ class OnlineRetailIIAdapter(BaseTransactionalAdapter):
             return 0.6
         return 0.0
 
-    def _infer_category(self, description: str) -> str:
-        """Scalar version (kept for unit-testability). The bulk path is
-        ``_infer_categories_vectorized`` below."""
-        text = str(description).lower()
-        for kw, cat in self.UCI_KEYWORDS_TO_CATEGORY.items():
+    @classmethod
+    def _category_for_text(cls, text: str) -> str:
+        """Category for one lower-cased description.
+
+        A map keyword that appears as a whole word (optionally plural)
+        takes precedence over one found only inside a longer word, so
+        'tin' inside 'bunting' or 'doll' inside 'dolly' cannot shadow the
+        map's own 'bunting' / 'lunch' entries. Within each of the two
+        tiers the longest matching keyword wins, and map order breaks
+        ties. The substring tier still catches compounds such as
+        'cakestand' or 'teacup'."""
+        ranked = sorted(enumerate(cls.UCI_KEYWORDS_TO_CATEGORY.items()),
+                        key=lambda t: (-len(t[1][0]), t[0]))
+        for _, (kw, cat) in ranked:
+            if re.search(r"\b" + re.escape(kw) + r"(?:e?s)?\b", text):
+                return cat
+        for _, (kw, cat) in ranked:
             if kw in text:
                 return cat
         return "General Merchandise"
 
+    def _infer_category(self, description: str) -> str:
+        """Scalar version (kept for unit-testability). The bulk path is
+        ``_infer_categories_vectorized`` below; both use
+        ``_category_for_text``."""
+        return self._category_for_text(str(description).lower())
+
     @classmethod
     def _infer_categories_vectorized(cls, names: pd.Series) -> pd.Series:
-        """Vectorized keyword-priority inference over the whole Series.
+        """Keyword inference over the whole Series.
 
-        Equivalent to ``names.apply(cls._infer_category)`` but ~10-50x
-        faster on UCI-scale data (500k+ rows) because each keyword check is
-        a single compiled-C ``str.contains`` sweep instead of a Python loop
-        over the keyword dict per row. Keyword order is preserved: the
-        first dict entry that matches wins."""
-        out = pd.Series("General Merchandise", index=names.index, dtype=object)
-        unmatched = pd.Series(True, index=names.index)
+        Equivalent to ``names.apply(cls._infer_category)``, but each
+        distinct description is categorized once and the result mapped
+        back: UCI-scale data has ~1M rows but only a few thousand distinct
+        descriptions."""
         text = names.fillna("").astype(str).str.lower()
-        for kw, cat in cls.UCI_KEYWORDS_TO_CATEGORY.items():
-            if not unmatched.any():
-                break
-            m = unmatched & text.str.contains(kw, regex=False, na=False)
-            if m.any():
-                out.loc[m] = cat
-                unmatched &= ~m
-        return out
+        codes, uniques = pd.factorize(text)
+        cats = np.asarray([cls._category_for_text(t) for t in uniques],
+                          dtype=object)
+        if cats.size == 0:
+            return pd.Series("General Merchandise", index=names.index,
+                             dtype=object)
+        return pd.Series(cats[codes], index=names.index, dtype=object)
 
     def adapt(self, df: pd.DataFrame) -> Tuple[pd.DataFrame, ValidationReport]:
         report = ValidationReport(
@@ -256,10 +374,14 @@ class OnlineRetailIIAdapter(BaseTransactionalAdapter):
                note="Will be inferred from product_name if present.")
             return pd.DataFrame(), report
 
-        # Build normalized DataFrame
+        # Build normalized DataFrame. Stock codes are trimmed and upper-cased
+        # once here: Online Retail II records some SKUs under both spellings
+        # ('15056BL' / '15056bl', same description), which would otherwise
+        # split one product's visit counts, prices and co-purchase pairs.
+        # Missing ids stay missing so the dropna below removes them.
         out = pd.DataFrame({
-            "invoice_id":   df[col_invoice].astype(str),
-            "product_id":   df[col_stock].astype(str),
+            "invoice_id":   _str_or_na(df[col_invoice]),
+            "product_id":   _str_or_na(df[col_stock]).str.strip().str.upper(),
             "product_name": (df[col_desc].astype(str)
                              if col_desc else df[col_stock].astype(str)),
             "quantity":     pd.to_numeric(df[col_qty], errors="coerce"),
@@ -276,24 +398,40 @@ class OnlineRetailIIAdapter(BaseTransactionalAdapter):
             )
 
         # Drop returns (UCI uses 'C' prefix on InvoiceNo for cancellations)
-        n_returns = int(out["invoice_id"].str.upper().str.startswith("C").sum())
+        returns = out["invoice_id"].str.upper().str.startswith("C", na=False)
+        n_returns = int(returns.sum())
         if n_returns:
-            out = out[~out["invoice_id"].str.upper().str.startswith("C")]
+            out = out[~returns]
             report.info.append(f"Dropped {n_returns:,} cancellation rows "
                                f"(InvoiceNo starts with 'C').")
 
         # Drop non-merchandise stock codes (postage/fees/adjustments/
         # vouchers/tests) so baskets, revenue, and categories reflect actual
         # products (audit R7.1).
-        code_u = out["product_id"].astype(str).str.strip().str.upper()
+        code_u = out["product_id"]
         nonprod = (code_u.isin(_UCI_NONPRODUCT_CODES)
-                   | code_u.str.match(_UCI_NONPRODUCT_RE).fillna(False))
+                   | code_u.str.match(_UCI_NONPRODUCT_RE, na=False))
         n_nonprod = int(nonprod.sum())
         if n_nonprod:
             out = out[~nonprod]
             report.info.append(
                 f"Dropped {n_nonprod:,} non-merchandise stock-code rows "
                 f"(postage, fees, adjustments, vouchers, tests).")
+
+        # The same kinds of line also appear under ordinary product codes;
+        # catch them by description, whatever the code.
+        if col_desc:
+            desc = (out["product_name"].str.strip().str.lower()
+                    .str.replace(r"\s+", " ", regex=True))
+            fee_desc = desc.str.contains(_UCI_NONPRODUCT_DESC_RE, na=False)
+            n_fee_desc = int(fee_desc.sum())
+            if n_fee_desc:
+                out = out[~fee_desc]
+                report.info.append(
+                    f"Dropped {n_fee_desc:,} fee / non-merchandise rows by "
+                    f"description (carriage, postage, packing charge, gift "
+                    f"voucher, manual, discount, adjustment, bank charges, "
+                    f"Amazon fee, samples).")
 
         # Drop bad rows
         before = len(out)
@@ -342,11 +480,33 @@ class OnlineRetailIIAdapter(BaseTransactionalAdapter):
 
 class GenericTransactionalAdapter(BaseTransactionalAdapter):
     name = "generic_transactional"
-    version = "1.0"
+    version = "1.1"
     CAN_HANDLE_HINTS: List[str] = []
 
+    # Column-name patterns for the required fields. The everyday words
+    # ('order', 'item', 'cost', ...) only match a whole word of a column
+    # name, so their common glued spellings are listed explicitly.
+    INVOICE_COLS = ["invoice", "order", "transaction", "basket", "receipt",
+                    "orderid", "orderno", "ordernumber"]
+    STOCK_COLS = ["stockcode", "sku", "productid", "product_id", "itemid"]
+    DESC_COLS = ["description", "productname", "product_name",
+                 "product", "name", "item", "itemname"]
+    QTY_COLS = ["quantity", "qty", "units", "count"]
+    DATE_COLS = ["date", "datetime", "timestamp", "time"]
+    PRICE_COLS = ["unitprice", "unit_price", "price", "amount", "cost",
+                  "unitcost"]
+    CAT_COLS = ["category", "productcategory", "productline", "department",
+                "type", "class"]
+
     def confidence(self, df: pd.DataFrame, filename: str = "") -> float:
-        # Always 0.1 -- strictly the fallback after specific adapters.
+        # The fallback after specific adapters (which score 0 or >= 0.55).
+        # A file naming every required field exactly scores 0.3 so that
+        # detect_schema_kind can still separate it from a plain trajectory
+        # file, whose generic adapter gets the same bump.
+        if _names_all_exact(df, [self.INVOICE_COLS, self.DATE_COLS,
+                                 self.STOCK_COLS + self.DESC_COLS,
+                                 self.QTY_COLS, self.PRICE_COLS]):
+            return 0.3
         return 0.1
 
     def adapt(self, df: pd.DataFrame) -> Tuple[pd.DataFrame, ValidationReport]:
@@ -357,15 +517,33 @@ class GenericTransactionalAdapter(BaseTransactionalAdapter):
             rows_in=len(df),
         )
 
-        col_invoice = _find_col(df, ["invoice", "order", "transaction", "basket", "receipt"])
-        col_stock = _find_col(df, ["stockcode", "sku", "productid", "product_id", "itemid"])
-        col_desc = _find_col(df, ["description", "productname", "product_name",
-                                  "product", "name", "item"])
-        col_qty = _find_col(df, ["quantity", "qty", "units", "count"])
-        col_date = _find_col(df, ["date", "datetime", "timestamp", "time"])
-        col_price = _find_col(df, ["unitprice", "unit_price", "price", "amount", "cost"])
-        col_cust = _find_col(df, ["customerid", "customer_id", "userid", "user_id"])
-        col_cat = _find_col(df, ["category", "department", "type", "class"])
+        # One column may only stand for one field: on a header like
+        # 'Invoice ID, Customer type, Product line, Unit price, Quantity'
+        # the category patterns would otherwise re-use a column already
+        # taken, or bind 'Customer type' and section the shop by membership
+        # status.
+        claimed: List[str] = []
+
+        def take(patterns, exclude: Tuple[str, ...] = ()):
+            col = _find_col(df, patterns, exclude=exclude, skip=tuple(claimed))
+            if col is not None:
+                claimed.append(col)
+            return col
+
+        # 'order'/'invoice' also occur in 'OrderDate'/'InvoiceDate'.
+        col_invoice = take(self.INVOICE_COLS, exclude=("date", "time"))
+        col_stock = take(self.STOCK_COLS)
+        # 'name' is also a word of 'Customer Name'; shop items must not be
+        # labelled with who bought them.
+        col_desc = take(self.DESC_COLS, exclude=("customer", "payment", "user"))
+        # 'Country', 'Discount' and 'Account' are not quantities.
+        col_qty = take(self.QTY_COLS,
+                       exclude=("country", "discount", "account"))
+        col_date = take(self.DATE_COLS)
+        col_price = take(self.PRICE_COLS)
+        col_cust = take(["customerid", "customer_id", "userid", "user_id"])
+        # A product taxonomy, not a customer or payment taxonomy.
+        col_cat = take(self.CAT_COLS, exclude=("customer", "payment", "user"))
 
         # Allow product_id OR product_name as the SKU key.
         product_col = col_stock or col_desc
@@ -407,8 +585,8 @@ class GenericTransactionalAdapter(BaseTransactionalAdapter):
             return pd.DataFrame(), report
 
         out = pd.DataFrame({
-            "invoice_id":   df[col_invoice].astype(str),
-            "product_id":   df[product_col].astype(str),
+            "invoice_id":   _str_or_na(df[col_invoice]),
+            "product_id":   _str_or_na(df[product_col]),
             "product_name": (df[col_desc].astype(str)
                              if col_desc else df[product_col].astype(str)),
             "quantity":     pd.to_numeric(df[col_qty], errors="coerce"),
@@ -418,12 +596,13 @@ class GenericTransactionalAdapter(BaseTransactionalAdapter):
         if col_cust is not None:
             out["customer_id"] = df[col_cust].astype(str)
         if col_cat is not None:
-            out["category"] = df[col_cat].astype(str).fillna("General")
+            out["category"] = _str_or_na(df[col_cat]).fillna("General")
             cat_status, cat_note = "present", ""
         else:
             out["category"] = "General"
             cat_status, cat_note = "inferred", "No category column found — single 'General' bucket."
 
+        coerced = out
         before = len(out)
         out = out.dropna(subset=["invoice_id", "product_id",
                                   "quantity", "timestamp", "unit_price"])
@@ -435,14 +614,44 @@ class GenericTransactionalAdapter(BaseTransactionalAdapter):
                 f"Dropped {n_dropped:,} rows with NaN, zero, or negative qty/price."
             )
 
-        fs("invoice_id", col_invoice)
-        fs("timestamp", col_date)
-        fs("product_id", product_col)
+        # Nothing survived: a column was almost certainly mapped onto the
+        # wrong field (text where a quantity was expected, say). Mark those
+        # fields invalid so the report blocks instead of handing the
+        # calibrator an empty frame under a clean bill of health.
+        invalid: Dict[str, str] = {}
+        if len(out) == 0:
+            for name, src in [("invoice_id", col_invoice),
+                              ("timestamp", col_date),
+                              ("product_id", product_col),
+                              ("quantity", col_qty),
+                              ("unit_price", col_price)]:
+                if coerced[name].isna().all():
+                    invalid[name] = (f"Column '{src}' held no usable "
+                                     f"{name} values.")
+            if not invalid:
+                invalid["quantity"] = invalid["unit_price"] = (
+                    "No row had both a positive quantity and a positive price.")
+            report.warnings.append(
+                "No rows survived cleaning — check the column mapping above.")
+
+        fs("invoice_id", col_invoice,
+           status="invalid" if "invoice_id" in invalid else "present",
+           note=invalid.get("invoice_id", ""))
+        fs("timestamp", col_date,
+           status="invalid" if "timestamp" in invalid else "present",
+           note=invalid.get("timestamp", ""))
+        fs("product_id", product_col,
+           status="invalid" if "product_id" in invalid else "present",
+           note=invalid.get("product_id", ""))
         fs("product_name", col_desc,
            status="present" if col_desc else "inferred",
            note="" if col_desc else "Filled from product_id.")
-        fs("quantity", col_qty)
-        fs("unit_price", col_price)
+        fs("quantity", col_qty,
+           status="invalid" if "quantity" in invalid else "present",
+           note=invalid.get("quantity", ""))
+        fs("unit_price", col_price,
+           status="invalid" if "unit_price" in invalid else "present",
+           note=invalid.get("unit_price", ""))
         fs("customer_id", col_cust,
            status="present" if col_cust else "missing",
            note="" if col_cust else "Return-customer / LTV stats unavailable.")
@@ -539,14 +748,18 @@ def load_omnichannel_bundle(path: str):
             for f in os.listdir(folder) if f.lower().endswith(".csv")}
 
     def pick(*needles, exclude=()):
-        for f, full in csvs.items():
+        # Sorted so the choice doesn't depend on the filesystem's listdir
+        # order.
+        for f, full in sorted(csvs.items()):
             lf = f.lower()
             if all(n in lf for n in needles) and not any(x in lf for x in exclude):
                 return full
         return None
 
     f_demand = pick("demand")
-    f_info   = pick("information")
+    # The bundle also ships 'Web Scraped Product Information.csv', which has
+    # no Avg price column; picking it would silently drop every price.
+    f_info   = pick("information", exclude=("scraped",))
     f_map    = pick("mapping")
     f_arr    = pick("arrival")
     if not f_demand:
@@ -732,10 +945,8 @@ class ATCShoppingMallAdapter(BaseTrajectoryAdapter):
     CAN_HANDLE_HINTS = ["atc", "atc-", "shopping_mall"]
 
     def confidence(self, df: pd.DataFrame, filename: str = "") -> float:
-        fname = _norm(filename)
-        for h in self.CAN_HANDLE_HINTS:
-            if _norm(h) in fname:
-                return 0.95
+        if _filename_has_hint(filename, self.CAN_HANDLE_HINTS):
+            return 0.95
         # Headerless 8-column numeric DF with second column int-like and
         # x/y columns in ~mm range (i.e. |value| >> 100) is a strong hint.
         cols = df.columns.tolist()
@@ -861,7 +1072,7 @@ class OpenTrajAdapter(BaseTrajectoryAdapter):
     detector never confuses the two.
     """
     name = "opentraj"
-    version = "1.0"
+    version = "1.1"
     # NB: bare 'eth'/'ucy' are deliberately NOT hints -- 'eth' is a substring
     # of innocent words ('method'). We use the distinctive scene/file names.
     CAN_HANDLE_HINTS = ["opentraj", "obsmat", "biwi", "seq_eth", "seq_hotel",
@@ -887,8 +1098,7 @@ class OpenTrajAdapter(BaseTrajectoryAdapter):
         return bool(x.abs().median() < 100) and bool(y.abs().median() < 100)
 
     def confidence(self, df: pd.DataFrame, filename: str = "") -> float:
-        fname = _norm(filename)
-        hinted = any(_norm(h) in fname for h in self.CAN_HANDLE_HINTS)
+        hinted = _filename_has_hint(filename, self.CAN_HANDLE_HINTS)
         if self._is_unified(df):
             return 0.95 if hinted else 0.85
         if self._is_world_obsmat(df):
@@ -929,13 +1139,23 @@ class OpenTrajAdapter(BaseTrajectoryAdapter):
         vel = None
 
         if unified:
-            col_id    = _find_col(df, ["agent_id", "track_id", "id", "ped_id"])
+            # A unified CSV may carry frame_id and scene_id without
+            # agent_id, and both of those contain the word 'id'. Only an
+            # exact agent/track name may become the track id: binding a
+            # frame or a scene column instead would merge every pedestrian
+            # of the scene into one track and turn the distances between
+            # different people into walking speed.
+            col_id    = _exact_col(df, ["agent_id", "track_id", "id", "ped_id"])
             col_x     = _find_col(df, ["pos_x", "x_m", "x"])
             col_y     = _find_col(df, ["pos_y", "y_m", "y"])
             col_t     = _find_col(df, ["timestamp", "time_s", "time", "t"])
             col_frame = _find_col(df, ["frame_id", "frame"])
             col_vx    = _find_col(df, ["vel_x", "vx"])
             col_vy    = _find_col(df, ["vel_y", "vy"])
+            if col_id is None:
+                fs("track_id", None, status="missing",
+                   note="No agent/track id column in unified CSV.")
+                return pd.DataFrame(), report
             track = pd.to_numeric(df[col_id], errors="coerce")
             x = pd.to_numeric(df[col_x], errors="coerce")
             y = pd.to_numeric(df[col_y], errors="coerce")
@@ -1021,9 +1241,31 @@ class GenericTrajectoryAdapter(BaseTrajectoryAdapter):
     (or close fuzzy matches). Units are assumed to be SI (seconds, metres);
     if a heuristic finds large values it auto-scales mm -> m."""
     name = "generic_trajectory"
-    version = "1.0"
+    version = "1.1"
+
+    # Column-name patterns for the required fields. The glued spellings
+    # ('xpos', 'pid', 'ts') are listed explicitly rather than reached by a
+    # looser match rule, which would also bind bounding-box corners (x1/y1)
+    # as positions.
+    TRACK_COLS = ["track_id", "person_id", "id", "ped_id", "pid", "oid",
+                  "objectid", "agent", "pedestrian"]
+    TIME_COLS = ["time_s", "time", "t", "timestamp", "ts", "frame"]
+    X_COLS = ["x_m", "x", "pos_x", "position_x", "xpos", "posx", "px"]
+    Y_COLS = ["y_m", "y", "pos_y", "position_y", "ypos", "posy", "py"]
 
     def confidence(self, df: pd.DataFrame, filename: str = "") -> float:
+        # Still the fallback (specific adapters score 0 or >= 0.55), but a
+        # file whose track/time/x/y columns all resolve -- to four different
+        # columns -- must beat the transactional fallback's 0.1, or
+        # detect_schema_kind never routes a plain 'agent_id,timestamp,x,y'
+        # export here. The resolution uses the same calls adapt() makes, so
+        # the score and the mapping cannot disagree.
+        cols = [_find_col(df, self.TRACK_COLS, exclude=("frame",)),
+                _find_col(df, self.TIME_COLS),
+                _find_col(df, self.X_COLS),
+                _find_col(df, self.Y_COLS)]
+        if all(c is not None for c in cols) and len(set(cols)) == len(cols):
+            return 0.3
         return 0.1
 
     def adapt(self, df: pd.DataFrame) -> Tuple[pd.DataFrame, ValidationReport]:
@@ -1038,16 +1280,26 @@ class GenericTrajectoryAdapter(BaseTrajectoryAdapter):
             report.fields.append(FieldStatus(name=name, status=status,
                                              source_column=src, note=note))
 
-        col_id   = _find_col(df, ["track_id", "person_id", "id", "ped_id",
-                                  "agent", "pedestrian"])
-        col_time = _find_col(df, ["time_s", "time", "t", "timestamp", "frame"])
-        col_x    = _find_col(df, ["x_m", "x", "pos_x", "position_x", "px"])
-        col_y    = _find_col(df, ["y_m", "y", "pos_y", "position_y", "py"])
+        # 'frame' is a time pattern; keep 'id' from binding 'frame_id' too.
+        col_id   = _find_col(df, self.TRACK_COLS, exclude=("frame",))
+        col_time = _find_col(df, self.TIME_COLS)
+        col_x    = _find_col(df, self.X_COLS)
+        col_y    = _find_col(df, self.Y_COLS)
+
+        # A frame index is the last resort for time; it counts annotation
+        # frames, not seconds, so say so instead of reporting frame numbers
+        # as a duration.
+        time_note = ""
+        if col_time is not None and "frame" in _norm(col_time):
+            time_note = (f"'{col_time}' looks like a frame index; time_s is in "
+                         f"frames, not seconds — divide by the source's frame "
+                         f"rate before comparing dwell times.")
+            report.warnings.append(time_note)
 
         for need, c in [("track_id", col_id), ("time_s", col_time),
                         ("x_m", col_x), ("y_m", col_y)]:
             fs(need, c, status="present" if c else "missing",
-               note="" if c else "Required.")
+               note=(time_note if need == "time_s" else "") if c else "Required.")
         if report.is_blocking():
             return pd.DataFrame(), report
 
@@ -1122,6 +1374,10 @@ def list_excel_sheets(filename: str) -> List[Tuple[str, int]]:
 
     Used by the UI to let the user pick (and to merge across) sheets when a
     workbook like UCI Online Retail II ships one sheet per calendar year.
+
+    ``n_rows`` excludes the header. For openpyxl workbooks it is the sheet's
+    recorded extent, which needs no cell parsing; other engines, and sheets
+    without a usable extent, fall back to reading the first column.
     """
     try:
         xls = pd.ExcelFile(filename)
@@ -1129,11 +1385,24 @@ def list_excel_sheets(filename: str) -> List[Tuple[str, int]]:
         raise ValueError(f"Could not open Excel workbook: {e}") from e
     out: List[Tuple[str, int]] = []
     for name in xls.sheet_names:
-        try:
-            # Read just the index column to count rows cheaply
-            nrows = len(pd.read_excel(filename, sheet_name=name, usecols=[0]))
-        except Exception:
-            nrows = -1
+        nrows = -1
+        if xls.engine == "openpyxl":
+            try:
+                # pandas opens the workbook read-only, where max_row comes
+                # from the <dimension> tag (~0.1 s) instead of parsing the
+                # whole sheet (~20 s per UCI sheet). It is None when the tag
+                # is missing; 1 may be a placeholder 'A1' extent, so recount.
+                max_row = xls.book[name].max_row
+                if isinstance(max_row, int) and max_row > 1:
+                    nrows = max_row - 1
+            except Exception:
+                pass
+        if nrows < 0:
+            try:
+                # Read just the index column to count rows
+                nrows = len(pd.read_excel(filename, sheet_name=name, usecols=[0]))
+            except Exception:
+                nrows = -1
         out.append((name, nrows))
     return out
 
@@ -1141,7 +1410,10 @@ def list_excel_sheets(filename: str) -> List[Tuple[str, int]]:
 def read_excel_sheets(filename: str, sheet_names: List[str]
                       ) -> Tuple[pd.DataFrame, List[str]]:
     """Read one or more named sheets from an Excel workbook and concatenate
-    them row-wise. Used after the user picks sheets in the load dialog."""
+    them row-wise. Used after the user picks sheets in the load dialog.
+
+    Rows of a later sheet that repeat rows of an earlier sheet are dropped
+    (see below); repeated rows within one sheet are kept."""
     notes: List[str] = []
     frames: List[pd.DataFrame] = []
     for name in sheet_names:
@@ -1156,6 +1428,45 @@ def read_excel_sheets(filename: str, sheet_names: List[str]
     # across sheets the union is taken and missing cells are NaN -- the
     # adapter's dropna step will filter those.
     out = pd.concat(frames, ignore_index=True, sort=False)
+
+    # Sheets of one workbook can overlap in time: Online Retail II's
+    # 'Year 2009-2010' runs to 2010-12-09 and 'Year 2010-2011' starts on
+    # 2010-12-01, so the same invoices appear in both and concatenation
+    # doubles every line of them. A later-sheet row is dropped when it
+    # equals, on every column (missing cells equal), a row kept from an
+    # earlier sheet. Copies are paired one to one, so a line repeated within
+    # a single sheet more often than earlier sheets hold it keeps its extra
+    # copies, and repeats confined to one sheet are never touched.
+    if len(out) and len(out.columns):
+        sheet_idx = np.repeat(np.arange(len(frames)), [len(f) for f in frames])
+        # Text columns are compared as strings: read_excel parses a column of
+        # numeric-looking codes as integers in one sheet but keeps them as
+        # text where the sheet also holds codes like '85123A', so the same
+        # line would otherwise not match across sheets.
+        key_frame = out.copy(deep=False)
+        for col in key_frame.columns:
+            if key_frame[col].dtype == object:
+                cells = key_frame[col]
+                key_frame[col] = cells.astype(str).where(cells.notna())
+        row_key = (key_frame.groupby(list(key_frame.columns), dropna=False,
+                                     sort=False)
+                   .ngroup().to_numpy())
+        occurrence = (pd.DataFrame({"sheet": sheet_idx, "key": row_key})
+                      .groupby(["sheet", "key"], sort=False)
+                      .cumcount().to_numpy())
+        kept_count = np.zeros(int(row_key.max()) + 1, dtype=np.int64)
+        keep = np.ones(len(out), dtype=bool)
+        for i, name in enumerate(sheet_names):
+            rows = np.flatnonzero(sheet_idx == i)
+            keys = row_key[rows]
+            repeat = occurrence[rows] < kept_count[keys]
+            keep[rows[repeat]] = False
+            kept_count += np.bincount(keys[~repeat], minlength=kept_count.size)
+            if repeat.any():
+                notes.append(f"Dropped {int(repeat.sum()):,} rows of sheet "
+                             f"'{name}' that repeat rows of an earlier sheet.")
+        if not keep.all():
+            out = out[keep].reset_index(drop=True)
     notes.append(f"Concatenated {len(frames)} sheets -> {len(out):,} rows total.")
     return out, notes
 
@@ -1191,8 +1502,14 @@ def read_any(filename: str) -> Tuple[pd.DataFrame, List[str]]:
                           (";", "semicolon"), (r"\s+", "whitespace")]:
         for enc in ("utf-8", "latin-1", "cp1252"):
             try:
+                # The C engine supports all four separators ('\s+' included)
+                # and is several times faster than the python engine.
+                # low_memory=False infers each column's dtype over the whole
+                # file, as the python engine does, rather than per chunk
+                # (which can mix '536365' and 536365.0 in one id column).
                 df = pd.read_csv(filename, sep=sep, encoding=enc,
-                                 engine="python", on_bad_lines="skip")
+                                 engine="c", low_memory=False,
+                                 on_bad_lines="skip")
                 if len(df.columns) >= 2 and len(df) > 0:
                     # Headerless numeric files (ETH/UCY obsmat, ATC daily CSVs)
                     # get their first DATA row consumed as a header by
@@ -1202,8 +1519,8 @@ def read_any(filename: str) -> Tuple[pd.DataFrame, List[str]]:
                     # (0..n) -- exactly what the trajectory adapters expect.
                     if _all_numeric_labels(df.columns):
                         df = pd.read_csv(filename, sep=sep, encoding=enc,
-                                         engine="python", on_bad_lines="skip",
-                                         header=None)
+                                         engine="c", low_memory=False,
+                                         on_bad_lines="skip", header=None)
                         notes.append(f"Read as headerless text "
                                      f"(sep={sep_name}, encoding={enc}).")
                     else:
@@ -1212,5 +1529,9 @@ def read_any(filename: str) -> Tuple[pd.DataFrame, List[str]]:
             except Exception as e:
                 last_err = e
                 continue
+            # Decoded without error, but this separator doesn't split the
+            # file. The separators are ASCII, so another encoding yields the
+            # same columns; move on to the next separator.
+            break
 
     raise ValueError(f"Could not parse {filename!r}: {last_err}")

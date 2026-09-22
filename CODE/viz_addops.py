@@ -45,10 +45,12 @@ class AddOpsMixin:
          self._assign_default_prices()
 
          # 3) Redraw
+         self._invalidate_sim_geometry()
          self.redraw()
 
     def remove_item(self, name):
         self.items.pop(name, None)
+        self._invalidate_sim_geometry()
         self.redraw()
 
     def add_wall(self, name, position, size):
@@ -86,23 +88,46 @@ class AddOpsMixin:
             "position": (x, y),
             "size":     (w, h)
         }
+        self._invalidate_sim_geometry()
         self.redraw()
 
     def remove_wall(self, name):
         data = self.walls.get(name)
         connector_id = data.get('connector_id') if isinstance(data, dict) else None
-        if connector_id and hasattr(self, 'connectors'):
-            mapping = self.connectors.pop(connector_id, {})
+        mapping = (getattr(self, 'connectors', None) or {}).get(connector_id) \
+            if connector_id else None
+        if mapping and mapping.get(self.current_floor) == name:
+            self.connectors.pop(connector_id, None)
             for fid, wname in list(mapping.items()):
                 try:
                     self.floors[fid]['walls'].pop(wname, None)
                 except Exception:
                     pass
-        else:
-            self.walls.pop(name, None)
-        if hasattr(self, 'customer_simulation'):
-            self.customer_simulation.geometry_dirty = True
+        elif connector_id:
+            # Connector ids are reused after a delete, so this wall's id may
+            # now name a different connector. Remove only the walls sharing
+            # both this name and id, and leave that connector's mapping and
+            # its own walls (which may carry the same name) alone.
+            for fid, fdata in self.floors.items():
+                if mapping and mapping.get(fid) == name:
+                    continue
+                w = fdata.get('walls', {}).get(name)
+                if isinstance(w, dict) and w.get('connector_id') == connector_id:
+                    fdata['walls'].pop(name, None)
+        self.walls.pop(name, None)
+        self._invalidate_sim_geometry()
         self.redraw()
+
+    def _invalidate_sim_geometry(self):
+        # The live loop rebuilds its path grid and wall bins only when
+        # geometry_dirty is set, and the zone table only when cleared, so
+        # every edit to an item, wall or section must flag both: items are
+        # obstacles too, so agents would otherwise walk through fixtures that
+        # moved and be attributed to stale zones.
+        sim = getattr(self, 'customer_simulation', None)
+        if sim is not None:
+            sim.geometry_dirty = True
+            sim.invalidate_zones_cache()
 
 
     def _on_add_item_clicked(self):
@@ -263,6 +288,7 @@ class AddOpsMixin:
             "font":      None,
             "label_loc": "top"
         }
+        self._invalidate_sim_geometry()
         self.redraw()
 
  
@@ -387,7 +413,28 @@ class AddOpsMixin:
         new_x = max(0, min(new_x, self.width  - w_item))
         new_y = max(0, min(new_y, self.height - h_item))
 
-        # 6) Only move to (new_x,new_y) if it doesn't overlap walls or items
+        # 6) A generated layout has a checkout BANK: 'Checkout' plus one
+        #    'Checkout_LaneN' counter per extra lane, and customers queue at
+        #    whichever is least busy. Replacing only the primary counter
+        #    would leave the old lanes serving customers across the store
+        #    from the counter the user just defined.
+        stale_lanes = [nm for nm in self.walls if nm.startswith('Checkout_Lane')]
+        if stale_lanes:
+            drop = messagebox.askyesno(
+                "Replace Checkout Bank",
+                f"This layout has {len(stale_lanes)} extra checkout lane(s).\n"
+                "Remove them so the new counter is the only checkout?",
+                parent=self.tk_root
+            )
+            if drop:
+                for nm in stale_lanes:
+                    self.walls.pop(nm, None)
+
+        # 7) Only move to (new_x,new_y) if it doesn't overlap walls or items.
+        #    The counter being replaced is not an obstacle for its successor,
+        #    so it comes out before the test; step 8 writes the new one back
+        #    under the same name on either branch.
+        self.walls.pop('Checkout', None)
         if self._is_position_safe(new_x, new_y, w_item, h_item):
             x_item, y_item = new_x, new_y
         else:
@@ -399,13 +446,14 @@ class AddOpsMixin:
             )
             x_item, y_item = orig_x, orig_y
 
-        # 7) Register the Checkout area at the chosen location
+        # 8) Register the Checkout area at the chosen location
         self.walls['Checkout'] = {
             'position': (x_item, y_item),
-            'size':     (w_item, h_item)
+            'size':     (w_item, h_item),
+            'category': 'Checkout'
         }
 
-      
+        self._invalidate_sim_geometry()
 
         # 9) Redraw to reflect the new checkout
         self.redraw()
@@ -486,6 +534,8 @@ class AddOpsMixin:
             'position': (x_item, y_item),
             'size':     (w_item, h_item)
         }
+
+        self._invalidate_sim_geometry()
 
         # 5) Redraw so we see the new WC, never re-adding to self.items
         self.redraw()
@@ -600,14 +650,33 @@ class AddOpsMixin:
                     # clamp into the shop
                     new_x = max(0, min(new_x, self.width  - w))
                     new_y = max(0, min(new_y, self.height - h))
-                    itm['position'] = (new_x, new_y)
+                    # Every relocated item shares this target, so look for a
+                    # free spot near it. _find_safe_position returns the
+                    # item's current position when nothing nearby is free.
+                    pos = self._find_safe_position(new_x, new_y, (w, h),
+                                                   exclude_item=found)
+                    if tuple(pos) == (px, py) and (new_x, new_y) != (px, py):
+                        messagebox.showwarning(
+                            "No Free Space",
+                            f"No free spot next to checkout for '{found}'.\n"
+                            "It was left in place and not marked as impulse.",
+                            parent=self.tk_root
+                        )
+                        continue
+                    itm['position'] = pos
                 else:
                     # skip marking if user declines to move
                     continue
 
-            # 6) Mark as impulse
+            # 6) Mark as impulse. Generated and dataset-built fixtures carry
+            #    a 'zone' stamp naming their department's Section_ wall, and
+            #    the optimizer clips an item back inside that rectangle. An
+            #    impulse item belongs at the checkout, so the department
+            #    stamp goes with the old category.
             itm['category'] = 'Impulse'
             itm['color']    = '#FFD700'
+            itm.pop('zone', None)
 
+        self._invalidate_sim_geometry()
         self.redraw()
 

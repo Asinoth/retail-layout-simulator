@@ -41,84 +41,93 @@ class MetricsMixin:
     - Item count
     - Interior wall count
     """
-        now = time.time()
-        if now - getattr(self, '_last_metrics_time', 0.0) < getattr(self, '_metrics_interval', 1.0):
-            return
-        self._last_metrics_time = now
-
         if not getattr(self, '_metrics_dirty', True):
             return
         if not self.metrics_label:
             return
 
+        # Nothing else refreshes the panel, so a dirty update that lands inside
+        # the throttle window is retried once the window has passed instead of
+        # being dropped.
+        remaining = (getattr(self, '_metrics_interval', 1.0)
+                     - (time.time() - getattr(self, '_last_metrics_time', 0.0)))
+        if remaining > 0:
+            if (getattr(self, '_metrics_after_id', None) is None
+                    and getattr(self, 'tk_root', None) is not None):
+                try:
+                    self._metrics_after_id = self.tk_root.after(
+                        int(remaining * 1000) + 1, self._metrics_retry
+                    )
+                except Exception:
+                    self._metrics_after_id = None
+            return
+
+        W, H = self.width, self.height
+
+        # Classify walls by geometry, not name: '+ Wall' names every wall
+        # "Wall", "Wall2", ... wherever it is drawn, and the generator emits
+        # checkout banks as Checkout, Checkout_Lane2, ... A boundary wall lies
+        # entirely inside a thin band along one shop edge; any other physical
+        # wall is an interior partition. Sections and connectors are overlays.
+        edge_band = 0.5
+        outer_walls, interior_walls, obstructions = [], [], []
+        for name, wall in self.walls.items():
+            if name.startswith("Section_") or wall.get('category') == 'Connector':
+                continue
+            if name.startswith("Checkout") or name == "WC":
+                obstructions.append(wall)
+                continue
+            x, y = wall['position']
+            w, h = wall['size']
+            if (x + w <= edge_band or x >= W - edge_band
+                    or y + h <= edge_band or y >= H - edge_band):
+                outer_walls.append(wall)
+            else:
+                interior_walls.append(wall)
+
         # Calculate areas by type for reference
         items_area = sum(w*h for item in self.items.values() for w, h in [item['size']])
 
         # Only subtract true outer boundary walls from usable area
-        outer_walls_area = sum(
-            w * h
-            for name, wall in self.walls.items()
-            if name.startswith("Wall") and not name.startswith("IW")
-            for w, h in [wall['size']]
-        )
-
-        interior_walls_area = sum(w*h for name, wall in self.walls.items() 
-                                  if name.startswith("IW")
-                                  for w, h in [wall['size']])
+        outer_walls_area = sum(w * h for wall in outer_walls for w, h in [wall['size']])
+        interior_walls_area = sum(w * h for wall in interior_walls for w, h in [wall['size']])
 
         # Usable area is total minus outer walls
-        total_area = self.width * self.height
+        total_area = W * H
         usable_area = total_area - outer_walls_area
 
         # Grid-based occupancy
         grid_size = 0.1  # 10cm grid
-        outer_wall_positions = set()
-        occupied_positions = set()
+        nx = int(round(W / grid_size))
+        ny = int(round(H / grid_size))
+        outer_cells = np.zeros((nx, ny), dtype=bool)
+        occupied_cells = np.zeros((nx, ny), dtype=bool)
 
-        # Mark outer walls
-        for name, wall in self.walls.items():
-            if name.startswith("Wall") and not name.startswith("IW"):
-                x, y = wall['position']
-                w, h = wall['size']
-                start_x = max(0, int(x / grid_size))
-                start_y = max(0, int(y / grid_size))
-                end_x = min(int((x + w) / grid_size) + 1, int(self.width / grid_size))
-                end_y = min(int((y + h) / grid_size) + 1, int(self.height / grid_size))
-                for gx in range(start_x, end_x):
-                    for gy in range(start_y, end_y):
-                        outer_wall_positions.add((gx, gy))
+        def _mark(cells, pos, size):
+            # Half-open cell ranges between the rounded edges, so a 1x1 m
+            # rectangle covers exactly 10x10 cells rather than 11x11.
+            x, y = pos
+            w, h = size
+            i0 = min(nx, max(0, int(round(x / grid_size))))
+            i1 = min(nx, max(i0, int(round((x + w) / grid_size))))
+            j0 = min(ny, max(0, int(round(y / grid_size))))
+            j1 = min(ny, max(j0, int(round((y + h) / grid_size))))
+            cells[i0:i1, j0:j1] = True
 
-        # Mark interior walls (IW) and other obstructions like Checkout/WC as occupied
-        for name, wall in self.walls.items():
-            if name.startswith("IW") or name in ("Checkout", "WC"):
-                x, y = wall['position']
-                w, h = wall['size']
-                start_x = max(0, int(x / grid_size))
-                start_y = max(0, int(y / grid_size))
-                end_x = min(int((x + w) / grid_size) + 1, int(self.width / grid_size))
-                end_y = min(int((y + h) / grid_size) + 1, int(self.height / grid_size))
-                for gx in range(start_x, end_x):
-                    for gy in range(start_y, end_y):
-                        if (gx, gy) not in outer_wall_positions:
-                            occupied_positions.add((gx, gy))
+        for wall in outer_walls:
+            _mark(outer_cells, wall['position'], wall['size'])
 
-        # Mark items
+        # Interior walls, checkout lanes, WC and items are occupied space
+        for wall in interior_walls + obstructions:
+            _mark(occupied_cells, wall['position'], wall['size'])
         for item in self.items.values():
-            x, y = item['position']
-            w, h = item['size']
-            start_x = max(0, int(x / grid_size))
-            start_y = max(0, int(y / grid_size))
-            end_x = min(int((x + w) / grid_size) + 1, int(self.width / grid_size))
-            end_y = min(int((y + h) / grid_size) + 1, int(self.height / grid_size))
-            for gx in range(start_x, end_x):
-                for gy in range(start_y, end_y):
-                    if (gx, gy) not in outer_wall_positions:
-                        occupied_positions.add((gx, gy))
+            _mark(occupied_cells, item['position'], item['size'])
+        occupied_cells &= ~outer_cells
 
-        total_positions = int(self.width / grid_size) * int(self.height / grid_size)
-        usable_positions = total_positions - len(outer_wall_positions)
-        free_positions = usable_positions - len(occupied_positions)
-        occupied_pct = (len(occupied_positions) / usable_positions * 100) if usable_positions > 0 else 0
+        total_positions = nx * ny
+        usable_positions = total_positions - int(outer_cells.sum())
+        occupied_positions = int(occupied_cells.sum())
+        occupied_pct = (occupied_positions / usable_positions * 100) if usable_positions > 0 else 0
 
         occupied_area = (occupied_pct / 100) * usable_area
         free_area = usable_area - occupied_area
@@ -132,10 +141,16 @@ class MetricsMixin:
             f"Free area:    {free_area:.2f} m²\n"
             f"Occupancy:    {occupied_pct:.1f}%\n\n"
             f"Items count:    {len(self.items)}\n"
-            f"Interior walls:    {sum(1 for name in self.walls if name.startswith('IW'))}"
+            f"Interior walls:    {len(interior_walls)}"
         )
         self.metrics_label.config(text=txt)
         self._metrics_dirty = False
         self._last_metrics_time = time.time()
+
+    def _metrics_retry(self):
+        """Run a throttled metrics update if the metrics tab is still shown."""
+        self._metrics_after_id = None
+        if getattr(self, 'current_tab', None) == "Shop Area Metrics":
+            self.update_metrics()
    
 

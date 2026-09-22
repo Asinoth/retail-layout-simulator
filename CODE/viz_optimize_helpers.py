@@ -19,6 +19,7 @@ import copy
 from scipy import stats as sp_stats
 
 from sim_calibration import _cval
+from viz_ga_run import item_zone_name
 
 
 class OptimizeHelpersMixin:
@@ -28,9 +29,12 @@ class OptimizeHelpersMixin:
         """Create a progress dialog for the optimization pipeline.
 
         The dialog hosts a ``ttk.Progressbar`` in *determinate* mode plus
-        labels for the current phase and a numeric percentage. All UI calls
-        are wrapped in try/except so the pipeline survives the user closing
-        the dialog mid-run.
+        labels for the current phase and a numeric percentage. The dialog
+        holds an input grab so the event pumping below cannot dispatch
+        main-window clicks into the running pipeline. Closing it cancels the
+        run: the next update/pump call raises and the caller reports it --
+        until ``disable_cancellation()``, after which a close only hides the
+        dialog and the pipeline runs to completion.
 
         Callers update progress via ``update_status(text, pct=None)`` --
         passing ``pct`` (0-100) drives the progress bar; otherwise only
@@ -41,6 +45,9 @@ class OptimizeHelpersMixin:
         class OptimizationProgress:
             def __init__(self, parent):
                 self._alive = True
+                self._cancelled = False
+                self._cancellable = True
+                self._grabbed = False
                 self.dialog = tk.Toplevel(parent)
                 self.dialog.title("Optimizing Layout...")
                 self.dialog.geometry("460x200")
@@ -76,8 +83,8 @@ class OptimizeHelpersMixin:
                     self.dialog, mode='determinate', maximum=100, value=0)
                 self.progress_bar.pack(pady=(4, 14), padx=20, fill=tk.X)
 
-                # Hint that the work runs on a worker thread; the dialog
-                # stays responsive but cannot be cancelled.
+                # Hint text. Closing the window cancels the run (see
+                # _on_user_close).
                 tk.Label(
                     self.dialog,
                     text="(Window may be moved while optimization runs.)",
@@ -85,9 +92,52 @@ class OptimizeHelpersMixin:
 
                 self._current_pct = 0.0
                 self.dialog.protocol("WM_DELETE_WINDOW", self._on_user_close)
+                self._ensure_grab()
+
+            def _ensure_grab(self):
+                # update() dispatches every pending Tk event, so without an
+                # input grab a click on the main window (Optimize, Start
+                # Simulation, ...) would run nested inside the pipeline.
+                # grab_set fails until the window is viewable, hence the
+                # retry from the update/pump methods.
+                if self._grabbed:
+                    return
+                try:
+                    self.dialog.grab_set()
+                    self._grabbed = True
+                except tk.TclError:
+                    pass
+
+            def _raise_if_cancelled(self):
+                # Carrying on after the user closed the dialog would leave
+                # nothing pumping the event loop for the rest of the
+                # pipeline, and the main window would stop responding.
+                if self._cancelled and self._cancellable:
+                    raise RuntimeError(
+                        "Optimization cancelled: the progress window was closed.")
+
+            def disable_cancellation(self):
+                """Stop treating a closed dialog as a cancellation.
+
+                Called right before the pipeline starts writing the new
+                layout into the shop: aborting from there would leave the
+                store moved but unmeasured, with no POST window and no
+                report, while telling the user the run was cancelled. A close
+                clicked while the last GA steps ran without pumping is still
+                queued, so it is dispatched and honoured first -- nothing has
+                been written yet. After this call a close only hides the
+                dialog, and the remaining updates and pumps are no-ops."""
+                self.pump_events()
+                self._raise_if_cancelled()
+                self._cancellable = False
 
             def _on_user_close(self):
+                self._cancelled = True
                 self._alive = False
+                try:
+                    self.dialog.grab_release()
+                except tk.TclError:
+                    pass
                 try:
                     self.dialog.destroy()
                 except tk.TclError:
@@ -95,9 +145,11 @@ class OptimizeHelpersMixin:
 
             def update_status(self, status, pct=None):
                 """Update phase label and (optionally) the percentage bar."""
+                self._raise_if_cancelled()
                 if not self._alive:
                     return
                 try:
+                    self._ensure_grab()
                     self.status_label.config(text=status)
                     if pct is not None:
                         # Monotonic clamp: never let the bar go backwards.
@@ -114,9 +166,11 @@ class OptimizeHelpersMixin:
 
             def update_progress(self, pct):
                 """Advance the percentage without changing the phase text."""
+                self._raise_if_cancelled()
                 if not self._alive:
                     return
                 try:
+                    self._ensure_grab()
                     p = max(self._current_pct, min(100.0, float(pct)))
                     self._current_pct = p
                     self.progress_bar.config(value=p)
@@ -131,9 +185,11 @@ class OptimizeHelpersMixin:
                 fitness loop). Without this Windows marks the window
                 'not responding' after ~5 seconds of blocked main thread.
                 """
+                self._raise_if_cancelled()
                 if not self._alive:
                     return
                 try:
+                    self._ensure_grab()
                     self.dialog.update()
                 except tk.TclError:
                     self._alive = False
@@ -149,6 +205,10 @@ class OptimizeHelpersMixin:
                 except tk.TclError:
                     pass
                 self._alive = False
+                try:
+                    self.dialog.grab_release()
+                except tk.TclError:
+                    pass
                 try:
                     self.dialog.destroy()
                 except tk.TclError:
@@ -205,15 +265,28 @@ class OptimizeHelpersMixin:
         # Identify top performers
         sorted_items = sorted(item_scores.items(), key=lambda x: x[1], reverse=True)
 
-        total_cust_src = max(1, int(_cval(analytics, 'total_customers', 0)))
-        completed_src  = int(_cval(analytics, 'completed_purchases', 0))
+        # The simulator's own counters, like total_revenue below. In a
+        # calibrated session the calibration pair is the dataset's invoice
+        # count over the visitors implied from it, which only restates the
+        # assumed conversion rate the model-input section already shows.
+        completed_live = int(analytics.get('completed_purchases', 0) or 0)
+        abandoned_live = int(analytics.get('abandoned_carts', 0) or 0)
+        exited_live    = completed_live + abandoned_live
         performance_data = {
             'item_scores': item_scores,
             'top_performers': [item for item, score in sorted_items[:5]],
             'low_performers': [item for item, score in sorted_items[-5:]],
             'cross_merchandising': dict(_cval(analytics, 'cross_merchandising', {}) or {}),
-            'total_revenue': float(_cval(analytics, 'total_revenue', 0.0) or 0.0),
-            'conversion_rate': completed_src / total_cust_src,
+            # The simulator's own revenue counter. In a calibrated session
+            # calibration['total_revenue'] is the whole dataset's invoice
+            # total, not revenue this shop generated.
+            'total_revenue': float(analytics.get('total_revenue', 0.0) or 0.0),
+            # Over customers who have already left. Agents still in the
+            # store were counted at arrival but have not had the chance to
+            # buy yet, and the simulation is only paused here, so dividing
+            # by every arrival would read low against the exit-based rate
+            # the rest of the report shows.
+            'conversion_rate': (completed_live / exited_live) if exited_live else 0.0,
         }
         
         return performance_data
@@ -259,13 +332,15 @@ class OptimizeHelpersMixin:
 
     def _clamp_position_to_section(self, item_name, x, y):
         """
-        Ensure that the top-left (x,y) of item_name stays within its Section_<category> wall.
+        Ensure that the top-left (x,y) of item_name stays within its zone wall
+        (see ``item_zone_name``: the stamped 'zone' while it still matches the
+        item's category, else Section_<category>).
         If the item has no matching section or already fits, returns (x,y) unchanged.
         Ensures that during Optimize Layout items dont move outside their section
         """
         data = self.items[item_name]
-        sec      = data['category']
-        sec_wall = self.walls.get(f"Section_{sec}")
+        zone     = item_zone_name(data, self.walls)
+        sec_wall = self.walls.get(zone) if zone else None
         if not sec_wall:
             return x, y
         sx, sy = sec_wall['position']
@@ -341,7 +416,7 @@ class OptimizeHelpersMixin:
     def _implement_cross_merchandising(self):
         """
         Implement cross-merchandising by grouping complementary products.
-        Never move an item outside its own Section_<category>, and 
+        Never move an item outside its own section zone, and
         always use safe positions to prevent overlap.
         """
         changes = []
@@ -373,11 +448,14 @@ class OptimizeHelpersMixin:
                 continue
 
             sec1 = self.items[item1]['category']
-            sec2 = self.items[item2]['category']
-            if sec1 != sec2:
+            zone1 = item_zone_name(self.items[item1], self.walls)
+            zone2 = item_zone_name(self.items[item2], self.walls)
+            # item2 cannot leave its own zone, so a partner on another
+            # gondola of the same department is out of reach.
+            if zone1 is None or zone1 != zone2:
                 continue
 
-            section_center = self._get_section_center(sec1)
+            section_center = self._get_section_center(zone1)
             if not section_center:
                 continue
 
@@ -558,8 +636,10 @@ class OptimizeHelpersMixin:
     def _find_safe_position_in_section(self, item_name, target_x, target_y):
         """
         Find a collision-free position for item_name near (target_x, target_y),
-        constrained to its own Section_<category> rectangle. Falls back to the
-        global search if the item has no section.
+        constrained to its own zone rectangle (see ``item_zone_name``: the
+        stamped 'zone' while it still matches the item's category, else
+        Section_<category>). Falls back to the global search if the item has
+        no section.
 
         Returns (x, y) which keeps the full item rect inside the section and
         does not overlap any walls (except sections) or other items.
@@ -569,8 +649,8 @@ class OptimizeHelpersMixin:
 
         data = self.items[item_name]
         iw, ih = data['size']
-        sec = data.get('category')
-        sec_wall = self.walls.get(f"Section_{sec}") if sec else None
+        zone = item_zone_name(data, self.walls)
+        sec_wall = self.walls.get(zone) if zone else None
 
         # No section -> use global search
         if not sec_wall:
@@ -683,8 +763,9 @@ class OptimizeHelpersMixin:
         
         return False
 
-    def _get_section_center(self, section_name):
-        sec_wall = self.walls.get(f"Section_{section_name}")
+    def _get_section_center(self, zone):
+        """Centre of the zone wall named ``zone`` (e.g. Section_Dairy_2)."""
+        sec_wall = self.walls.get(zone)
         if not sec_wall: return None
         x, y = sec_wall['position']
         w, h = sec_wall['size']

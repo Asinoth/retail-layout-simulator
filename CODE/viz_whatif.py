@@ -18,7 +18,7 @@ from simulation import CustomerFlowSimulation
 import copy
 from scipy import stats as sp_stats
 
-from sim_calibration import _calibrated
+from sim_calibration import _calib
 
 
 class WhatIfMixin:
@@ -105,6 +105,17 @@ class WhatIfMixin:
         self._snapshots = {}
 
     def _snapshot_layout(self):
+        A = self.customer_simulation.analytics
+        # A trajectory-only dataset fills the calibration block with spatial
+        # keys but no arrival or conversion rate, so it cannot stand in for
+        # observed customers.
+        cal = _calib(A)
+        has_tx = bool(cal.get('arrivals_per_hour')) and 'conversion_rate' in cal
+        # The same test as the Optimize entry gate. total_customers counts
+        # arrivals and is not reduced when the store is cleared, so once the
+        # pipeline has passed that gate every snapshot it takes carries
+        # parameters.
+        observed = int(A.get('total_customers', 0) or 0)
         return {
             'items': copy.deepcopy(self.items),
             'walls': copy.deepcopy(self.walls),
@@ -115,8 +126,7 @@ class WhatIfMixin:
             'door_position': copy.deepcopy(getattr(self, 'door_position', None)),
             'door_side': getattr(self, 'door_side', None),
             'params': self._extract_simulation_parameters()
-                      if (_calibrated(self.customer_simulation.analytics)
-                          or self.customer_simulation.analytics.get('total_customers', 0) >= 5)
+                      if (has_tx or observed >= 5)
                       else None,
             'timestamp': time.time(),
         }
@@ -185,6 +195,14 @@ class WhatIfMixin:
             self.floors = floors_backup
             self.connectors = connectors_backup
             self.current_floor = current_floor_backup
+            # A running simulation may have rebuilt its obstacle grid or
+            # zone table from the snapshot while it was swapped in; items
+            # are obstacles, so have both rebuilt from the restored layout.
+            try:
+                self.customer_simulation.geometry_dirty = True
+                self.customer_simulation.invalidate_zones_cache()
+            except Exception:
+                pass
             if hasattr(self, '_ga_item_catalog'):
                 try:
                     self._ga_build_item_catalog(self._ga_accessible_floors())
@@ -202,6 +220,16 @@ class WhatIfMixin:
         n_days = max(1, self._ab_days.get())
         alpha = max(0.001, min(self._ab_alpha.get(), 0.5))
 
+        from retail_literature import DEFAULT_WEEKEND_MULTIPLIER as _WKND
+
+        # Both layouts are drawn from the same random stream, restarted per
+        # label, so two identical layouts compare exactly equal instead of
+        # differing by Monte Carlo noise. The binomial draws consume a
+        # parameter-dependent number of variates, so once the layouts differ
+        # the two streams drift apart and the draws are close to
+        # independent; the interval below is valid either way.
+        ab_seed = int(np.random.randint(0, 2**31 - 1))
+
         results = {}
         for label in ['A', 'B']:
             self._ab_progress.set(f"Running MC for layout {label}...")
@@ -209,44 +237,51 @@ class WhatIfMixin:
 
             snap = self._snapshots[label]
             p = snap['params']
-            score = self._ab_layout_score(snap)
+            score, score_bkd = self._ab_layout_score(snap, with_breakdown=True)
 
-            # Use the same literature-grounded elasticities as the optimize
-            # pipeline (retail_literature.py) so What-If A/B and Optimize
-            # produce comparable lifts for the same layout pair.
-            from retail_literature import (
-                ELASTICITY_CONV_BASE as _ECB,
-                ELASTICITY_CONV_GAIN_MAX as _ECG,
-                ELASTICITY_IMP_BASE as _EIB,
-                ELASTICITY_IMP_GAIN_MAX as _EIG,
-                DEFAULT_WEEKEND_MULTIPLIER as _WKND,
-            )
-            _conv_e = _ECB + 0.5 * _ECG
-            _imp_e  = _EIB + 0.5 * _EIG
-            conv_adj = min(max(p['conversion_rate'] * (1.0 + score * _conv_e), 0.01), 0.99)
-            imp_adj  = min(max(p['impulse_rate']   * (1.0 + score * _imp_e),  0.0), 0.99)
+            # The same score -> parameter transform as the optimize pipeline
+            # and the GA fitness: conversion, the impulse component of the
+            # score, layout-induced abandonment, and basket size as a
+            # revenue-per-converter multiplier. Evaluated at the midpoint of
+            # each cited elasticity band (the pipeline uses its
+            # sensitivity-derived weights instead), so a layout pair gets
+            # comparable lifts here and in the Optimize report.
+            mid_weights = {'Conversion rate': 0.5, 'Impulse rate': 0.5,
+                           'Basket size': 0.5}
+            conv_adj, imp_adj, _bsk_adj, rev_mult = self._opt_layout_revenue_params(
+                score, score_bkd, p, mid_weights, p['conversion_rate'])
+            rev_mean = p['rev_per_converting_customer'] * rev_mult
+            rev_sd   = max(p['rev_std'] * rev_mult, 0.01)
 
             day_mult = np.ones(7)
             day_mult[5] = _WKND
             day_mult[6] = _WKND
 
+            rs = np.random.RandomState(ab_seed)
             daily_rev = np.zeros((n_iter, n_days))
             for d in range(n_days):
                 dow = d % 7
                 lam = max(p['customers_per_hour'] * 10.0 * day_mult[dow], 0.1)
-                n_cust = np.random.poisson(lam, n_iter)
-                n_conv = np.random.binomial(n_cust, conv_adj)
+                n_cust = rs.poisson(lam, n_iter)
+                n_conv = rs.binomial(n_cust, conv_adj)
+                # A day's spend is the sum of n independent per-customer
+                # draws, N(n*mu, sqrt(n)*sigma), as in mc_engine; scaling a
+                # single draw by n would inflate the spread by sqrt(n).
+                nc = n_conv.astype(np.float64)
                 base = np.where(
                     n_conv > 0,
-                    np.random.normal(p['rev_per_converting_customer'],
-                                     max(p['rev_std'], 0.01), n_iter) * n_conv,
+                    rs.normal(nc * rev_mean, np.sqrt(nc) * rev_sd, n_iter),
                     0.0
                 )
                 base = np.maximum(base, 0.0)
-                n_imp = np.random.binomial(np.maximum(n_conv, 0), imp_adj)
-                imp = n_imp * np.random.normal(
-                    max(p['avg_impulse_value'], 0.01),
-                    max(p['avg_impulse_value'] * 0.3, 0.01), n_iter
+                n_imp = rs.binomial(np.maximum(n_conv, 0), imp_adj)
+                ni = n_imp.astype(np.float64)
+                imp_std = p.get('impulse_value_std', p['avg_impulse_value'] * 0.3)
+                imp = np.where(
+                    n_imp > 0,
+                    rs.normal(ni * max(p['avg_impulse_value'], 0.01),
+                              np.sqrt(ni) * max(imp_std, 0.01), n_iter),
+                    0.0
                 )
                 imp = np.maximum(imp, 0.0)
                 daily_rev[:, d] = base + imp
@@ -288,11 +323,26 @@ class WhatIfMixin:
         n_b_wins = np.sum(results['B']['totals'] > results['A']['totals'])
         p_b_better = n_b_wins / n_iter * 100
 
+        # Iteration i of A and of B come from the same stream position, and
+        # the pairs are independent across iterations, so the bootstrap of
+        # the paired differences is an interval for the mean lift under the
+        # model. The verdict below only names a direction when that interval
+        # stays on one side of zero.
+        diffs = results['B']['totals'] - results['A']['totals']
+        rng_bs = np.random.default_rng(ab_seed)
+        boots = np.array([
+            rng_bs.choice(diffs, size=diffs.size, replace=True).mean()
+            for _ in range(2000)])
+        lift_mean = float(diffs.mean())
+        lift_ci95 = (float(np.percentile(boots, 2.5)),
+                     float(np.percentile(boots, 97.5)))
+
         test_results = {
             't_stat': t_stat, 'p_value': p_value,
             'ks_stat': ks_stat, 'ks_p': ks_p,
             'cohens_d': cohens_d, 'significant': significant,
             'alpha': alpha, 'p_b_better': p_b_better,
+            'lift_mean': lift_mean, 'lift_ci95': lift_ci95,
         }
 
         self._display_ab_results(results, test_results, n_days, n_iter)
@@ -317,6 +367,9 @@ class WhatIfMixin:
             f"  MC iterations:     {n_iter:,}",
             f"  Projection:        {n_days} days",
             f"  Significance:      alpha = {tests['alpha']}",
+            f"  Elasticities:      band midpoints (the Optimize report",
+            f"                     uses its sensitivity-derived weights)",
+            f"  Random numbers:    one stream shared by A and B",
             "",
             "REVENUE SUMMARY ({}-day total)".format(n_days),
             "-" * 52,
@@ -336,7 +389,7 @@ class WhatIfMixin:
             f"  Welch's t-test:",
             f"    t-statistic:     {tests['t_stat']:.4f}",
             f"    p-value:         {tests['p_value']:.6f}",
-            f"    Significant:     {sig_str} (alpha={tests['alpha']})",
+            f"    p < alpha:       {sig_str} (alpha={tests['alpha']})",
             "",
             f"  KS test:",
             f"    KS statistic:    {tests['ks_stat']:.4f}",
@@ -358,15 +411,41 @@ class WhatIfMixin:
             "VERDICT",
             "-" * 52,]
 
-        if tests['significant']:
-            winner = 'B' if delta > 0 else 'A'
-            lines.append(f"  Layout {winner} is SIGNIFICANTLY better")
-            lines.append(f"  (p={tests['p_value']:.6f}, d={tests['cohens_d']:.3f})")
-            lines.append(f"  Confidence: {(1.0 - tests['p_value']) * 100:.2f}%")
+        # Both layouts are simulated under parameters that differ by
+        # construction, so p shrinks with the MC iteration count and says
+        # nothing about a real-world effect; the verdict reports magnitude
+        # and only names a direction the paired-lift interval supports.
+        # With thousands of iterations that interval excludes zero even for
+        # changes too small to matter, so a winner is also
+        # required to move the mean by at least a small effect (|d| >= 0.2)
+        # relative to the spread of simulated outcomes.
+        lift_mean = tests.get('lift_mean', delta)
+        lift_ci = tests.get('lift_ci95')
+        ahead = None
+        if lift_ci and lift_ci[0] > 0:
+            ahead = 'B'
+        elif lift_ci and lift_ci[1] < 0:
+            ahead = 'A'
+        winner = ahead if (ahead and abs(tests['cohens_d']) >= 0.2) else None
+        if winner:
+            lines.append(f"  Layout {winner} projects higher mean revenue")
+        elif ahead:
+            lines.append(f"  No practically relevant difference")
+            lines.append(f"  (Layout {ahead} is ahead beyond MC noise, but by")
+            lines.append(f"  less than 0.2 SD of the simulated outcomes)")
         else:
-            lines.append(f"  No significant difference detected.")
-            lines.append(f"  (p={tests['p_value']:.4f} > alpha={tests['alpha']})")
-            lines.append(f"  Consider more data or larger layout changes.")
+            lines.append(f"  No difference distinguishable from MC noise")
+        lines.append(f"  ({pct:+.1f}% B vs A, d={tests['cohens_d']:.3f}, {effect})")
+        lines.append(f"  Paired lift (B - A):  ${lift_mean:+,.2f}")
+        if lift_ci:
+            lines.append(f"  95% CI (MC precision under the model):")
+            lines.append(f"    ${lift_ci[0]:+,.2f}  to  ${lift_ci[1]:+,.2f}")
+        lines.append(f"  The interval covers MC precision under the")
+        lines.append(f"  model only, not real-world uncertainty")
+        lines.append(f"  about the change.")
+        lines.append(f"  p-values compare two simulated distributions")
+        lines.append(f"  and shrink as MC iterations grow; read the")
+        lines.append(f"  effect size, not p.")
 
         self._ab_text.config(state=tk.NORMAL)
         self._ab_text.delete('1.0', tk.END)
@@ -389,9 +468,8 @@ class WhatIfMixin:
         ax1.axvline(rb['mean'], color='#3498db', linewidth=2, linestyle='--')
         ax1.set_xlabel(f"{n_days}-Day Total Revenue ($)", color=wc, fontsize=9)
         ax1.set_ylabel("Frequency", color=wc, fontsize=9)
+        # No significance marker: p here only tracks the MC iteration count.
         title1 = f"Revenue Distributions"
-        if tests['significant']:
-            title1 += f"  (p={tests['p_value']:.4f} ***)"
         ax1.set_title(title1, color=wc, fontsize=10)
         ax1.legend(fontsize=7)
         ax1.set_facecolor('#001a33')
@@ -422,7 +500,9 @@ class WhatIfMixin:
 
         ax3 = self._ab_fig.add_subplot(2, 2, 3)
         diff = rb['totals'] - ra['totals']
-        ax3.hist(diff, bins=50, color='#2ecc71' if delta > 0 else '#e74c3c',
+        # Coloured by the verdict, not the sign of the mean difference.
+        lift_color = {'B': '#2ecc71', 'A': '#e74c3c'}.get(winner, '#95a5a6')
+        ax3.hist(diff, bins=50, color=lift_color,
                  alpha=0.7, edgecolor='white', linewidth=0.3)
         ax3.axvline(0, color='white', linewidth=1.5, linestyle='--')
         ax3.axvline(diff.mean(), color='#f39c12', linewidth=2,

@@ -42,6 +42,13 @@ from synthetic_shops import (
 )
 
 
+#: Tag mixed into the seed the repair pass is run under. Array seeds go
+#: through MT19937's init_by_array, a different initialisation from the
+#: plain integer seeding used for the Monte Carlo evaluation seeds, so a
+#: baseline's stream cannot silently coincide with an evaluation stream.
+_REPAIR_STREAM_TAG = 0x0BA5
+
+
 # --- constraint helpers ---
 
 def _section_inner_bounds(shop: SyntheticShop,
@@ -167,7 +174,7 @@ def random_valid(shop: SyntheticShop, seed: int = 0
             float(rng.uniform(lo_x, hi_x)),
             float(rng.uniform(lo_y, hi_y)),
         )
-    np.random.seed(seed)   # _repair_within_section uses np.random
+    np.random.seed([seed, _REPAIR_STREAM_TAG])   # repair pass RNG
     return _repair_within_section(shop, layout)
 
 
@@ -216,7 +223,7 @@ def perimeter_only(shop: SyntheticShop, seed: int = 0
             x = float(np.clip(x, lo_x, hi_x))
             y = float(np.clip(y, lo_y, hi_y))
             layout[it.name] = (x, y)
-    np.random.seed(seed)
+    np.random.seed([seed, _REPAIR_STREAM_TAG])
     return _repair_within_section(shop, layout)
 
 
@@ -274,7 +281,7 @@ def popularity_rank(shop: SyntheticShop, seed: int = 0
             lo_x, lo_y, hi_x, hi_y = _section_inner_bounds(shop, it)
             layout[it.name] = (float(np.clip(x, lo_x, hi_x)),
                                float(np.clip(y, lo_y, hi_y)))
-    np.random.seed(seed)
+    np.random.seed([seed, _REPAIR_STREAM_TAG])
     return _repair_within_section(shop, layout)
 
 
@@ -363,6 +370,31 @@ def assert_layout_valid(shop: SyntheticShop,
                         raise AssertionError(
                             f"{ni} and {nj} overlap in section {cat}: "
                             f"({overlap_x:.3f}, {overlap_y:.3f})")
+
+
+def assert_no_strict_overlap(shop: SyntheticShop,
+                             layout: Dict[str, Tuple[float, float]]) -> None:
+    """Raises AssertionError if any two items overlap with positive area.
+
+    Zero tolerance, with the same predicate the simulator fitness uses:
+    ``viz_ga._ga_compute_layout_score`` adds a full overlap penalty for any
+    positive overlap, so a contact residue of 1e-8 m that
+    ``assert_layout_valid``'s tolerance lets through still collapses the
+    layout's MC revenue. Checks every pair, not only same-section pairs,
+    because the fitness penalizes every pair."""
+    by_name = {it.name: it for it in shop.items}
+    names = list(layout)
+    for i in range(len(names)):
+        for j in range(i + 1, len(names)):
+            ni, nj = names[i], names[j]
+            pi, si = layout[ni], by_name[ni].size
+            pj, sj = layout[nj], by_name[nj].size
+            if _items_overlap(pi, si, pj, sj):
+                overlap_x = min(pi[0] + si[0], pj[0] + sj[0]) - max(pi[0], pj[0])
+                overlap_y = min(pi[1] + si[1], pj[1] + sj[1]) - max(pi[1], pj[1])
+                raise AssertionError(
+                    f"{ni} and {nj} overlap: "
+                    f"({overlap_x:.3g}, {overlap_y:.3g})")
 
 
 if __name__ == "__main__":

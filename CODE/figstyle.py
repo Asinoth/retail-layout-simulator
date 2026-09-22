@@ -76,9 +76,11 @@ def figs_dir():
     return d
 
 
-def save(fig, stem, also_png=True):
-    """Save ``fig`` as vector PDF (and optionally PNG) into ../figs/."""
-    d = figs_dir()
+def save(fig, stem, also_png=True, out_dir=None):
+    """Save ``fig`` as vector PDF (and optionally PNG) into ``out_dir``,
+    by default ../figs/."""
+    d = out_dir or figs_dir()
+    os.makedirs(d, exist_ok=True)
     fig.savefig(os.path.join(d, stem + ".pdf"))
     if also_png:
         fig.savefig(os.path.join(d, stem + ".png"), dpi=200)

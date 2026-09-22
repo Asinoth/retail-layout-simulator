@@ -462,23 +462,7 @@ class GAMixin:
             rev_count += 1
         revenue_placement_score = revenue_placement_score / max(rev_count, 1)
 
-        # -- 7. DWELL-TIME ALIGNMENT -------------------------------
-        dwell_score = 0.0
-        dwell_data = dict(A.get('dwell_times_by_zone', {}))
-        if dwell_data:
-            all_dwells = [float(np.mean(times)) for times in dwell_data.values() if times]
-            max_dwell = max(all_dwells) if all_dwells else 1.0
-            n_dwell = 0
-            for n in item_names:
-                cat = item_data[n].get('category', '')
-                zone_times = dwell_data.get(cat, [])
-                if zone_times:
-                    dwell_score += float(np.mean(zone_times)) / max(max_dwell, 1e-6)
-                    n_dwell += 1
-            if n_dwell > 0:
-                dwell_score /= n_dwell
-
-        # -- 8. BOTTLENECK AVOIDANCE -------------------------------
+        # -- 7. BOTTLENECK AVOIDANCE -------------------------------
         bottleneck_penalty = 0.0
         bn_data = dict(A.get('bottlenecks', {}))
         if bn_data:
@@ -493,18 +477,27 @@ class GAMixin:
                 bottleneck_penalty += bn_val / max(max_bn, 1)
             bottleneck_penalty /= max(len(item_names), 1)
 
-        # -- 9. SECTION COMPLIANCE ---------------------------------
+        # -- 8. SECTION COMPLIANCE ---------------------------------
+        # Each item is checked against its own zone wall: a department split
+        # over two gondolas has one Section_<cat>_<i> zone per gondola, and
+        # items without a zone stamp fall back to Section_<cat>. Containment
+        # allows 1e-6 m of round-off, because repairs snap items exactly onto
+        # a zone edge and x + w can land a few ulps past it.
         section_score = 0.0
         n_sec = 0
+        edge_tol = 1e-6
         for i, n in enumerate(item_names):
             cat = item_data[n].get('category', '')
-            sec_wall = self.floors.get(item_floor[n], {}).get('walls', {}).get(f"Section_{cat}")
+            zone = item_data[n].get('zone') or f"Section_{cat}"
+            sec_wall = self.floors.get(item_floor[n], {}).get('walls', {}).get(zone)
             if not sec_wall:
                 continue
             n_sec += 1
             sx, sy = sec_wall['position']; sw, sh = sec_wall['size']
             ix, iy = positions[i]; iw, ih = item_data[n].get('size', (0.0, 0.0))
-            if ix >= sx and iy >= sy and ix + iw <= sx + sw and iy + ih <= sy + sh:
+            if (ix >= sx - edge_tol and iy >= sy - edge_tol
+                    and ix + iw <= sx + sw + edge_tol
+                    and iy + ih <= sy + sh + edge_tol):
                 section_score += 1.0
             else:
                 dx = max(sx - ix, 0, ix + iw - (sx + sw))
@@ -513,7 +506,7 @@ class GAMixin:
         if n_sec > 0:
             section_score /= n_sec
 
-        # -- 10. CONVERSION-WEIGHTED ACCESSIBILITY -----------------
+        # -- 9. CONVERSION-WEIGHTED ACCESSIBILITY ------------------
         accessibility_score = 0.0
         if entrance_pos:
             weighted_sum = 0.0
@@ -535,7 +528,7 @@ class GAMixin:
         # to read alongside the paper's Methods section.
         from retail_literature import (
             GA_W_TRAFFIC, GA_W_CROSS_MERCH, GA_W_IMPULSE, GA_W_FLOW,
-            GA_W_REVENUE_PLACEMENT, GA_W_DWELL, GA_W_SECTION_COMPLIANCE,
+            GA_W_REVENUE_PLACEMENT, GA_W_SECTION_COMPLIANCE,
             GA_W_ACCESSIBILITY, GA_PEN_OVERLAP, GA_PEN_BOTTLENECK,
         )
         score = (traffic_score           * GA_W_TRAFFIC
@@ -543,7 +536,6 @@ class GAMixin:
                + impulse_score           * GA_W_IMPULSE
                + flow_score              * GA_W_FLOW
                + revenue_placement_score * GA_W_REVENUE_PLACEMENT
-               + dwell_score             * GA_W_DWELL
                + section_score           * GA_W_SECTION_COMPLIANCE
                + accessibility_score     * GA_W_ACCESSIBILITY
                - overlap_penalty         * GA_PEN_OVERLAP
@@ -555,7 +547,6 @@ class GAMixin:
             'impulse':              impulse_score,
             'flow':                 flow_score,
             'revenue_placement':    revenue_placement_score,
-            'dwell_alignment':      dwell_score,
             'bottleneck_penalty':   bottleneck_penalty,
             'section_compliance':   section_score,
             'accessibility':        accessibility_score,

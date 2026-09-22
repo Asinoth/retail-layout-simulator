@@ -7,13 +7,14 @@ cited papers and confirm nothing was conjured from thin air.
 
 A few conventions worth knowing before you touch anything:
 
-Scoring weights are equal across the six SPATIAL criteria -- we don't
+Scoring weights are equal across the five SPATIAL criteria -- we don't
 claim the optimal weights are known, and equal weighting is just the
 "no informative prior" choice (Dawes 1979 on improper linear models).
-Two criteria deliberately break that symmetry: section compliance is
-up-weighted (soft structural constraint) and entrance proximity is
-down-weighted (tie-breaker, largely redundant with traffic + flow).
-Robustness is left to the Sensitivity tab to demonstrate.
+The two non-spatial criteria get fixed shares instead: section
+compliance keeps 0.16 as a soft structural constraint (the same size as
+one spatial share), and entrance proximity is down-weighted to 0.04
+(tie-breaker, largely redundant with traffic + flow). Robustness is left
+to the Sensitivity tab to demonstrate.
 
 Elasticities (layout-score -> conversion / impulse / basket-size lift) are
 bounded ranges from the cited papers, not point estimates. The simulator
@@ -88,28 +89,32 @@ CITATIONS: Dict[str, str] = {
 
 
 # --- GA composite scoring weights ---
-# The six spatial criteria are equal-weighted (Dawes 1979). The exception is
-# section compliance, treated as a soft structural constraint -- a
-# 'shoe in lingerie' violation should outweigh any small traffic gain.
-# Penalties sit on a strictly higher scale so a colliding layout can never
-# beat a compliant one.
+# The five spatial criteria are equal-weighted (Dawes 1979). Section
+# compliance is a soft structural constraint with its own fixed share --
+# a 'shoe in lingerie' violation should cost as much as a whole spatial
+# criterion. Penalties sit on a strictly higher scale so a colliding layout
+# can never beat a compliant one.
 #
-# Eight positive criteria: six spatial ones share 0.80 of the [0,1] budget
-# (1/6 ~ 0.133 each), section compliance gets 0.16, and accessibility gets
-# 0.04 (it's revenue-weighted and already overlaps traffic + flow).
+# Seven positive criteria: five spatial ones share 0.80 of the [0,1] budget
+# (0.80 / 5 = 0.16 each), section compliance gets 0.16, and accessibility
+# gets 0.04 (it's revenue-weighted and already overlaps traffic + flow).
+#
+# There is no dwell-time criterion. A per-category dwell average does not
+# depend on where items are placed, so it would add the same constant to
+# every layout -- no search signal, yet it would still shift the absolute
+# score that the elasticities turn into revenue.
 
-GA_W_TRAFFIC            = 1.0 / 6.0 * 0.80   # ~0.133  (Larson 2005 perimeter)
-GA_W_CROSS_MERCH        = 1.0 / 6.0 * 0.80   # ~0.133  (Hui 2009 co-purchase distance)
-GA_W_IMPULSE            = 1.0 / 6.0 * 0.80   # ~0.133  (Hui 2013 in-zone impulse lift)
-GA_W_FLOW               = 1.0 / 6.0 * 0.80   # ~0.133  (Larson 2005 path efficiency)
-GA_W_REVENUE_PLACEMENT  = 1.0 / 6.0 * 0.80   # ~0.133  (Sorensen 2009 hot zones)
-GA_W_DWELL              = 1.0 / 6.0 * 0.80   # ~0.133  (Hui 2013 dwell-time correlation)
-GA_W_SECTION_COMPLIANCE = 0.16               # structural (Ozgormus & Smith 2020, block/department layout)
-GA_W_ACCESSIBILITY      = 0.04               # tie-breaker (Hui 2013 entrance distance)
+GA_W_TRAFFIC            = 0.80 / 5   # 0.16  (Larson 2005 perimeter)
+GA_W_CROSS_MERCH        = 0.80 / 5   # 0.16  (Hui 2009 co-purchase distance)
+GA_W_IMPULSE            = 0.80 / 5   # 0.16  (Hui 2013 in-zone impulse lift)
+GA_W_FLOW               = 0.80 / 5   # 0.16  (Larson 2005 path efficiency)
+GA_W_REVENUE_PLACEMENT  = 0.80 / 5   # 0.16  (Sorensen 2009 hot zones)
+GA_W_SECTION_COMPLIANCE = 0.16       # structural (Ozgormus & Smith 2020, block/department layout)
+GA_W_ACCESSIBILITY      = 0.04       # tie-breaker (Hui 2013 entrance distance)
 
 # positive weights must sum to 1.0
 assert abs(GA_W_TRAFFIC + GA_W_CROSS_MERCH + GA_W_IMPULSE + GA_W_FLOW
-           + GA_W_REVENUE_PLACEMENT + GA_W_DWELL
+           + GA_W_REVENUE_PLACEMENT
            + GA_W_SECTION_COMPLIANCE + GA_W_ACCESSIBILITY - 1.0) < 1e-9
 
 # penalties, on a strictly higher scale than the positives
@@ -200,6 +205,56 @@ IMPULSE_LONG_DWELL_BONUS  = 0.15     # added after this many seconds in store
 IMPULSE_LONG_DWELL_SECS   = 120.0
 
 
+# --- basket composition ---
+# Shopping lists used to be drawn uniformly over the assortment, which
+# meant the calibrated co-purchase structure reached the layout score
+# and the MC parameters but never an agent. Co-locating two frequently
+# co-purchased products therefore could not change anyone's behaviour
+# inside the ABM, so that criterion was carried by the model rather
+# than exhibited by it.
+#
+# Lists are now drawn with popularity weighting, and each item after
+# the first is taken from the co-purchase partners of something already
+# in the basket with probability BASKET_AFFINITY_PROB. Both fall back
+# to the old uniform draw when no calibration is loaded, so generated
+# and synthetic shops behave exactly as before.
+
+BASKET_AFFINITY_PROB = 0.35   # chance the next item comes from an affinity pair
+BASKET_POP_SMOOTHING = 1.0    # additive smoothing on popularity counts
+
+
+# --- checkout service time ---
+# Service was a flat U(3,8) s draw, independent of what the agent was
+# carrying. Two things were wrong with that. Real checkout service is
+# right-skewed, not uniform; and it scales with basket contents, so a
+# layout that enlarges baskets lengthens its own queues. Omitting that
+# feedback understated congestion under exactly the layouts the
+# optimizer prefers.
+#
+# The replacement is the standard decomposition -- a fixed overhead
+# (greeting, payment, bagging) plus a per-item handling time -- carried
+# through a lognormal multiplier for the right tail. Constants are
+# operational, chosen so a typical basket still services in a few
+# seconds and the mean is close to the previous draw's, which keeps the
+# nominal load regime comparable to earlier measurements.
+
+CHECKOUT_BASE_SECS      = 2.0    # fixed overhead per transaction
+CHECKOUT_PER_ITEM_SECS  = 0.5    # marginal handling cost per basket item
+CHECKOUT_LOGNORM_SIGMA  = 0.25   # right-skew; median multiplier 1.0
+CHECKOUT_MIN_SECS       = 1.0    # floor, so the draw cannot vanish
+
+
+# --- agent progress monitoring ---
+# Implementation parameters of the live agent, not literature coefficients.
+# An agent counts as making progress once its net displacement from the
+# anchor position reaches STUCK_PROGRESS_M; if that does not happen within
+# the window (simulated seconds, per state) it is treated as stuck.
+
+STUCK_PROGRESS_M       = 0.25   # net displacement that counts as progress
+STUCK_WINDOW_MOVING_S  = 3.0    # no-progress window while moving to a target
+STUCK_WINDOW_EXITING_S = 5.0    # no-progress window while heading for the exit
+
+
 # --- operational defaults ---
 # Fallbacks for the MC engine and reports before any dataset is loaded.
 # Derived from UCI Online Retail II averages and Sorensen (2009).
@@ -251,7 +306,6 @@ class GaWeights:
     impulse: float = GA_W_IMPULSE
     flow: float = GA_W_FLOW
     revenue_placement: float = GA_W_REVENUE_PLACEMENT
-    dwell: float = GA_W_DWELL
     section_compliance: float = GA_W_SECTION_COMPLIANCE
     accessibility: float = GA_W_ACCESSIBILITY
     overlap_penalty: float = GA_PEN_OVERLAP

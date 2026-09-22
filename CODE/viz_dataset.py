@@ -17,6 +17,8 @@ import os
 import time
 import traceback
 
+import numpy as np
+
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 
@@ -95,10 +97,10 @@ class DatasetMixin:
 
     # -- 3-button quick chooser (the Dataset button entry point) --------
     def _on_dataset_button(self):
-        """Show the 3-option chooser, resolve the chosen path, hard-stop
-        any running sim (so the layout rebuild can't dangle live customer
-        refs), and dispatch to the appropriate branch -- which still shows
-        its validation-report dialog as the confirm step."""
+        """Show the 3-option chooser, resolve the chosen path, and dispatch
+        to the appropriate branch -- which still shows its validation-report
+        dialog as the confirm step, and stops the simulation itself if it is
+        about to rebuild the layout."""
         choice = self._open_dataset_chooser()
         if not choice:
             return
@@ -115,13 +117,10 @@ class DatasetMixin:
                 parent=self.tk_root)
             return
 
-        # Stop any running sim BEFORE the layout clear so customers can't
-        # be left holding dangling refs to walls / items.
-        try:
-            self.customer_simulation.hard_stop()
-        except Exception:
-            pass
-
+        # The run is not touched here: the validation dialog ahead is still
+        # cancellable, and a trajectory load never rebuilds the layout. The
+        # two branches that do rebuild stop the simulation right before the
+        # layout clear, which is where the dangling-reference risk is.
         kind = info['kind']
         if kind == 'uci_xlsx':
             self._auto_load_transactional_xlsx(path)
@@ -313,17 +312,28 @@ class DatasetMixin:
             return
         for n in read_notes:
             report.info.append(n)
+        # adapt() is deterministic in (adapter, df) and takes seconds on the
+        # full UCI frame, so the dialog and the post-confirm step reuse one
+        # result per adapter. Each cached report already carries read_notes.
+        adapt_cache = {adapter.name: (normalized, report)}
 
         # Show validation report, let the user pick an adapter / set
         # assumed conversion / cancel.
-        choice = self._show_validation_dialog(report, df, filename)
+        choice = self._show_validation_dialog(report, df, filename,
+                                              adapt_cache, read_notes)
         if choice is None:
             return
 
         adapter, assumed_conv = choice
-        # Re-run the (possibly different) adapter if the user switched.
+        # Use the (possibly different) adapter the user confirmed.
+        cached = adapt_cache.pop(adapter.name, None)
+        adapt_cache.clear()
         try:
-            normalized, report = adapter.adapt(df)
+            if cached is not None:
+                normalized, report = cached
+            else:
+                normalized, report = adapter.adapt(df)
+                report.info.extend(read_notes)
         except Exception as e:
             messagebox.showerror("Adapter failed",
                                  f"Adapter {adapter.name} crashed:\n\n{e}",
@@ -371,7 +381,8 @@ class DatasetMixin:
 
         # Seed simulation analytics with empirical values
         try:
-            params.seed_into(self.customer_simulation)
+            self._reset_calibration_for_new_source()
+            params.seed_into(self.customer_simulation, shop=self)
         except Exception as e:
             messagebox.showerror("Seeding failed",
                                  f"Could not seed simulation analytics:\n\n{e}",
@@ -479,7 +490,8 @@ class DatasetMixin:
                                  parent=self.tk_root)
             return
         try:
-            params.seed_into(self.customer_simulation)
+            self._reset_calibration_for_new_source()
+            params.seed_into(self.customer_simulation, shop=self)
         except Exception as e:
             messagebox.showerror("Seeding failed",
                                  f"Could not seed simulation analytics:\n\n{e}",
@@ -526,14 +538,69 @@ class DatasetMixin:
             f"Items placed:     {layout_stats['items']}\n"
             f"Shop size:        {layout_stats['width_m']:.1f} × "
             f"{layout_stats['height_m']:.1f} m\n"
-            f"Arrival rate:     {params.arrivals_per_hour:.1f} customers/hr\n"
+            f"Arrival rate:     {params.visitors_per_hour:.1f} customers/hr\n"
             f"Conversion:       {params.assumed_conversion_rate:.0%} "
-            f"(estimated from purchase probabilities)\n\n"
+            f"({'estimated from purchase probabilities' if params.conversion_rate_source == 'estimated_from_purchase_probabilities' else 'assumed'})\n\n"
             f"Aggregate source: basket / per-visit-revenue distributions are "
             f"parametric (not directly observed) and flagged as such in the "
             f"Validation tab.",
             parent=self.tk_root,
         )
+
+    def _reset_calibration_for_new_source(self):
+        """Drop the previous dataset's calibration before seeding a new one.
+
+        ``seed_into`` merges into the existing ``analytics['calibration']``
+        block, so keys only the earlier source wrote (Omnichannel's
+        ``source_kind`` / ``basket_size_source`` / ``mean_impulse_rate``,
+        say) would otherwise be read as the new dataset's. Trajectory keys
+        are kept so a separately loaded spatial dataset survives. The hour
+        profile is reset too, since only sources that have one overwrite it."""
+        sim = self.customer_simulation
+        spatial_keys = {
+            'empirical_speed_mean', 'empirical_speed_std',
+            'empirical_speed_p5', 'empirical_speed_p95',
+            'empirical_track_dwell_mean_s', 'empirical_track_length_mean_m',
+            'spatial_source', 'n_tracks', 'observation_span_seconds',
+        }
+        cal = sim.analytics.get('calibration')
+        if isinstance(cal, dict):
+            for k in [k for k in cal if k not in spatial_keys]:
+                del cal[k]
+        sim.hourly_profile = np.ones(24, dtype=np.float64)
+        sim.sim_clock_start_hour = 9.0
+
+    @staticmethod
+    def _floor1_heat_accumulator(sim, create=False):
+        """Floor 1's traffic accumulator, the buffer SpatialParams.seed_into
+        adds a trajectory prior to. With ``create=False`` a floor that has no
+        accumulator yet gives None instead of a fresh zero buffer."""
+        get_raw = getattr(sim, '_get_floor_heat_raw', None)
+        if not callable(get_raw):
+            return getattr(sim, 'heat_raw', None)
+        if create:
+            return get_raw(1)
+        return (getattr(sim, '_floor_heat_raw', None) or {}).get(1)
+
+    def _remove_trajectory_heat_prior(self, sim):
+        """Take the previously loaded trajectory prior back out of floor 1.
+
+        Only the exact counts that load added are subtracted, and only from
+        the same buffer at the same shape. A layout rebuild, an import, a
+        heat-map reset or a growing shop replaces that buffer, and with it
+        the old prior; subtracting from the replacement would eat into live
+        traffic instead."""
+        prev = getattr(self, '_trajectory_heat_prior', None)
+        self._trajectory_heat_prior = None
+        if not prev:
+            return
+        buf = self._floor1_heat_accumulator(sim)
+        added = prev.get('added')
+        if (buf is None or added is None or buf is not prev.get('buffer')
+                or buf.shape != added.shape):
+            return
+        buf -= added
+        np.maximum(buf, 0.0, out=buf)
 
     def _show_aggregate_validation_dialog(self, report, filename):
         """Modal report dialog for the aggregate Omnichannel bundle.
@@ -605,15 +672,25 @@ class DatasetMixin:
             return
         for n in read_notes:
             report.info.append(n)
+        # Reuse one adapt() result per adapter across the dialog and the
+        # post-confirm step (deterministic, slow on large frames).
+        adapt_cache = {adapter.name: (normalized, report)}
 
         # Show validation dialog (adapter picker reuses the trajectory
         # registry by recognizing the report kind).
-        choice = self._show_trajectory_validation_dialog(report, df, filename)
+        choice = self._show_trajectory_validation_dialog(
+            report, df, filename, adapt_cache, read_notes)
         if choice is None:
             return
         adapter = choice
+        cached = adapt_cache.pop(adapter.name, None)
+        adapt_cache.clear()
         try:
-            normalized, report = adapter.adapt(df)
+            if cached is not None:
+                normalized, report = cached
+            else:
+                normalized, report = adapter.adapt(df)
+                report.info.extend(read_notes)
         except Exception as e:
             messagebox.showerror(
                 "Trajectory adapter failed",
@@ -642,14 +719,44 @@ class DatasetMixin:
                 parent=self.tk_root)
             return
 
+        # A trajectory load leaves the layout and the agents alone, so the run
+        # is paused rather than stopped: the worker then does not start
+        # another tick against the heat buffers while they are rewritten,
+        # and it carries on afterwards if it was running.
+        sim = self.customer_simulation
+        was_running = (bool(getattr(sim, '_running', False))
+                       and not getattr(sim, 'paused', False))
+        if was_running:
+            sim.pause_simulation()
         try:
-            sparams.seed_into(self.customer_simulation)
+            # seed_into adds the observed counts to floor 1's accumulator, so
+            # a second load would stack both priors and the heat map and the
+            # GA traffic score would count the observed traffic twice.
+            self._remove_trajectory_heat_prior(sim)
+            buf = self._floor1_heat_accumulator(sim, create=True)
+            before = buf.copy() if buf is not None else None
+            sparams.seed_into(sim)
+            if (before is not None
+                    and self._floor1_heat_accumulator(sim) is buf
+                    and buf.shape == before.shape):
+                self._trajectory_heat_prior = {'buffer': buf,
+                                               'added': buf - before}
+            # Refresh the display copy from the accumulators: seed_into only
+            # mirrors when it added something, and the previous prior may
+            # just have been taken out.
+            try:
+                sim.switch_floor_heatmap(self.current_floor)
+            except Exception:
+                pass
         except Exception as e:
             messagebox.showerror(
                 "Seeding failed",
                 f"Could not seed spatial parameters:\n\n{e}",
                 parent=self.tk_root)
             return
+        finally:
+            if was_running:
+                sim.start_simulation()
 
         # Stamp provenance
         prov = stamp(
@@ -704,7 +811,8 @@ class DatasetMixin:
             parent=self.tk_root,
         )
 
-    def _show_trajectory_validation_dialog(self, report, df, filename):
+    def _show_trajectory_validation_dialog(self, report, df, filename,
+                                           adapt_cache=None, read_notes=()):
         """Modal dialog for trajectory data -- same layout as the
         transactional version, minus the conversion-rate field."""
         dlg = tk.Toplevel(self.tk_root)
@@ -730,11 +838,18 @@ class DatasetMixin:
                        font=('Courier New', 9))
         text.pack(fill=tk.BOTH, expand=True, padx=10, pady=8)
 
+        if adapt_cache is None:
+            adapt_cache = {}
+
         def refresh_report(*_):
             adapter = next(a for a in TRAJECTORY_ADAPTERS
                            if a.name == adapter_var.get())
             try:
-                _, r = adapter.adapt(df)
+                if adapter.name not in adapt_cache:
+                    out = adapter.adapt(df)
+                    out[1].info.extend(read_notes)
+                    adapt_cache[adapter.name] = out
+                _, r = adapt_cache[adapter.name]
             except Exception as e:
                 text.config(state=tk.NORMAL)
                 text.delete('1.0', tk.END)
@@ -860,7 +975,8 @@ class DatasetMixin:
         return result['sheets']
 
     # -- Validation dialog (pre-calibration) -------------------------
-    def _show_validation_dialog(self, report, df, filename):
+    def _show_validation_dialog(self, report, df, filename,
+                                adapt_cache=None, read_notes=()):
         """Modal dialog showing the ValidationReport. Returns
         ``(adapter, assumed_conversion_rate)`` if the user clicks
         Calibrate, or ``None`` if they cancel.
@@ -895,11 +1011,18 @@ class DatasetMixin:
                        font=('Courier New', 9))
         text.pack(fill=tk.BOTH, expand=True, padx=10, pady=8)
 
+        if adapt_cache is None:
+            adapt_cache = {}
+
         def refresh_report(*_):
             adapter = next(a for a in TRANSACTIONAL_ADAPTERS
                            if a.name == adapter_var.get())
             try:
-                _, r = adapter.adapt(df)
+                if adapter.name not in adapt_cache:
+                    out = adapter.adapt(df)
+                    out[1].info.extend(read_notes)
+                    adapt_cache[adapter.name] = out
+                _, r = adapt_cache[adapter.name]
             except Exception as e:
                 r = report   # keep old on failure
                 text.config(state=tk.NORMAL)

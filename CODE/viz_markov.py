@@ -19,7 +19,8 @@ from sim_calibration import (
     compute_absorbing_analysis,
     extract_simulation_parameters,
     transient_occupancy_distribution,
-    _calibrated,
+    _calib,
+    MARKOV_TRANSIENT,
 )
 
 import copy
@@ -112,6 +113,9 @@ class MarkovMixin:
 
         for step in range(1, max_steps):
             rng = np.random.random(n_customers)
+            # Masks read the pre-step states and results go to a copy, so
+            # each customer makes exactly one transition per step.
+            nxt = current.copy()
             for i in range(n):
                 mask = current == i
                 if not mask.any():
@@ -119,7 +123,8 @@ class MarkovMixin:
                 r = rng[mask]
                 next_states = np.searchsorted(cumT[i], r)
                 next_states = np.clip(next_states, 0, n - 1)
-                current[mask] = next_states
+                nxt[mask] = next_states
+            current = nxt
 
             for i in range(n):
                 state_counts[step, i] = np.sum(current == i)
@@ -133,7 +138,12 @@ class MarkovMixin:
 
     def _run_markov_model(self):
         A = self.customer_simulation.analytics
-        if not _calibrated(A) and A.get('total_customers', 0) < 5:
+        # A trajectory-only dataset fills the calibration block with spatial
+        # keys but no arrival or conversion rate, so it cannot stand in for
+        # observed customers.
+        cal = _calib(A)
+        has_tx = bool(cal.get('arrivals_per_hour')) and 'conversion_rate' in cal
+        if not has_tx and A.get('total_customers', 0) < 5:
             messagebox.showwarning(
                 "Insufficient Data",
                 "Run the real-time simulation first (at least 5 customers).",
@@ -166,7 +176,20 @@ class MarkovMixin:
         imp_rate = params['impulse_rate']
         imp_val = params['avg_impulse_value']
 
-        p_purchase = absorb['p_purchase_from_entering']
+        p_chain = absorb['p_purchase_from_entering']
+        # With a transactional dataset the visitor rate is the observed buyer
+        # rate divided by the assumed conversion, so visitors x that same
+        # conversion is what reproduces the data. The chain's absorption
+        # probability is estimated from the live agents (who nearly always
+        # buy) or from a prior, and applying it to the derived visitor rate
+        # would count each observed buyer p_chain / conversion times over.
+        # There the chain is reported as a description of the flow only.
+        if has_tx:
+            p_purchase = params['conversion_rate']
+            p_purchase_source = 'calibrated conversion'
+        else:
+            p_purchase = p_chain
+            p_purchase_source = 'Markov chain'
 
         daily_customers = cph * op_hours
         daily_purchasers = daily_customers * p_purchase
@@ -177,6 +200,8 @@ class MarkovMixin:
         steady_dict = transient_occupancy_distribution(
             self.customer_simulation.analytics
         )
+        occ = self.customer_simulation.analytics.get(
+            'markov_state_occupancy') or {}
         steady = np.zeros(len(states))
         si = {s: i for i, s in enumerate(states)}
         for s, p in steady_dict.items():
@@ -219,9 +244,17 @@ class MarkovMixin:
             'imp_rate': imp_rate,
             'imp_val': imp_val,
             'p_purchase': p_purchase,
+            'p_purchase_source': p_purchase_source,
+            'p_purchase_chain': p_chain,
             'markov_meta': self.customer_simulation.analytics.get(
                 'markov_matrix_meta', {}
             ),
+            # transient_occupancy_distribution returns a uniform split when
+            # no transient-state occupancy has been logged; the display must
+            # say so, using the same test.
+            'occupancy_logged': sum(
+                float(occ.get(s, 0)) for s in MARKOV_TRANSIENT
+            ) > 0,
         }
 
         self._display_markov_results(results)
@@ -275,7 +308,9 @@ class MarkovMixin:
             f"  Empirical (logged ABM):  {'yes' if meta.get('empirical') else 'no (prior)'}",
             f"  Logged transitions:      {meta.get('total_transitions', 0)}",
             "",
-            "TRANSIENT STATE OCCUPANCY (empirical, pre-absorption)",
+            ("TRANSIENT STATE OCCUPANCY (empirical, pre-absorption)"
+             if R.get('occupancy_logged') else
+             "TRANSIENT STATE OCCUPANCY (uniform fallback, none logged)"),
             "-" * 50,
         ]
         for i, s in enumerate(states):
@@ -289,6 +324,17 @@ class MarkovMixin:
             "",
             "REVENUE PROJECTIONS (Analytical)",
             "-" * 50,
+            f"  P(purchase) used:      {R['p_purchase']:>8.4f}"
+            f"  ({R.get('p_purchase_source', 'Markov chain')})",
+        ]
+        if R.get('p_purchase_source') == 'calibrated conversion':
+            lines += [
+                f"  Chain P(Purchase|Enter) = {R['p_purchase_chain']:.4f} is",
+                f"  shown above as a flow diagnostic; the visitor",
+                f"  rate was derived with the calibrated conversion,",
+                f"  so purchasers use that rate too.",
+            ]
+        lines += [
             f"  Daily customers:       {R['daily_customers']:>8.1f}",
             f"  Daily purchasers:      {R['daily_purchasers']:>8.1f}",
             f"  Daily base revenue:    ${R['daily_base_rev']:>10,.2f}",
@@ -392,7 +438,10 @@ class MarkovMixin:
                      linewidth=1.8)
         ax4.set_xlabel("Day", color=wc, fontsize=9)
         ax4.set_ylabel("Cumulative Revenue ($)", color=wc, fontsize=9)
-        ax4.set_title("Revenue Scenarios (Markov-based)", color=wc, fontsize=10)
+        ax4.set_title("Revenue Scenarios (Markov-based)"
+                      if R.get('p_purchase_source', 'Markov chain') == 'Markov chain'
+                      else "Revenue Scenarios (calibrated conversion)",
+                      color=wc, fontsize=10)
         ax4.legend(fontsize=6, loc='upper left')
         ax4.set_facecolor('#001a33')
         ax4.tick_params(colors=wc, labelsize=7)

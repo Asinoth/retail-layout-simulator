@@ -18,7 +18,29 @@ from simulation import CustomerFlowSimulation
 import copy
 from scipy import stats as sp_stats
 
-from sim_calibration import _calibrated
+from sim_calibration import _calib
+
+
+def item_zone_name(data, walls):
+    """Name of the zone wall an item is constrained to, or None.
+
+    Items carry a stamped ``zone`` because a department split over two
+    gondolas has one ``Section_<cat>_<i>`` wall per gondola, and looking up
+    ``Section_<category>`` alone would pull the second gondola's items into
+    the first. The stamp is honoured only while it still belongs to the
+    item's category and the wall exists on the item's own floor: changing an
+    item's category (marking it as impulse, for example) leaves the old
+    department's stamp behind, and clipping the item back into that
+    department would undo the move the user just made. ``walls`` is the wall
+    dict of the floor the item sits on."""
+    cat = data.get('category', '')
+    base = f"Section_{cat}"
+    zone = data.get('zone')
+    if zone and zone in walls:
+        suffix = zone[len(base):] if zone.startswith(base) else None
+        if suffix == '' or (suffix and suffix.startswith('_') and suffix[1:].isdigit()):
+            return zone
+    return base if base in walls else None
 
 
 class GARunMixin:
@@ -38,6 +60,7 @@ class GARunMixin:
             ELASTICITY_BSK_GAIN_MAX  as _EBG,
             ABANDON_FLOW_COEF, ABANDON_SECTION_COEF,
             ABANDON_BOTTLENECK_COEF, ABANDON_FLOOR_FRAC,
+            DEFAULT_WEEKEND_MULTIPLIER,
         )
         _conv_e = _ECB + 0.5 * _ECG    # ~0.35 at midpoint
         _imp_e  = _EIB + 0.5 * _EIG    # ~0.50 at midpoint
@@ -96,7 +119,8 @@ class GARunMixin:
             std_bsk=base_params['std_basket_size'],
             observed_baskets=base_params['basket_sizes_observed'],
             n_days=mc_days, n_iter=mc_iters,
-            op_hours=10.0, wknd_mult=1.4, monthly_growth=0.0,
+            op_hours=10.0, wknd_mult=DEFAULT_WEEKEND_MULTIPLIER,
+            monthly_growth=0.0,
         )
         return res['mean']
     
@@ -110,18 +134,44 @@ class GARunMixin:
         return c1, c2, blend
 
     def _ga_get_section_bounds(self, item_name):
-        """Return (sx, sy, sw, sh) for the item's section on its own floor."""
+        """Return (sx, sy, sw, sh) for the item's zone on its own floor.
+
+        The zone is resolved by ``item_zone_name``: the stamped zone while it
+        still matches the item's category, else Section_<category>, else no
+        bounds at all."""
         data = self._ga_get_item_data(item_name) if hasattr(self, '_ga_get_item_data') else self.items[item_name]
         fid = data.get('floor', getattr(self, 'current_floor', 1))
-        cat = data.get('category', '')
-        sec_wall = self.floors.get(fid, {}).get('walls', {}).get(f"Section_{cat}")
+        walls = self.floors.get(fid, {}).get('walls', {})
+        zone = item_zone_name(data, walls)
+        sec_wall = walls.get(zone) if zone else None
         if sec_wall:
             return (*sec_wall['position'], *sec_wall['size'])
         return None
 
     def _ga_get_impulse_max_dist(self):
-        """Max allowed distance from checkout for impulse items (25% of store diagonal)."""
+        """Radius around the checkout that impulse items are pulled into (25% of store diagonal)."""
         return math.sqrt(self.width ** 2 + self.height ** 2) * 0.25
+
+    def _ga_project_impulse(self, x, y, w, h, lo_x, hi_x, lo_y, hi_y,
+                            checkout_pos, impulse_max):
+        """Pull an impulse item toward the checkout when its bounds allow it.
+
+        The centre is moved to 0.95 of the radius along the line to the
+        checkout and clipped back into [lo, hi]. The move is kept only if the
+        clipped position really lies within the radius. When the section
+        cannot reach the disc, the clip would send every input to the same
+        corner and the item would stop being searched, so the incoming
+        position is returned unchanged instead."""
+        cx, cy = x + w / 2, y + h / 2
+        dist = math.hypot(cx - checkout_pos[0], cy - checkout_pos[1])
+        if dist <= impulse_max:
+            return x, y
+        scale = impulse_max / max(dist, 1e-6) * 0.95
+        px = np.clip(checkout_pos[0] + (cx - checkout_pos[0]) * scale - w / 2, lo_x, hi_x)
+        py = np.clip(checkout_pos[1] + (cy - checkout_pos[1]) * scale - h / 2, lo_y, hi_y)
+        if math.hypot(px + w / 2 - checkout_pos[0], py + h / 2 - checkout_pos[1]) <= impulse_max:
+            return px, py
+        return x, y
 
     def _ga_mutate(self, chrom, item_names, mut_rate):
         mutated = chrom.copy()
@@ -159,13 +209,9 @@ class GARunMixin:
 
             cat = str(data.get('category', '')).lower()
             if 'impulse' in cat and checkout_pos and fid == checkout_floor:
-                cx = mutated[i, 0] + w / 2
-                cy = mutated[i, 1] + h / 2
-                dist = math.hypot(cx - checkout_pos[0], cy - checkout_pos[1])
-                if dist > impulse_max:
-                    scale = impulse_max / max(dist, 1e-6) * 0.95
-                    mutated[i, 0] = checkout_pos[0] + (cx - checkout_pos[0]) * scale - w / 2
-                    mutated[i, 1] = checkout_pos[1] + (cy - checkout_pos[1]) * scale - h / 2
+                mutated[i, 0], mutated[i, 1] = self._ga_project_impulse(
+                    mutated[i, 0], mutated[i, 1], w, h,
+                    lo_x, hi_x, lo_y, hi_y, checkout_pos, impulse_max)
         return self._ga_repair(mutated, item_names)
 
     def _ga_repair(self, chrom, item_names):
@@ -195,20 +241,125 @@ class GARunMixin:
 
             cat = str(data.get('category', '')).lower()
             if 'impulse' in cat and checkout_pos and fid == checkout_floor:
-                cx = chrom[i, 0] + w / 2
-                cy = chrom[i, 1] + h / 2
-                dist = math.hypot(cx - checkout_pos[0], cy - checkout_pos[1])
-                if dist > impulse_max:
-                    scale = impulse_max / max(dist, 1e-6) * 0.95
-                    chrom[i, 0] = checkout_pos[0] + (cx - checkout_pos[0]) * scale - w / 2
-                    chrom[i, 1] = checkout_pos[1] + (cy - checkout_pos[1]) * scale - h / 2
-                    chrom[i, 0] = np.clip(chrom[i, 0], lo_x, hi_x)
-                    chrom[i, 1] = np.clip(chrom[i, 1], lo_y, hi_y)
+                chrom[i, 0], chrom[i, 1] = self._ga_project_impulse(
+                    chrom[i, 0], chrom[i, 1], w, h,
+                    lo_x, hi_x, lo_y, hi_y, checkout_pos, impulse_max)
         return chrom
 
+    def _ga_resolve_overlaps(self, chrom, item_names):
+        """Resolve item-vs-item overlaps inside each zone of a chromosome.
+
+        ``_ga_repair`` only clamps each item to its zone; it never separates
+        two items that landed on top of each other. Fixtures are laid out
+        0.15 m apart, so almost every perturbed or crossed-over child
+        overlaps a neighbour, and one overlapping pair costs more score than
+        the whole positive composite -- without this step the unperturbed
+        starting layout is the only viable candidate and the GA cannot move
+        anything.
+
+        The repair is 2D and rank-preserving: the items of a zone are read
+        row-major from their current positions (y picks the row, x the column
+        within it) and snapped onto evenly spaced, non-overlapping slots, so
+        the chromosome keeps its positional information as rank. Items are
+        grouped by (floor, zone) -- an upper floor generated for the same
+        shop type reuses section names, and its items must not be snapped
+        into the ground floor's boxes. Deterministic: no RNG draws."""
+        out = chrom.copy()
+
+        by_zone = {}
+        sizes = []
+        for i, n in enumerate(item_names):
+            d = (self._ga_get_item_data(n)
+                 if hasattr(self, '_ga_get_item_data') else self.items[n])
+            fid = d.get('floor', getattr(self, 'current_floor', 1))
+            walls = self.floors.get(fid, {}).get('walls', {})
+            sizes.append(tuple(d.get('size', (1.0, 1.0))))
+            zone = item_zone_name(d, walls)
+            if zone is None:
+                continue
+            by_zone.setdefault((fid, zone), []).append(i)
+
+        for (fid, zone), idx_list in by_zone.items():
+            if len(idx_list) < 2:
+                continue
+            sec_wall = self.floors.get(fid, {}).get('walls', {}).get(zone)
+            if sec_wall is None:
+                continue
+            sx, sy = sec_wall['position']
+            sw, sh = sec_wall['size']
+
+            any_overlap = False
+            for k in range(len(idx_list)):
+                i = idx_list[k]
+                xi, yi = out[i, 0], out[i, 1]
+                wi, hi = sizes[i]
+                for k2 in range(k + 1, len(idx_list)):
+                    j = idx_list[k2]
+                    xj, yj = out[j, 0], out[j, 1]
+                    wj, hj = sizes[j]
+                    if not (xi + wi <= xj or xi >= xj + wj
+                            or yi + hi <= yj or yi >= yj + hj):
+                        any_overlap = True
+                        break
+                if any_overlap:
+                    break
+            if not any_overlap:
+                continue
+
+            n_z = len(idx_list)
+            max_w = max(sizes[i][0] for i in idx_list)
+            max_h = max(sizes[i][1] for i in idx_list)
+            gap = 0.15
+            pad = 0.05
+            avail_w = sw - 2 * pad
+            avail_h = sh - 2 * pad
+            cols = max(1, int(math.floor((avail_w + gap) / (max_w + gap))))
+            rows_needed = int(math.ceil(n_z / cols))
+            if rows_needed * (max_h + gap) - gap > avail_h:
+                # Doesn't fit in this many columns; try the other orientation
+                rows_needed = max(1, int(math.floor((avail_h + gap) / (max_h + gap))))
+                cols = int(math.ceil(n_z / rows_needed))
+            # Preserve the rank the GA chose on both axes: y decides the row,
+            # x decides the column within that row. A plain (y, x) sort would
+            # order columns by y as well, since real-valued y almost never ties.
+            by_y = sorted(idx_list, key=lambda i: out[i, 1])
+            rows = [sorted(by_y[r * cols:(r + 1) * cols], key=lambda i: out[i, 0])
+                    for r in range(rows_needed)]
+            step_x = (avail_w - max_w) / max(cols - 1, 1) if cols > 1 else 0.0
+            step_y = (avail_h - max_h) / max(rows_needed - 1, 1) if rows_needed > 1 else 0.0
+            # Steps below item dimension + gap would re-create the overlap.
+            step_x = max(step_x, max_w + gap)
+            step_y = max(step_y, max_h + gap)
+            for r, row in enumerate(rows):
+                for c, i in enumerate(row):
+                    wi, hi = sizes[i]
+                    x = sx + pad + c * step_x
+                    y = sy + pad + r * step_y
+                    # Clip back into the zone in case a step pushed past it
+                    x = max(sx + pad, min(x, sx + sw - wi - pad))
+                    y = max(sy + pad, min(y, sy + sh - hi - pad))
+                    out[i, 0] = x
+                    out[i, 1] = y
+        return out
+
     def _run_ga_optimization(self):
+        # The Optimize pipeline leaves the GUI interactive while it measures
+        # its PRE/POST windows, so this button can be clicked mid-window.
+        # Stopping the worker below would freeze that measurement halfway and
+        # the pipeline would go on to compare a partial window with a full one.
+        if getattr(self, '_opt_running', False):
+            messagebox.showinfo("Optimization running",
+                                "Wait for the Optimize measurement to finish.",
+                                parent=self.tk_root)
+            return
+
         A = self.customer_simulation.analytics
-        if not _calibrated(A) and A.get('total_customers', 0) < 5:
+        # A trajectory-only dataset fills the calibration block with spatial
+        # keys but no arrival or conversion rate, so it cannot stand in for
+        # observed customers.
+        cal = _calib(A)
+        has_tx = bool(cal.get('arrivals_per_hour')) and 'conversion_rate' in cal
+        if not has_tx and A.get('total_customers', 0) < 5:
             messagebox.showwarning("Insufficient Data",
                                    "Run the simulation first (>= 5 customers).",
                                    parent=self.tk_root)
@@ -221,6 +372,21 @@ class GARunMixin:
                                    parent=self.tk_root)
             return
 
+        # The live simulation worker draws from the same global numpy RNG as
+        # the Monte Carlo fitness, and inserts keys into the analytics dicts
+        # the parameter extraction reads; stop it before either. Both gates
+        # above have passed at this point, so a refused click never wipes a
+        # running simulation.
+        sim = self.customer_simulation
+        if sim.running or sim._running:
+            self._stop_simulation()
+            # Settle the agents still in the store BEFORE hard_stop drops
+            # them: _clear_simulation records them as cleared and retires
+            # their state history, hard_stop empties the store with no
+            # bookkeeping at all.
+            self._clear_simulation()
+            sim.hard_stop()
+
         base_params = self._extract_simulation_parameters()
         pop_size = max(10, self._ga_pop.get())
         n_gens = max(5, self._ga_gens.get())
@@ -229,14 +395,18 @@ class GARunMixin:
         mc_iters = max(100, self._ga_mc_iters.get())
         mc_days = max(1, self._ga_mc_days.get())
 
-
         n_elite = max(1, int(pop_size * elite_frac))
 
         self._ga_progress.set("Initializing population...")
         self.tk_root.update_idletasks()
 
         current = self._ga_encode(item_names)
-        population = [current.copy()]
+        # The starting layout enters through the same repair chain as every
+        # other candidate, so the population is scored on one feasible set:
+        # an as-built fixture can sit flush on its zone edge, inside the
+        # clearance the repair enforces.
+        population = [self._ga_resolve_overlaps(
+            self._ga_repair(current.copy(), item_names), item_names)]
         for _ in range(pop_size - 1):
             noisy = current.copy()
             for i, n in enumerate(item_names):
@@ -265,6 +435,7 @@ class GARunMixin:
                 noisy[i, 1] = np.clip(
                     current[i, 1] + np.random.normal(0, sigma_y), lo_y, hi_y)
             noisy = self._ga_repair(noisy, item_names)
+            noisy = self._ga_resolve_overlaps(noisy, item_names)
             population.append(noisy)
 
         history_best = []
@@ -272,14 +443,27 @@ class GARunMixin:
         history_worst = []
         gen_scores_all = []
 
+        # Paired Monte Carlo: every candidate in a round is scored on the
+        # same seed, so the ranking reflects layout differences rather than
+        # independent MC noise. The global RNG state is restored after each
+        # round so selection and mutation keep drawing from the unseeded
+        # stream.
+        mc_base_seed = int(np.random.randint(0, 2 ** 20))
+
+        def _paired_fitness(pop, mc_seed):
+            saved_state = np.random.get_state()
+            out = np.empty(len(pop), dtype=np.float64)
+            for k, p in enumerate(pop):
+                np.random.seed(mc_seed)
+                out[k] = self._ga_fitness(p, item_names, base_params, mc_days, mc_iters)
+            np.random.set_state(saved_state)
+            return out
+
         for gen in range(n_gens):
             self._ga_progress.set(f"Gen {gen + 1}/{n_gens} — evaluating...")
             self.tk_root.update_idletasks()
 
-            fitness = np.array([
-                self._ga_fitness(p, item_names, base_params, mc_days, mc_iters)
-                for p in population
-            ])
+            fitness = _paired_fitness(population, mc_base_seed * 1000 + gen)
 
             rank = np.argsort(fitness)[::-1]
             population = [population[r] for r in rank]
@@ -311,6 +495,10 @@ class GARunMixin:
                 for child in [c1, c2, blend]:
                     child = self._ga_mutate(child, item_names, mut_rate)
                     child = self._ga_repair(child, item_names)
+                    # Separate items that landed on top of each other, so the
+                    # child can be judged on its placement instead of
+                    # collapsing to the overlap-penalty floor.
+                    child = self._ga_resolve_overlaps(child, item_names)
                     new_pop.append(child)
                     if len(new_pop) >= pop_size:
                         break
@@ -319,11 +507,14 @@ class GARunMixin:
 
         self._ga_progress.set("Final evaluation...")
         self.tk_root.update_idletasks()
-        final_fitness = np.array([
-            self._ga_fitness(p, item_names, base_params, mc_days, mc_iters)
-            for p in population
-        ])
-        best_idx = np.argmax(final_fitness)
+        # Average the survivors over several shared seeds so a single
+        # lucky draw cannot decide the winner.
+        n_final_seeds = 5
+        final_fitness = np.mean([
+            _paired_fitness(population, mc_base_seed * 1000 + n_gens + 1 + s)
+            for s in range(n_final_seeds)
+        ], axis=0)
+        best_idx = int(np.argmax(final_fitness))
         best_chrom = population[best_idx]
 
         self._ga_best_chromosome = best_chrom
@@ -333,12 +524,19 @@ class GARunMixin:
         best_score, best_breakdown = self._ga_compute_layout_score(
             best_chrom, item_names, base_params
         )
+        # The argmax over noisy means is biased upward, so the reported
+        # comparison re-scores the chosen layout and the current one
+        # together on fresh shared seeds.
         current_chrom = self._ga_encode(item_names)
-        current_fit = self._ga_fitness(current_chrom, item_names, base_params, mc_days, mc_iters)
+        best_fit, current_fit = np.mean([
+            _paired_fitness([best_chrom, current_chrom],
+                            mc_base_seed * 1000 + n_gens + 1 + n_final_seeds + s)
+            for s in range(n_final_seeds)
+        ], axis=0)
 
         self._display_ga_results(
             item_names, base_params, best_chrom, best_breakdown,
-            final_fitness[best_idx], current_fit,
+            best_fit, current_fit,
             history_best, history_avg, history_worst,
             gen_scores_all, n_gens, pop_size, mc_days, mc_iters
         )
@@ -375,7 +573,6 @@ class GARunMixin:
             f"  Impulse placement:   {breakdown['impulse']:.4f}",
             f"  Flow efficiency:     {breakdown['flow']:.4f}",
             f"  Revenue placement:   {breakdown['revenue_placement']:.4f}",
-            f"  Dwell alignment:     {breakdown['dwell_alignment']:.4f}",
             f"  Accessibility:       {breakdown['accessibility']:.4f}",
             f"  Section compliance:  {breakdown['section_compliance']:.4f}",
             f"  Bottleneck penalty:  {breakdown['bottleneck_penalty']:.4f}",
@@ -498,6 +695,15 @@ class GARunMixin:
         self._ga_canvas_fig.draw_idle()
 
     def _apply_ga_best(self):
+        # Moving fixtures mid-window would change the store the Optimize
+        # pipeline is measuring, so its PRE baseline and POST result would no
+        # longer describe the same two layouts.
+        if getattr(self, '_opt_running', False):
+            messagebox.showinfo("Optimization running",
+                                "Wait for the Optimize measurement to finish.",
+                                parent=self.tk_root)
+            return
+
         if self._ga_best_layout is None:
             messagebox.showinfo("No Result", "Run the GA optimizer first.",
                                 parent=self.tk_root)
@@ -524,6 +730,15 @@ class GARunMixin:
                 self._repair_item_overlaps()
         finally:
             self.current_floor = prev_floor
+
+        # Items are obstacles for the live agents and carry the zone
+        # attribution, so both the path grid and the zone table have to be
+        # rebuilt from the new positions.
+        sim = getattr(self, 'customer_simulation', None)
+        if sim is not None:
+            sim.geometry_dirty = True
+            sim.invalidate_zones_cache()
+
         self.redraw()
 
         moved = 0

@@ -52,23 +52,8 @@ def export_analytics_to_json(shop, path="analytics_latest.json"):
         print("No analytics to write.")
         return
 
-    def sanitize(obj):
-        if isinstance(obj, dict):
-            out = {}
-            for k, v in obj.items():
-                key = "|".join(map(str, k)) if isinstance(k, tuple) else (k if isinstance(k, (str, int, float, bool, type(None))) else str(k))
-                out[str(key)] = sanitize(v)
-            return out
-        if isinstance(obj, (list, tuple, set)):
-            return [sanitize(x) for x in obj]
-        if isinstance(obj, np.ndarray):
-            return obj.tolist()
-        try:
-            json.dumps(obj)
-            return obj
-        except (TypeError, OverflowError):
-            return str(obj)
-
+    # The module-level sanitize converts numpy scalars via .item(); without
+    # that, np.int64 / np.bool_ values would be written as strings.
     safe = sanitize(analytics)
     with open(path, "w", encoding="utf-8") as f:
         json.dump(safe, f, indent=2)
@@ -76,6 +61,13 @@ def export_analytics_to_json(shop, path="analytics_latest.json"):
 
 # Convert tuple keys to strings, numpy types to Python types, sets/tuples to lists, and defaultdicts to plain dicts.
 def sanitize(obj):
+        # Plain leaves are the bulk of a long run's analytics (hundreds of
+        # thousands of floats in the per-frame lists) and the json.dumps probe
+        # at the bottom is the expensive way to learn they are fine. type() is
+        # an exact match, so numpy scalars still take the np.generic branch.
+        if obj is None or type(obj) in (str, bool, int, float):
+            return obj
+
         # Dict-like: sanitize keys and values
         if isinstance(obj, dict):
             out = {}
@@ -214,6 +206,7 @@ class ShopVisualizer(
 
         self._last_metrics_time = 0.0
         self._metrics_interval = 1.0
+        self._metrics_after_id = None
         self._layout_variation = -1
 
         self.current_tab = "Layout"
@@ -303,6 +296,15 @@ class ShopVisualizer(
             self.num_floors = len(self.floors)
             if self.current_floor == floor_id:
                 self.current_floor = 1
+                # The heat buffers still hold the deleted floor's traffic and
+                # only the running loop refreshes them, so a paused or stopped
+                # simulation would keep showing it as floor 1.
+                heat_sim = getattr(self, 'customer_simulation', None)
+                if heat_sim is not None:
+                    try: heat_sim.switch_floor_heatmap(1)
+                    except Exception: pass
+                    try: self._refresh_embedded_heatmap()
+                    except Exception: pass
             # Move any customers on the deleted floor back to floor 1
             sim = getattr(self, 'customer_simulation', None)
             if sim:
@@ -322,6 +324,11 @@ class ShopVisualizer(
                 except Exception:
                     pass
                 sim.geometry_dirty = True
+                # The deleted floor's walls, sections and orphaned
+                # connectors leave with it, and the zone table may have
+                # been built from them.
+                try: sim.invalidate_zones_cache()
+                except Exception: pass
             # Clear per-floor heatmap data for deleted floor
             if sim and hasattr(sim, '_floor_heat_raw'):
                 sim._floor_heat_raw.pop(floor_id, None)
@@ -397,13 +404,18 @@ class ShopVisualizer(
 
     def _assign_default_prices(self):
         """
-        Walk all self.items and give each one a default price if it has none.
-        This covers manual-add, import, and generate paths.
+        Walk the items on every floor and give each one a default price if it
+        has none. This covers manual-add, import, and generate paths.
+        self.items / self.prices only reach the floor being viewed, so the
+        floors are iterated directly; otherwise unpriced items elsewhere earn
+        0.0 in live revenue.
         """
-        for name in self.items:
-            if name not in self.prices:
-                # you can tweak this range or even base it on category
-                self.prices[name] = round(np.random.uniform(5.0, 50.0), 2)
+        for fdata in self.floors.values():
+            prices = fdata.setdefault('prices', {})
+            for name in fdata.get('items', {}):
+                if name not in prices:
+                    # you can tweak this range or even base it on category
+                    prices[name] = round(np.random.uniform(5.0, 50.0), 2)
 
  
     def _on_tab_changed(self, event):
@@ -529,8 +541,11 @@ class ShopVisualizer(
 
                        # --- Layout Tab Canvas -------------------------------------------------
         if self.fig is None or self.ax is None:
-            self.fig, self.ax = plt.subplots(figsize=(10, 8))
-            plt.ion()
+            # A plain Figure, not pyplot: under TkAgg a pyplot figure creates
+            # its own hidden Tk root, which keeps mainloop() running after the
+            # main window is closed.
+            self.fig = Figure(figsize=(10, 8))
+            self.ax = self.fig.add_subplot()
 
         # --- Floor selector side panel (RIGHT of the layout) ------------
         floor_panel = tk.Frame(tab_layout, bg='#0f3460', width=60)
@@ -627,7 +642,8 @@ class ShopVisualizer(
     def _on_window_close(self):
         """Tear down scheduled callbacks + worker thread, then destroy root."""
         for attr in ('_analytics_after_id', '_sim_gui_drain_after_id',
-                     '_resize_after_id', '_opt_after_id', '_heat_after_id'):
+                     '_resize_after_id', '_opt_after_id', '_heat_after_id',
+                     '_metrics_after_id'):
             after_id = getattr(self, attr, None)
             if after_id is not None:
                 try:
@@ -646,6 +662,12 @@ class ShopVisualizer(
             sim = getattr(self, 'customer_simulation', None)
             if sim is not None:
                 sim.hard_stop()
+        except Exception:
+            pass
+        # Any figure still created through pyplot owns a hidden Tk root that
+        # would keep mainloop() alive after the main window is gone.
+        try:
+            plt.close('all')
         except Exception:
             pass
         try:
@@ -863,7 +885,18 @@ class ShopVisualizer(
                 parent=self.tk_root,
             )
 
-        connector_id = f"connector_{len(self.connectors) + 1}"
+        # Counting connectors reuses a live id once one has been deleted, which
+        # would overwrite that connector's floor mapping; take the first id no
+        # connector or connector wall still holds.
+        used_ids = set(self.connectors)
+        for fdata in self.floors.values():
+            for wdata in fdata.get('walls', {}).values():
+                if isinstance(wdata, dict) and wdata.get('connector_id'):
+                    used_ids.add(wdata['connector_id'])
+        n = 1
+        while f"connector_{n}" in used_ids:
+            n += 1
+        connector_id = f"connector_{n}"
 
         def _place(fid):
             px, py = self._find_connector_position(fid, self.width / 2 - 0.5,
@@ -884,8 +917,7 @@ class ShopVisualizer(
             mapping[tf] = _place(tf)
 
         self.connectors[connector_id] = mapping
-        if hasattr(self, 'customer_simulation'):
-            self.customer_simulation.geometry_dirty = True
+        self._invalidate_sim_geometry()
         self.redraw()
 
 

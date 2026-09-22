@@ -4,10 +4,11 @@ Loads UCI Online Retail II (transactional, ~1M invoices 2009-2011) end-
 to-end through the calibration pipeline, materializes the resulting
 multi-section shop on a headless instance, runs the GA optimizer, and
 reports the paired-MC projected revenue lift over the as-calibrated
-baseline layout.
+baseline layout (mapped onto the GA's feasible set, like every GA
+candidate), evaluated on seeds the GA never searched under.
 
 This is the script a TOMACS reviewer should be able to run to reproduce
-the paper's ?Application figure. Output sidecar.json records dataset
+the paper's real-data application figure. Output sidecar.json records dataset
 SHA-256, git SHA, elasticity snapshot, and the conversion-rate
 assumption marker -- everything needed for end-to-end reproducibility.
 
@@ -38,6 +39,7 @@ from __future__ import annotations
 import argparse
 import csv
 import os
+import re
 import sys
 import time
 from typing import Dict, List
@@ -65,9 +67,16 @@ from experiments._common import (
     apply_layout,
     layout_to_chromosome,
     chromosome_to_layout,
+    feasible_layout,
     make_run_dir,
     write_sidecar,
 )
+
+
+# Paired-evaluation seeds are EVAL_SEED_BASE + replicate. The GA searches
+# under ga_seed*1000 + [0, n_gens + 6) (generation seeds, a gap, then 5
+# final-selection seeds); ``parse_args`` keeps that range below the base.
+EVAL_SEED_BASE = 1_000_000
 
 
 def parse_args() -> argparse.Namespace:
@@ -91,11 +100,41 @@ def parse_args() -> argparse.Namespace:
                    help="RNG seed for the GA initialization")
     p.add_argument('--out-root', type=str,
                    default=os.path.join(_HERE, 'results'))
-    return p.parse_args()
+    args = p.parse_args()
+    if (args.ga_seed < 0 or args.n_gens + 6 > 1000
+            or (args.ga_seed + 1) * 1000 > EVAL_SEED_BASE):
+        p.error("--ga-seed must be in [0, 999] and --n-gens + 6 <= 1000 so "
+                "the GA's search seeds stay below the evaluation seeds")
+    return args
+
+
+# Per-sheet row counts as ``read_excel_sheets`` reports them in its notes.
+_READ_ROWS_RE = re.compile(r"^Read sheet '.*' \(([\d,]+) rows\)\.$")
+
+
+def reader_facts(read_notes: List[str], rows_after: int) -> Dict:
+    """What the workbook reader did, for the provenance record.
+
+    Sheets of this workbook overlap in time, so the reader drops rows of a
+    later sheet that repeat an earlier one before the adapter sees the
+    frame. ``report.rows_in`` is therefore the post-de-duplication count and
+    cannot be checked against the workbook on its own; the rows read and the
+    number dropped are what tie the record back to the file's SHA-256."""
+    per_sheet = [int(m.group(1).replace(',', ''))
+                 for m in (_READ_ROWS_RE.match(n) for n in read_notes) if m]
+    rows_read = sum(per_sheet) if per_sheet else None
+    return {
+        'rows_read': rows_read,
+        'rows_per_sheet': per_sheet,
+        'rows_after_dedup': int(rows_after),
+        'cross_sheet_duplicates_dropped': (
+            None if rows_read is None else rows_read - int(rows_after)),
+        'read_notes': list(read_notes),
+    }
 
 
 def calibrate_from_file(args: argparse.Namespace) -> tuple:
-    """Returns (params, report, read_notes, file_size_bytes)."""
+    """Returns (params, report, reader_facts)."""
     if not os.path.isfile(args.retail_path):
         raise SystemExit(f"--retail-path does not exist: {args.retail_path}")
     sheets_avail = [name for name, _ in list_excel_sheets(args.retail_path)]
@@ -111,8 +150,11 @@ def calibrate_from_file(args: argparse.Namespace) -> tuple:
           flush=True)
     t0 = time.perf_counter()
     df, read_notes = read_excel_sheets(args.retail_path, sheets_requested)
+    reader = reader_facts(read_notes, len(df))
     print(f"[real] read {len(df):,} rows in {time.perf_counter()-t0:.1f}s",
           flush=True)
+    for note in read_notes:
+        print(f"[real]   {note}", flush=True)
 
     adapter = OnlineRetailIIAdapter()
     normalized, report = adapter.adapt(df)
@@ -137,7 +179,7 @@ def calibrate_from_file(args: argparse.Namespace) -> tuple:
           f"{params.n_unique_categories} categories, "
           f"{params.arrivals_per_hour:.1f} invoices/hr (avg)",
           flush=True)
-    return params, report, read_notes
+    return params, report, reader
 
 
 def main() -> int:
@@ -148,7 +190,7 @@ def main() -> int:
     wall_t0 = time.perf_counter()
 
     # -- 1. Calibrate from the UCI dataset --------------------------
-    params, report, read_notes = calibrate_from_file(args)
+    params, report, reader = calibrate_from_file(args)
 
     # -- 2. Build the headless shop --------------------------------
     print("[real] building headless shop from calibration…", flush=True)
@@ -167,6 +209,14 @@ def main() -> int:
           flush=True)
     if len(item_names) < 2:
         raise SystemExit("Too few items placed to run a GA (need >= 2).")
+    # Snapshot the as-calibrated layout. The GA starts from it; the
+    # baseline is its image under the GA's repair chain, so the lift is
+    # measured between two layouts of the same feasible set.
+    init_layout = {
+        name: tuple(shop.floors[1]['items'][name]['position'])
+        for name in item_names
+    }
+    baseline_layout = feasible_layout(shop, item_names, init_layout)
 
     base_params = base_params_for_calibration(params)
     print(f"[real] MC base_params: cph={base_params['customers_per_hour']:.1f}, "
@@ -174,12 +224,6 @@ def main() -> int:
           f"avg_basket={base_params['avg_basket_size']:.2f}, "
           f"rev_mean={base_params['rev_per_converting_customer']:.2f}",
           flush=True)
-
-    # Snapshot the as-calibrated layout (baseline)
-    baseline_layout = {
-        name: tuple(shop.floors[1]['items'][name]['position'])
-        for name in item_names
-    }
 
     # -- 3. Run the GA on the calibrated shop ----------------------
     print(f"[real] running GA (pop={args.pop_size}, gens={args.n_gens}, "
@@ -195,6 +239,7 @@ def main() -> int:
         mc_iters=args.mc_iters,
         mc_days=args.mc_days,
         rng_seed=args.ga_seed,
+        init_layout=init_layout,
     )
     ga_wall = time.perf_counter() - ga_t0
     print(f"[real] GA done in {ga_wall:.1f}s; best fitness "
@@ -209,7 +254,7 @@ def main() -> int:
     optimized_revs: List[float] = []
     diffs: List[float] = []
     for r in range(args.n_mc_replicates):
-        mc_seed = 7000 + r
+        mc_seed = EVAL_SEED_BASE + r
         rev_base = paired_mc_revenue(
             shop, item_names, baseline_layout, base_params,
             seed=mc_seed, mc_iters=args.mc_iters, mc_days=args.mc_days,
@@ -255,6 +300,10 @@ def main() -> int:
         seed=args.ga_seed,
         extra={
             'sheets':                  args.sheets,
+            # rows_in above counts the frame the adapter received, which the
+            # reader has already de-duplicated across sheets; these fields
+            # carry the workbook's own row count and what was dropped.
+            'reader':                  reader,
             'max_items_per_category':  args.max_items_per_category,
             'mc_iters':                args.mc_iters,
             'mc_days':                 args.mc_days,
@@ -275,7 +324,7 @@ def main() -> int:
         w.writerow(['replicate', 'mc_seed', 'baseline_revenue',
                     'optimized_revenue', 'diff'])
         for r, (b, o, d) in enumerate(zip(baseline_revs, optimized_revs, diffs)):
-            w.writerow([r, 7000 + r,
+            w.writerow([r, EVAL_SEED_BASE + r,
                         f"{b:.4f}", f"{o:.4f}", f"{d:.4f}"])
 
     png_path = make_figure_c(
@@ -291,6 +340,7 @@ def main() -> int:
         'csv_path':          os.path.relpath(csv_path, out_dir),
         'figure_path':       os.path.relpath(png_path, out_dir),
         'provenance':        prov.to_dict(),
+        'reader':            reader,
         'calibration_summary': {
             'n_invoices':              params.n_invoices,
             'n_unique_products':       params.n_unique_products,
@@ -298,6 +348,7 @@ def main() -> int:
             'n_unique_categories':     params.n_unique_categories,
             'span_seconds':            params.span_seconds,
             'arrivals_per_hour':       params.arrivals_per_hour,
+            'visitors_per_hour':       params.visitors_per_hour,
             'assumed_conversion_rate': params.assumed_conversion_rate,
             'conversion_rate_source':  'assumption',  # explicit marker
             'return_customer_rate':    params.return_customer_rate,

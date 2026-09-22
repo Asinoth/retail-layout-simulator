@@ -1,10 +1,11 @@
 """Validation tab: empirical-vs-simulated goodness-of-fit dashboard.
 
 Shows the loaded dataset's provenance + three side-by-side distribution
-plots (basket size, per-visit revenue, category visit shares) with KS /
+plots (basket size, per-visit revenue, category purchase shares) with KS /
 chi-square test results. The "Run validation now" button takes a snapshot
 of the live simulation analytics and re-tests against the last calibrated
-distribution.
+distribution. Each panel draws the same two samples its test compares, and
+leaves the simulated overlay out when the test cannot run.
 """
 
 from __future__ import annotations
@@ -20,7 +21,31 @@ from tkinter import ttk, messagebox
 from matplotlib.figure import Figure
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 
-from dataset_validation import validate_against_simulation
+from dataset_validation import (validate_against_simulation,
+                                observed_category_counts,
+                                simulated_category_purchases,
+                                placed_product_ids,
+                                observed_distinct_baskets,
+                                observed_distinct_revenues)
+
+
+def _is_aggregate_source(params) -> bool:
+    """True for aggregate sources (Omnichannel), whose basket and revenue
+    arrays are a parametric realization of measured purchase probabilities
+    rather than observed visits -- the same rule the goodness-of-fit tests
+    use to leave those two tests out."""
+    extra = getattr(params, 'calibration_extra', None) or {}
+    return (str(extra.get('basket_size_source', '')).startswith('parametric')
+            or extra.get('source_kind') == 'aggregate_retail_omnichannel')
+
+
+def _conversion_wording(params) -> str:
+    """How the calibrated conversion rate was obtained, as the dataset
+    load popup states it."""
+    if (getattr(params, 'conversion_rate_source', 'assumption')
+            == 'estimated_from_purchase_probabilities'):
+        return "estimated from purchase probabilities"
+    return "asserted; not measured from a buy/no-buy split"
 
 
 class ValidationMixin:
@@ -101,7 +126,29 @@ class ValidationMixin:
             return
 
         lines = []
-        if tx_prov and params is not None:
+        if tx_prov and params is not None and _is_aggregate_source(params):
+            # An aggregate source has no invoices: n_invoices holds the
+            # arrivals table's weekly in-store visitor total, and the rate
+            # the simulator runs on is visitors, not buyers.
+            lines += [
+                "AGGREGATE (BEHAVIORAL) DATASET",
+                "-" * 60,
+                f"Source:           {tx_prov.get('source_path', '?')}",
+                f"  bytes:          {tx_prov.get('source_bytes', 0):,}",
+                f"  sha256:         {tx_prov.get('source_sha256', '?')}",
+                f"Adapter:          {tx_prov.get('adapter_name','?')} "
+                f"v{tx_prov.get('adapter_version','?')}",
+                f"Rows in/kept:     {tx_prov.get('rows_in',0):,} / "
+                f"{tx_prov.get('rows_kept',0):,}",
+                f"In-store visitors / week: {params.n_invoices:,}",
+                f"Product families: {params.n_unique_products:,}",
+                f"In-store zones:   {params.n_unique_categories}",
+                f"Arrival rate:     {params.visitors_per_hour:.1f} visitors/hr",
+                f"Conversion:       {params.assumed_conversion_rate*100:.0f} %  "
+                f"({_conversion_wording(params)})",
+                "",
+            ]
+        elif tx_prov and params is not None:
             lines += [
                 "TRANSACTIONAL DATASET",
                 "-" * 60,
@@ -117,7 +164,7 @@ class ValidationMixin:
                 f"Categories:       {params.n_unique_categories}",
                 f"Arrival rate:     {params.arrivals_per_hour:.1f} invoices/hr",
                 f"Assumed conv.:    {params.assumed_conversion_rate*100:.0f} %  "
-                f"(asserted; not measured from a buy/no-buy split)",
+                f"({_conversion_wording(params)})",
                 "",
             ]
         if sp_prov and sparams is not None:
@@ -160,7 +207,7 @@ class ValidationMixin:
         for row in self._val_table.get_children():
             self._val_table.delete(row)
         for t in res.tests:
-            verdict = "PASS" if t.pass_at(res.alpha) else "FAIL"
+            verdict = t.verdict(res.alpha)
             self._val_table.insert(
                 '', tk.END,
                 values=(f"{t.name}  ({t.test})",
@@ -169,19 +216,30 @@ class ValidationMixin:
                         t.n_observed, t.n_simulated, verdict),
             )
 
-        # Redraw plots with simulated overlay
-        A = self.customer_simulation.analytics
+        # Redraw plots with simulated overlay. The category panel shows item
+        # purchases per category over the products placed in the shop, the
+        # sample the chi-square test uses; zone entries also count agents
+        # walking through a department and are not what is tested.
+        sim = self.customer_simulation
+        A = sim.analytics
+        pids = placed_product_ids(getattr(sim, 'shop', None))
+        sim_cat_purchases, _ = simulated_category_purchases(
+            sim, product_ids=pids or None)
         self._draw_validation_plots(
             simulated_baskets=np.asarray(A.get('basket_sizes', []),
                                          dtype=np.float64),
             simulated_revs=np.asarray(A.get('customer_revenues', []),
                                        dtype=np.float64),
-            simulated_categories=dict(A.get('area_visits', {})),
+            simulated_categories=sim_cat_purchases,
         )
 
-        if res.summary_lines:
+        # Tests that could not run show N/A; their note says why.
+        notes = list(res.summary_lines)
+        notes += [f"{t.name}: {t.note.strip()}" for t in res.tests
+                  if not t.applicable() and t.note.strip()]
+        if notes:
             messagebox.showinfo("Validation notes",
-                                "\n".join(res.summary_lines),
+                                "\n".join(notes),
                                 parent=self.tk_root)
 
     # -- Plotting ------------------------------------------------------
@@ -231,58 +289,102 @@ class ValidationMixin:
             self._val_canvas.draw_idle()
             return
 
+        # Aggregate sources carry a parametric realization of measured
+        # purchase probabilities, not observed visits; their KS tests are
+        # left out as circular, so the panels draw no simulated overlay.
+        aggregate = _is_aggregate_source(params)
+
         # 1) Basket size histogram
-        obs = params.basket_sizes
+        # The simulator counts distinct items per visit; params.basket_sizes
+        # is units per invoice, so the simulated overlay is only drawn
+        # against a distinct-items-per-invoice sample.
+        obs = None if aggregate else observed_distinct_baskets(params)
+        comparable = obs is not None
+        if not comparable:
+            obs = np.asarray(params.basket_sizes, dtype=np.float64)
         bmax = int(np.percentile(obs, 99)) if obs.size else 10
         bins = np.arange(0, max(bmax + 2, 3))
         ax_b.hist(obs, bins=bins, density=True, alpha=0.6,
                   color='#4ECDC4', label='Observed')
-        if simulated_baskets is not None and simulated_baskets.size > 0:
+        if (comparable and simulated_baskets is not None
+                and simulated_baskets.size > 0):
             ax_b.hist(simulated_baskets, bins=bins, density=True, alpha=0.4,
                       color='#FF6B6B', label='Simulated')
-        ax_b.set_title('Basket size  (items / visit)')
-        ax_b.set_xlabel('items')
+        if comparable:
+            ax_b.set_title('Basket size  (items / visit)')
+            ax_b.set_xlabel('items')
+        elif aggregate:
+            # Distinct families bought per synthetic visitor.
+            ax_b.set_title('Basket size  (families / visit, parametric)')
+            ax_b.set_xlabel('families')
+        else:
+            ax_b.set_title('Basket size  (units / invoice)')
+            ax_b.set_xlabel('units')
         ax_b.set_ylabel('density')
         ax_b.legend(facecolor='#001a33', edgecolor='#557', labelcolor='white',
                     fontsize=8)
 
         # 2) Per-visit revenue
-        obs_r = params.invoice_revenues
+        # A simulated visit buys one unit of each item it picks up, so the
+        # overlay is only drawn against the dataset's one-unit-per-product
+        # invoice sums; params.invoice_revenues is sum(quantity x price),
+        # which a wholesale line inflates.
+        obs_r = None if aggregate else observed_distinct_revenues(params)[0]
+        comparable_r = obs_r is not None
+        if not comparable_r:
+            obs_r = np.asarray(params.invoice_revenues, dtype=np.float64)
         if obs_r.size:
             top = float(np.percentile(obs_r, 99))
             r_bins = np.linspace(0, max(top, 1.0), 40)
             ax_r.hist(obs_r, bins=r_bins, density=True, alpha=0.6,
                       color='#4ECDC4', label='Observed')
-            if simulated_revs is not None and simulated_revs.size > 0:
+            if (comparable_r and simulated_revs is not None
+                    and simulated_revs.size > 0):
                 ax_r.hist(np.clip(simulated_revs, 0, top), bins=r_bins,
                           density=True, alpha=0.4,
                           color='#FF6B6B', label='Simulated')
-            ax_r.set_title(f'Per-visit revenue  ({params.currency})')
+            if comparable_r:
+                ax_r.set_title(f'Per-visit revenue  ({params.currency}, '
+                               f'one unit / product)')
+            elif aggregate:
+                ax_r.set_title(f'Per-visit revenue  ({params.currency}, '
+                               f'parametric)')
+            else:
+                ax_r.set_title(f'Invoice revenue  ({params.currency}, '
+                               f'quantity x price)')
             ax_r.set_xlabel(params.currency)
             ax_r.set_ylabel('density')
             ax_r.legend(facecolor='#001a33', edgecolor='#557',
                         labelcolor='white', fontsize=8)
 
-        # 3) Category visit shares
-        cats = sorted(params.category_revenue_share.keys())
-        obs_share = np.array([params.category_revenue_share.get(c, 0)
-                              for c in cats])
+        # 3) Category purchase shares
+        # Same quantities the chi-square test compares: product-invoice
+        # touches per category over the products placed in the shop, against
+        # the live item purchases of those products per category, each
+        # normalized over its own total.
+        pids = placed_product_ids(getattr(self.customer_simulation, 'shop',
+                                          None))
+        obs_counts = observed_category_counts(params,
+                                              product_ids=pids or None)
+        sim_counts = dict(simulated_categories or {})
+        cats = sorted(set(obs_counts) | set(sim_counts))
+        obs_tot = sum(obs_counts.values()) or 1.0
+        obs_share = np.array([obs_counts.get(c, 0.0) / obs_tot for c in cats])
         x = np.arange(len(cats))
-        width = 0.4 if simulated_categories else 0.7
-        ax_c.bar(x - width/2 if simulated_categories else x,
+        width = 0.4 if sim_counts else 0.7
+        ax_c.bar(x - width/2 if sim_counts else x,
                  obs_share, width=width,
                  color='#4ECDC4', label='Observed')
-        if simulated_categories:
-            tot = max(sum(simulated_categories.values()), 1)
-            sim_share = np.array(
-                [simulated_categories.get(c, 0) / tot for c in cats])
+        if sim_counts:
+            tot = max(sum(sim_counts.values()), 1)
+            sim_share = np.array([sim_counts.get(c, 0) / tot for c in cats])
             ax_c.bar(x + width/2, sim_share, width=width,
                      color='#FF6B6B', label='Simulated')
             ax_c.legend(facecolor='#001a33', edgecolor='#557',
                         labelcolor='white', fontsize=8)
         ax_c.set_xticks(x)
         ax_c.set_xticklabels(cats, rotation=30, ha='right', fontsize=7)
-        ax_c.set_title('Category share')
+        ax_c.set_title('Category purchase share')
 
         # 4) Walking speed (only when trajectory data has been loaded)
         if ax_s is not None and sparams is not None:
@@ -293,8 +395,8 @@ class ValidationMixin:
 
     def _draw_speed_panel(self, ax, sparams):
         """Histogram of empirical walking speeds from the loaded trajectory
-        dataset, with the simulator's nominal speed band (0.8-1.5 m/s,
-        per Customer.__init__) overlaid as a shaded reference."""
+        dataset, with the range the simulator draws agent speeds from
+        overlaid as a shaded reference."""
         speeds = sparams.speeds_m_s
         if speeds is None or speeds.size == 0:
             ax.text(0.5, 0.5, 'No velocity samples',
@@ -304,9 +406,21 @@ class ValidationMixin:
         bins = np.linspace(0, max(float(np.percentile(speeds, 99)), 2.0), 40)
         ax.hist(speeds, bins=bins, density=True, alpha=0.7,
                 color='#4ECDC4', label='Empirical (dataset)')
-        # Simulator's hard-coded speed band (Customer.__init__).
-        ax.axvspan(0.8, 1.5, color='#FF6B6B', alpha=0.2,
-                   label='Simulator speed band')
+        # Once trajectory calibration is seeded, the spawn loop draws each
+        # agent's speed from N(mean, std) clipped to [max(0.3, p5),
+        # min(2.5, p95)]; without it Customer.__init__ uses uniform(0.8, 1.5).
+        cal = self.customer_simulation.analytics.get('calibration', {}) or {}
+        mu = cal.get('empirical_speed_mean')
+        if mu:
+            sd = cal.get('empirical_speed_std') or 0.2
+            lo = max(0.3, cal.get('empirical_speed_p5', mu - 2 * sd))
+            hi = min(2.5, cal.get('empirical_speed_p95', mu + 2 * sd))
+            band_label = 'Simulator speed range (calibrated)'
+        else:
+            lo, hi = 0.8, 1.5
+            band_label = 'Simulator speed band (default)'
+        ax.axvspan(lo, hi, color='#FF6B6B', alpha=0.2,
+                   label=band_label)
         ax.set_title('Walking speed')
         ax.set_xlabel('m / s')
         ax.set_ylabel('density')

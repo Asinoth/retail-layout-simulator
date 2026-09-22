@@ -15,7 +15,7 @@ What it guards:
                            -> build_layout_from_calibration -> seed
   * UCI Online Retail II -> OnlineRetailIIAdapter -> calibrate_transactional
                            -> build_layout_from_calibration -> seed
-  * The cosmetic layout convergence (section colors, WC, gold impulse shelf).
+  * The cosmetic layout convergence (section colors, WC).
 """
 
 from __future__ import annotations
@@ -28,7 +28,7 @@ import numpy as np
 
 import dataset_adapters as DA
 import dataset_calibration as DC
-from dataset_layout import build_layout_from_calibration, IMPULSE_COLOR
+from dataset_layout import build_layout_from_calibration
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 
@@ -93,24 +93,16 @@ def _assert(cond, msg):
         raise AssertionError(msg)
 
 
-def _check_cosmetics(shop, expect_impulse=False, expect_alphabetical=False):
+def _check_cosmetics(shop, expect_alphabetical=False):
     """Visual convergence assertions: colored sections + a WC, and (when
-    naive=False) a gold impulse shelf populated from real items. Under the
-    GUI naive default the impulse shelf is intentionally absent so the GA
-    has room to demonstrate the literature-based lift."""
+    ``expect_alphabetical``, the GUI naive default) departments assembled
+    in alphabetical category order."""
     walls = shop.floors[1]["walls"]
-    items = shop.floors[1]["items"]
     section_walls = [(n, w) for n, w in walls.items() if n.startswith("Section_")]
     _assert(section_walls, "no Section_ walls produced")
     _assert(all("color" in w for _, w in section_walls),
             "section walls missing 'color' (convergence regression)")
     _assert("WC" in walls, "WC wall not placed (convergence regression)")
-    impulse = [k for k, it in items.items() if it.get("color") == IMPULSE_COLOR]
-    if expect_impulse:
-        _assert(impulse, "no gold impulse-shelf items (regression for naive=False)")
-    else:
-        _assert(not impulse, "impulse shelf items present under naive=True "
-                             "(should be absent so GA has room to optimize)")
     if expect_alphabetical:
         # Verify departments were assembled in alphabetical category order
         # (naive=True path). Zone walls may carry a numeric `_N` suffix
@@ -124,7 +116,7 @@ def _check_cosmetics(shop, expect_impulse=False, expect_alphabetical=False):
         _assert(cats_placed == sorted(cats_placed),
                 f"sections not in alphabetical order under naive=True: "
                 f"{cats_placed[:6]}")
-    return len(section_walls), len(impulse)
+    return len(section_walls)
 
 
 def smoke_opentraj():
@@ -162,7 +154,8 @@ def smoke_omnichannel():
     params = DC.calibrate_omnichannel(families, arrivals)
     _assert(params.n_unique_products > 0 and params.n_unique_categories > 0,
             "no products/categories")
-    _assert(params.conversion_rate_source == "estimated_from_purchase_probabilities",
+    _assert(params.conversion_rate_source in ("estimated_from_purchase_probabilities",
+                                              "assumption"),
             "conversion source not tagged")
     shop = StubShop()
     stats = build_layout_from_calibration(shop, params)
@@ -173,13 +166,12 @@ def smoke_omnichannel():
             "aggregate source_kind not seeded")
     # Naive baseline by default (GUI path). Sections alphabetical, no
     # impulse-shelf relocation -- so the GA has measurable room to improve.
-    n_sec, n_imp = _check_cosmetics(shop, expect_impulse=False,
-                                    expect_alphabetical=True)
+    n_sec = _check_cosmetics(shop, expect_alphabetical=True)
     print(f"  families={params.n_unique_products} zones={params.n_unique_categories} "
           f"arr/hr={params.arrivals_per_hour:.1f} conv={params.assumed_conversion_rate:.2f}")
     print(f"  layout: sections={stats['sections']} items={stats['items']} "
           f"shop={stats['width_m']:.0f}x{stats['height_m']:.0f}m "
-          f"colored_sections={n_sec} impulse_items={n_imp} WC=yes")
+          f"colored_sections={n_sec} WC=yes")
     print("  PASS")
 
 
@@ -206,8 +198,7 @@ def smoke_uci(sample_rows=60000):
     _assert(stats["sections"] > 0 and stats["items"] > 0, "empty layout")
     params.seed_into(shop.customer_simulation)
     # Naive baseline (GUI default).
-    n_sec, n_imp = _check_cosmetics(shop, expect_impulse=False,
-                                    expect_alphabetical=True)
+    n_sec = _check_cosmetics(shop, expect_alphabetical=True)
     # B.1 invariant: top-level live counters stay clean; calibration block exists.
     A = shop.customer_simulation.analytics
     _assert("calibration" in A and A["calibration"].get("n_invoices"),
@@ -219,7 +210,7 @@ def smoke_uci(sample_rows=60000):
     print(f"  invoices={params.n_invoices:,} products={params.n_unique_products:,} "
           f"categories={params.n_unique_categories} currency={params.currency}")
     print(f"  layout: sections={stats['sections']} items={stats['items']} "
-          f"colored_sections={n_sec} impulse_items={n_imp} WC=yes")
+          f"colored_sections={n_sec} WC=yes")
     print("  PASS")
 
 
@@ -260,7 +251,13 @@ def smoke_live_sim(sample_rows=60000):
     print(f"  NHPP start hour={start_h} multiplier={mult:.2f} (>=0.5) OK")
 
     # 2) Live spawn loop: run the real worker thread for a few seconds.
-    sim.spawn_rate = 1.5
+    # Arrivals are Poisson, so a low rate over a 4 s window sometimes
+    # produces one customer with perfectly healthy code. A seeded arrival
+    # stream, and a rate that puts the expected count (this rate times the
+    # hour-of-day multiplier above) well clear of the threshold, keep the
+    # check on the threaded loop without a knife-edge on the draw.
+    sim.arrival_rng = np.random.default_rng(0)
+    sim.spawn_rate = 5.0
     sim.start_simulation()
     _time.sleep(4.0)
     n_cust = sim.analytics.get('total_customers', 0)
@@ -272,8 +269,10 @@ def smoke_live_sim(sample_rows=60000):
     print(f"  live spawn OK: {n_cust} customers in 4s, movement={moved}")
 
     # 3) Directory provenance (the Omnichannel bundle crash).
-    prov = stamp(source_path=OMNI_DIR, adapter_name="omnichannel_retail",
-                 adapter_version="1.0", rows_in=134, rows_kept=134)
+    prov = stamp(source_path=OMNI_DIR,
+                 adapter_name=DA.OmnichannelRetailAdapter.name,
+                 adapter_version=DA.OmnichannelRetailAdapter.version,
+                 rows_in=134, rows_kept=134)
     _assert(len(prov.source_sha256) == 64 and prov.source_bytes > 0,
             "directory provenance hash failed")
     print(f"  dir provenance OK: sha={prov.source_sha256[:12]}… "
@@ -288,17 +287,32 @@ def smoke_live_sim(sample_rows=60000):
     sp.seed_into(sim)
     _assert((sim.hourly_profile == profile_before).all(),
             "spatial seeding must not touch the NHPP hourly profile")
+    # Agents draw Normal(mean, std) clipped to [max(0.3, p5), min(2.5, p95)]
+    # (simulation._spawn_customer), so the target is that clipped mean, not
+    # the raw empirical mean. With 400 draws the sampling error of the mean
+    # is ~0.02 m/s, far inside the 4-standard-error tolerance (~0.1), which
+    # still catches a fall-back to the uniform(0.8, 1.5) default (mean 1.15).
+    n_probe = 400
     speeds = []
-    for _ in range(25):
+    for _ in range(n_probe):
         sim._spawn_customer()
         speeds.append(sim.customers[-1].speed)
         sim.customers.pop()
     mean_s = sum(speeds) / len(speeds)
     emp = float(sp.speeds_m_s.mean())
-    _assert(abs(mean_s - emp) < 0.2,
-            f"agent speeds mean {mean_s:.2f} != empirical {emp:.2f}")
+    cal = sim.analytics["calibration"]
+    mu = cal["empirical_speed_mean"]
+    sd = cal["empirical_speed_std"] or 0.2
+    lo = max(0.3, cal["empirical_speed_p5"])
+    hi = min(2.5, cal["empirical_speed_p95"])
+    target = float(np.clip(np.random.default_rng(0).normal(mu, sd, 1_000_000),
+                           lo, hi).mean())
+    tol = 4.0 * sd / np.sqrt(n_probe)
+    _assert(abs(mean_s - target) < tol,
+            f"agent speeds mean {mean_s:.3f} != clipped empirical mean "
+            f"{target:.3f} (tolerance {tol:.3f})")
     print(f"  agent speed calibration OK: mean {mean_s:.2f} m/s "
-          f"(empirical {emp:.2f})")
+          f"(clipped empirical {target:.2f}, raw empirical {emp:.2f})")
     print("  PASS")
 
 

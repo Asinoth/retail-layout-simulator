@@ -31,6 +31,7 @@ data" bug).
 from __future__ import annotations
 
 import random as _random_mod
+import warnings
 from typing import Dict, List, Tuple
 
 import numpy as np
@@ -39,13 +40,15 @@ from dataset_calibration import CalibratedParams
 from shop_architecture import (generate_architecture,
                                dimensions_for_assortment)
 
-# Retained for external callers (dataset_smoke asserts the naive layout
-# does NOT contain gold impulse fixtures).
-IMPULSE_COLOR = '#FFD700'
-
 # Seeded RNG for the (vary=False) engine call -- layouts are reproducible
 # run-to-run for the same calibration.
 COSMETIC_SEED = 12345
+
+# When the engine cannot place every product on the heuristic floor size,
+# the floor grows by GROW_FACTOR per side (aspect ratio kept), at most
+# GROW_STEPS times.
+GROW_FACTOR = 1.1
+GROW_STEPS = 8
 
 
 # --- Helpers --------------------------------------------------------------
@@ -71,10 +74,13 @@ def build_layout_from_calibration(shop,
                                   params: CalibratedParams,
                                   max_items_per_category: int = 12,
                                   naive: bool = True,
-                                  ) -> Dict[str, int]:
+                                  ) -> dict:
     """Materialize ``params`` as a single-floor realistic shop on ``shop``
     (the ShopVisualizer or a HeadlessShop). Returns a ``stats`` dict:
-    {'sections': N, 'items': M, 'width_m': W, 'height_m': H}.
+    {'sections': departments placed, 'zones': Section_ zone walls,
+     'items': M, 'dropped': [item names not placed], 'width_m': W,
+     'height_m': H}. A department split over two gondolas counts once in
+    'sections' and twice in 'zones'.
 
     Multi-floor note: this REPLACES the contents of every floor.
     """
@@ -113,10 +119,28 @@ def build_layout_from_calibration(shop,
         sections.append((cat, names))
 
     # SHOP DIMENSIONS follow from the assortment: more categories/products
-    # in the dataset -> a proportionally larger floor.
+    # in the dataset -> a proportionally larger floor. The area heuristic
+    # only estimates fixture capacity, so when the engine cannot place
+    # every product the floor grows and the plan is rebuilt.
     n_sections = len(sections)
     n_items_max = max(len(nm) for _, nm in sections)
     shop_w, shop_h = dimensions_for_assortment(n_sections, n_items_max)
+
+    # Realistic architecture (grid archetype for a generic retail dataset);
+    # vary=False preserves our section order exactly, so the naive
+    # alphabetical baseline survives into the wall insertion order.
+    def _build(w, h):
+        return generate_architecture(w, h, '__dataset_grid__', sections,
+                                     rng=_random_mod.Random(COSMETIC_SEED),
+                                     is_main_floor=True, vary=False)
+
+    arch = _build(shop_w, shop_h)
+    for _ in range(GROW_STEPS):
+        if not arch['dropped']:
+            break
+        shop_w = round(shop_w * GROW_FACTOR, 1)
+        shop_h = round(shop_h * GROW_FACTOR, 1)
+        arch = _build(shop_w, shop_h)
 
     shop.width = shop_w
     shop.height = shop_h
@@ -138,14 +162,6 @@ def build_layout_from_calibration(shop,
 
     f1 = shop.floors[1]
 
-    # Realistic architecture (grid archetype for a generic retail dataset);
-    # vary=False preserves our section order exactly, so the naive
-    # alphabetical baseline survives into the wall insertion order.
-    arch = generate_architecture(shop_w, shop_h, '__dataset_grid__',
-                                 sections,
-                                 rng=_random_mod.Random(COSMETIC_SEED),
-                                 is_main_floor=True, vary=False)
-
     for nm, wd in arch['walls'].items():
         f1['walls'][nm] = wd
 
@@ -156,11 +172,26 @@ def build_layout_from_calibration(shop,
             'position': [float(it['position'][0]), float(it['position'][1])],
             'size':     [float(it['size'][0]), float(it['size'][1])],
             'category': it['category'],
+            # The Section_ wall this fixture sits in: a department split
+            # over two gondolas has one zone per gondola.
+            'zone': it.get('zone'),
             'source_name': nm,
             'product_id': pid,
         }
         f1['prices'][nm] = float(params.item_prices.get(pid, 0.0) or 0.0)
         n_items_placed += 1
+
+    # If the floor still cannot hold the assortment after growing, the
+    # engine trims the tail of shelving runs. Say so instead of silently
+    # placing fewer products than were requested.
+    dropped = [k for k in key_to_pid if k not in arch['items']]
+    if dropped:
+        warnings.warn(
+            f"build_layout_from_calibration: {len(dropped)} of "
+            f"{len(key_to_pid)} products trimmed by fixture capacity on the "
+            f"{shop_w:.0f}x{shop_h:.0f} m floor: "
+            f"{', '.join(dropped[:10])}{' ...' if len(dropped) > 10 else ''}",
+            stacklevel=2)
 
     door_position = arch['door_position']
     door_side = arch['door_side']
@@ -169,8 +200,10 @@ def build_layout_from_calibration(shop,
     shop.door_position = door_position
     shop.door_side = door_side
 
-    n_sections_placed = sum(1 for nm in f1['walls']
-                            if nm.startswith('Section_'))
+    # Departments, not zone walls: a split department has one Section_
+    # zone per gondola.
+    n_departments = len({it['category'] for it in f1['items'].values()})
+    n_zones = sum(1 for nm in f1['walls'] if nm.startswith('Section_'))
 
     # Resize heat-map buffers to match the new shop dims + sync the sim.
     sim = getattr(shop, 'customer_simulation', None)
@@ -194,8 +227,10 @@ def build_layout_from_calibration(shop,
             pass
 
     return {
-        'sections': n_sections_placed,
+        'sections': n_departments,
+        'zones': n_zones,
         'items': n_items_placed,
+        'dropped': dropped,
         'width_m': shop_w,
         'height_m': shop_h,
     }

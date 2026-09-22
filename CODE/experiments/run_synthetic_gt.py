@@ -23,6 +23,9 @@ Smoke run (verify wiring):
 Paper-grade run:
     python -m experiments.run_synthetic_gt --n-scenarios 30 --n-seeds 10
                                             --mc-iters 2000 --n-gens 25
+
+``--workers N`` runs scenarios in N processes; the numeric columns are
+unchanged (only wall_seconds differs between runs).
 """
 
 from __future__ import annotations
@@ -32,6 +35,7 @@ import csv
 import os
 import sys
 import time
+from concurrent.futures import ProcessPoolExecutor, as_completed
 from typing import Dict, List, Tuple
 
 import numpy as np
@@ -52,6 +56,7 @@ from experiments._common import (
     base_params_for,
     run_ga_headless,
     chromosome_to_layout,
+    feasible_layout,
     make_run_dir,
     write_sidecar,
 )
@@ -70,9 +75,14 @@ def parse_args() -> argparse.Namespace:
     p.add_argument('--pop-size', type=int, default=30)
     p.add_argument('--n-spearman-samples', type=int, default=100,
                    help="Held-out random layouts for Spearman correlation")
+    p.add_argument('--workers', type=int, default=1,
+                   help="Processes running scenarios in parallel")
     p.add_argument('--out-root', type=str,
                    default=os.path.join(_HERE, 'results'))
-    return p.parse_args()
+    args = p.parse_args()
+    if args.workers < 1:
+        p.error("--workers must be >= 1")
+    return args
 
 
 def random_within_section_bounds(shop_synth, rng: np.random.Generator
@@ -123,11 +133,21 @@ def run_one_scenario(scenario_idx: int,
           f"oracle in {time.perf_counter()-t0:.2f}s)",
           flush=True)
 
-    # 2) Build the headless shop once per scenario; the GA mutates the
-    #    item positions but we always overwrite before evaluating.
+    # 2) Build the headless shop once per scenario. Every GA run starts
+    #    from the as-built layout, not from positions left by earlier calls.
     shop = build_headless_shop(shop_synth)
     item_names = [it.name for it in shop_synth.items]
     base_params = base_params_for(shop_synth)
+    init_layout = {n: tuple(shop.floors[1]['items'][n]['position'])
+                   for n in item_names}
+
+    # Regret stays measured against the unrepaired analytical optimum. Its
+    # image under the GA's repair chain is recorded alongside, since that
+    # is the best reference layout the GA's feasible set actually contains.
+    oracle_R_feasible = analytical_revenue(
+        shop_synth, feasible_layout(shop, item_names, oracle_result.layout))
+    print(f"  oracle R on the GA feasible set = {oracle_R_feasible:.2f}",
+          flush=True)
 
     # 3) Run GA across seeds
     seed_records = []
@@ -142,6 +162,7 @@ def run_one_scenario(scenario_idx: int,
             mc_iters=args.mc_iters,
             mc_days=args.mc_days,
             rng_seed=seed,
+            init_layout=init_layout,
         )
         ga_layout = chromosome_to_layout(ga_out['best_chrom'], item_names)
         ga_true_R = analytical_revenue(shop_synth, ga_layout)
@@ -154,6 +175,7 @@ def run_one_scenario(scenario_idx: int,
             'scenario': scenario_idx,
             'seed': seed,
             'oracle_R': oracle_R,
+            'oracle_R_feasible': oracle_R_feasible,
             'grid_R': grid_R,
             'ga_true_R': ga_true_R,
             'ga_mc_fit': ga_out['best_fit'],
@@ -165,12 +187,16 @@ def run_one_scenario(scenario_idx: int,
     #    Layouts must be valid (no within-section overlap) so the GA
     #    fitness's huge overlap-penalty doesn't dominate the comparison.
     #    Real GA outputs avoid overlap; the Spearman sample should too.
+    #    Each sample is mapped onto the GA's feasible set, and both the
+    #    MC fitness and the analytical revenue are taken on that layout.
     from baselines import _repair_within_section
     from experiments._common import paired_mc_revenue
     rng = np.random.default_rng(20_000 + scenario_idx)
     sample_layouts = [
-        _repair_within_section(shop_synth,
-                               random_within_section_bounds(shop_synth, rng))
+        feasible_layout(
+            shop, item_names,
+            _repair_within_section(shop_synth,
+                                   random_within_section_bounds(shop_synth, rng)))
         for _ in range(args.n_spearman_samples)
     ]
     ga_fits = np.array([
@@ -189,6 +215,7 @@ def run_one_scenario(scenario_idx: int,
     return {
         'scenario': scenario_idx,
         'oracle_R': oracle_R,
+        'oracle_R_feasible': oracle_R_feasible,
         'grid_R': grid_R,
         'spearman_rho': float(rho),
         'spearman_p': float(p_val),
@@ -196,16 +223,44 @@ def run_one_scenario(scenario_idx: int,
     }
 
 
+def _map_scenarios(fn, n_scenarios: int, workers: int, *fn_args) -> list:
+    """``[fn(s, *fn_args) for s in range(n_scenarios)]``, in scenario order.
+
+    With ``workers`` > 1 the scenarios run in separate processes. They are
+    independent (each builds its own shop and reseeds every RNG it draws
+    from), and results are put back in scenario order, so the output is
+    identical to the serial run."""
+    if workers <= 1:
+        return [fn(s, *fn_args) for s in range(n_scenarios)]
+    done = {}
+    pool = ProcessPoolExecutor(max_workers=workers)
+    try:
+        futures = {pool.submit(fn, s, *fn_args): s for s in range(n_scenarios)}
+        for fut in as_completed(futures):
+            done[futures[fut]] = fut.result()
+    except BaseException:
+        # Leaving the pool's context manager would wait for every queued
+        # scenario first, so a scenario that fails minutes into a run of
+        # hours would only report at the end. Drop what has not started and
+        # let the error out now.
+        pool.shutdown(wait=False, cancel_futures=True)
+        raise
+    pool.shutdown(wait=True)
+    return [done[s] for s in sorted(done)]
+
+
 def write_results_csv(out_dir: str, scenario_results: List[Dict]) -> str:
     path = os.path.join(out_dir, 'results.csv')
     with open(path, 'w', newline='', encoding='utf-8') as f:
         w = csv.writer(f)
-        w.writerow(['scenario', 'seed', 'oracle_R', 'grid_R',
-                    'ga_true_R', 'ga_mc_fit', 'regret_pct', 'wall_seconds'])
+        w.writerow(['scenario', 'seed', 'oracle_R', 'oracle_R_feasible',
+                    'grid_R', 'ga_true_R', 'ga_mc_fit', 'regret_pct',
+                    'wall_seconds'])
         for sc in scenario_results:
             for rec in sc['seed_records']:
                 w.writerow([rec['scenario'], rec['seed'],
                             f"{rec['oracle_R']:.4f}",
+                            f"{rec['oracle_R_feasible']:.4f}",
                             f"{rec['grid_R']:.4f}",
                             f"{rec['ga_true_R']:.4f}",
                             f"{rec['ga_mc_fit']:.4f}",
@@ -264,10 +319,8 @@ def main() -> int:
     seeds = list(range(args.n_seeds))
     wall_t0 = time.perf_counter()
 
-    scenario_results: List[Dict] = []
-    for s in range(args.n_scenarios):
-        sc = run_one_scenario(s, seeds, args)
-        scenario_results.append(sc)
+    scenario_results: List[Dict] = _map_scenarios(
+        run_one_scenario, args.n_scenarios, args.workers, seeds, args)
 
     wall = time.perf_counter() - wall_t0
     print(f"\nTotal wall: {wall:.1f}s", flush=True)
@@ -303,6 +356,7 @@ def main() -> int:
         },
         'n_scenarios': args.n_scenarios,
         'n_seeds_per_scenario': args.n_seeds,
+        'workers': args.workers,
     })
 
     print(f"\nRegret summary (%):  mean={all_regrets.mean()*100:.3f}  "

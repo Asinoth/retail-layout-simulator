@@ -30,6 +30,17 @@ from typing import Dict, List, Optional, Tuple, Any
 import numpy as np
 import pandas as pd
 
+from retail_literature import (DEFAULT_OP_HOURS_PER_DAY,
+                               DEFAULT_WEEKEND_MULTIPLIER)
+
+# The Monte Carlo engine projects over consecutive CALENDAR days and lifts
+# two days in seven by the weekend multiplier, so the rate it consumes has
+# to be an average-calendar-day rate. This is the mean of that weekly
+# pattern; dividing by it turns observed volume per calendar day into the
+# engine's base rate, so ``cph * op_hours * conv`` averaged over a week
+# reproduces the data.
+_MC_MEAN_DAY_MULTIPLIER = (5.0 + 2.0 * DEFAULT_WEEKEND_MULTIPLIER) / 7.0
+
 
 @dataclass
 class CalibratedParams:
@@ -41,13 +52,13 @@ class CalibratedParams:
     span_seconds: float
 
     # Rates
-    arrivals_per_hour: float          # invoices / observation hours
+    arrivals_per_hour: float          # BUYERS (invoices) per open hour, average day
     assumed_conversion_rate: float    # see module docstring
     return_customer_rate: float       # share of customers with >1 invoice
 
     # Empirical distributions (raw samples, not summaries -- let downstream
     # callers compute KS goodness-of-fit, percentiles, plots).
-    basket_sizes: np.ndarray              # items per invoice
+    basket_sizes: np.ndarray              # units per invoice
     invoice_revenues: np.ndarray          # GBP per invoice
     inter_arrival_seconds: np.ndarray     # gaps between successive invoices
     dwell_hour_distribution: np.ndarray   # shape (24,), share per hour
@@ -79,13 +90,51 @@ class CalibratedParams:
     basket_distinct_median: float = 0.0
     category_fallback_frac: float = 0.0
 
+    # Distinct products per invoice -- the trip-size sample the validation
+    # goodness-of-fit tests compare with the simulator's items per visit
+    # (``basket_sizes`` counts units, which a wholesale line inflates).
+    basket_distinct_sizes: np.ndarray = field(
+        default_factory=lambda: np.zeros(0))
+
+    # Spend per invoice at one unit of each distinct product, each at the
+    # product's calibrated price (``item_prices``, the price the dataset-
+    # built shop charges), in the same invoice order as
+    # ``basket_distinct_sizes``. A simulated visit buys one unit of each
+    # item it picks, so this -- not ``invoice_revenues``, which is
+    # quantity x price -- is the per-visit revenue the validation compares.
+    invoice_distinct_revenues: np.ndarray = field(
+        default_factory=lambda: np.zeros(0))
+
+    @property
+    def visitors_per_hour(self) -> float:
+        """Visitors per open hour: buyers divided by the conversion rate.
+
+        This is the rate the Monte Carlo engine and the live spawn loop
+        need, because both draw visitors and apply conversion themselves.
+        ``cph * op_hours * conversion``, averaged over the engine's weekly
+        multiplier pattern, then reproduces the observed invoices per
+        CALENDAR day."""
+        return float(self.arrivals_per_hour) / max(
+            float(self.assumed_conversion_rate), 1e-6)
+
     # ---------------------------------------------------------------------
     # Seeding the simulation
     # ---------------------------------------------------------------------
-    def seed_into(self, sim) -> None:
+    def seed_into(self, sim, shop=None) -> None:
         """Populate ``sim.analytics['calibration']`` with the empirical values
         so the optimize / Markov / MC / GA / Sensitivity engines see real
         data immediately without requiring a prior live simulation run.
+
+        ``shop``: the shop ``build_layout_from_calibration`` was run on. When
+        given, the per-item dicts (``popular_items``,
+        ``item_conversion_rates``, ``cross_merchandising``) are re-keyed from
+        ``product_id`` to the shop's item keys, which is how the GA score and
+        the optimize helpers look items up. When omitted they stay keyed by
+        ``product_id``.
+
+        Reseeding replaces the keys the previous call wrote, so a second
+        dataset does not inherit the first one's keys; keys written by
+        ``SpatialParams.seed_into`` are kept.
 
         IMPORTANT -- calibration namespace separation:
           * Dataset-derived inputs (rates, distributions, per-item dicts) all
@@ -113,6 +162,17 @@ class CalibratedParams:
         A.setdefault('calibration', {})
         cal = A['calibration']
 
+        # Drop what the previous seeding wrote before writing this dataset's
+        # values. Only some keys are rewritten on every call (the
+        # ``calibration_extra`` tags and the hourly-profile keys are
+        # source-dependent), and a stale ``mean_impulse_rate`` or
+        # ``source_kind`` from an earlier dataset would change the MC impulse
+        # rate and which Validation tests run. The record lives on ``sim``
+        # so the calibration dict itself only carries data.
+        for k in getattr(sim, '_calibration_seeded_keys', ()):
+            cal.pop(k, None)
+        keys_before = set(cal)
+
         # Counts and rates (would-be live values, stored in calibration only)
         n = int(self.n_invoices)
         implied_visitors = int(round(n / max(self.assumed_conversion_rate, 1e-6)))
@@ -125,7 +185,11 @@ class CalibratedParams:
         cal['conversion_rate_source'] = getattr(self, 'conversion_rate_source',
                                                 'assumption')
         cal['return_customer_rate'] = float(self.return_customer_rate)
+        # Buyers and visitors are stored under separate names: consumers
+        # that feed a customers-per-hour rate into the MC engine read
+        # ``visitors_per_hour``.
         cal['arrivals_per_hour'] = float(self.arrivals_per_hour)
+        cal['visitors_per_hour'] = float(self.visitors_per_hour)
         cal['span_seconds'] = float(self.span_seconds)
         cal['currency'] = self.currency
         cal['n_unique_products'] = int(self.n_unique_products)
@@ -159,19 +223,27 @@ class CalibratedParams:
         # Cross-merchandising -- top co-purchase pairs as 'A|B' string keys.
         cal['cross_merchandising'] = {f"{a}|{b}": int(c) for a, b, c in self.top_pairs}
 
-        # Non-homogeneous Poisson hourly profile -- normalize the empirical
-        # hour-of-day share so its mean over OPEN hours = 1.0. This shapes
-        # live spawns (sim.hourly_profile + sim_clock_start_hour); we do NOT
-        # set sim.run_time or sim.sim_time, so the spawn loop starts the
-        # clock at the first open hour and advances naturally.
+        # Non-homogeneous Poisson hourly profile -- scale the empirical
+        # hour-of-day share so the multipliers SUM to the operating hours
+        # the rates are defined on. A live day driven at
+        # ``visitors_per_hour`` then delivers the same expected volume as
+        # the Monte Carlo's ``cph * op_hours``. Normalizing to mean 1 over
+        # however many hours ever saw a transaction (15 on the full UCI
+        # sheets, a few of them 6 a.m. outliers) would instead run the live
+        # day 40-50% hot, and would move with the outlier count of whatever
+        # sample was loaded. This shapes live spawns (sim.hourly_profile +
+        # sim_clock_start_hour); we do NOT set sim.run_time or sim.sim_time,
+        # so the spawn loop starts the clock at the first open hour and
+        # advances naturally.
         try:
             hod = np.asarray(self.dwell_hour_distribution, dtype=np.float64).copy()
             open_mask = hod > 0
             if open_mask.any():
-                mean_open = hod[open_mask].mean()
-                if mean_open > 0:
+                open_total = hod[open_mask].sum()
+                if open_total > 0:
                     profile = np.zeros(24, dtype=np.float64)
-                    profile[open_mask] = hod[open_mask] / mean_open
+                    profile[open_mask] = (hod[open_mask] / open_total
+                                          * DEFAULT_OP_HOURS_PER_DAY)
                     sim.hourly_profile = profile
                     first_open = int(np.argmax(open_mask))
                     # Start the sim clock at the first CORE-open hour (at
@@ -182,11 +254,16 @@ class CalibratedParams:
                     # made the live sim look dead (effective spawn rate
                     # ~0) for the whole session, since at speed 1 one sim
                     # hour takes a real hour.
-                    core = np.where(profile >= 0.5)[0]
+                    # The threshold is relative to the average open-hour
+                    # multiplier, so it means the same thing whatever the
+                    # profile is scaled to.
+                    core = np.where(profile >= 0.5 * profile[open_mask].mean())[0]
                     start_hour = int(core[0]) if core.size else int(np.argmax(profile))
                     sim.sim_clock_start_hour = float(start_hour)
                     cal['hourly_profile_source'] = 'dataset'
                     cal['hourly_profile'] = profile.tolist()
+                    cal['hourly_profile_basis_hours'] = float(
+                        DEFAULT_OP_HOURS_PER_DAY)
                     cal['operating_hours_start'] = first_open
                     cal['sim_start_hour'] = start_hour
                     cal['operating_hours_count'] = int(open_mask.sum())
@@ -198,6 +275,32 @@ class CalibratedParams:
         extra = getattr(self, 'calibration_extra', None)
         if extra:
             cal.update(extra)
+
+        # Re-key the per-item dicts onto the shop's item keys (display names,
+        # "(product_id)" suffix on collision). The first item carrying a
+        # product_id wins; pairs with an unplaced item are dropped.
+        if shop is not None:
+            pid_to_key: Dict[str, str] = {}
+            for key, idata in shop.floors[1]['items'].items():
+                pid = idata.get('product_id')
+                if pid is not None and str(pid) not in pid_to_key:
+                    pid_to_key[str(pid)] = key
+            for name in ('popular_items', 'item_conversion_rates'):
+                cal[name] = {pid_to_key[str(k)]: v
+                             for k, v in cal[name].items()
+                             if str(k) in pid_to_key}
+            cross = {}
+            for pair, count in cal['cross_merchandising'].items():
+                pa, pb = pair.split('|', 1)
+                if pa in pid_to_key and pb in pid_to_key:
+                    cross[f"{pid_to_key[pa]}|{pid_to_key[pb]}"] = count
+            cal['cross_merchandising'] = cross
+
+        sim._calibration_seeded_keys = sorted(set(cal) - keys_before)
+        # Spawning agents cache basket weights built from the calibration's
+        # popularity and co-purchase dicts. A re-calibration over the same
+        # item names would otherwise keep drawing from the old weights.
+        sim._basket_struct_cache = None
 
 
 # --- Calibration ----------------------------------------------------------
@@ -221,6 +324,18 @@ def calibrate_transactional(df: pd.DataFrame,
 
     df = df.copy()
     df["timestamp"] = pd.to_datetime(df["timestamp"], errors="coerce")
+    # Timestamps carrying a UTC offset (ISO-8601 '...+01:00') parse as
+    # tz-aware, or as an object column when offsets are mixed; the numpy
+    # datetime arithmetic below needs naive datetime64. Drop the zone and
+    # keep the local wall-clock time, which is what the hour-of-day profile
+    # should reflect.
+    if isinstance(df["timestamp"].dtype, pd.DatetimeTZDtype):
+        df["timestamp"] = df["timestamp"].dt.tz_localize(None)
+    elif df["timestamp"].dtype == object:
+        df["timestamp"] = pd.to_datetime(
+            df["timestamp"].map(lambda t: t.replace(tzinfo=None)
+                                if isinstance(t, pd.Timestamp) else pd.NaT),
+            errors="coerce")
     df = df.dropna(subset=["timestamp"])
     df["line_revenue"] = df["quantity"] * df["unit_price"]
 
@@ -241,16 +356,35 @@ def calibrate_transactional(df: pd.DataFrame,
     if n_invoices < 2:
         raise ValueError("calibrate_transactional: need at least 2 invoices")
 
-    # Inter-arrival gaps (seconds). Filter overnight gaps > 12h so the
-    # arrival-rate estimate reflects business hours, not calendar time.
-    deltas_ns = np.diff(invoice_times.astype("datetime64[ns]").astype(np.int64))
-    deltas_s = deltas_ns / 1e9
-    inter_arrival = deltas_s[(deltas_s > 0) & (deltas_s < 12 * 3600)]
+    # Inter-arrival gaps (seconds) between successive invoices on the same
+    # trading day. Timestamps in Online Retail II have one-minute
+    # resolution, so invoices placed within the same minute give a gap of
+    # exactly 0 s; those are real arrivals and stay in the sample (a KS test
+    # against a continuous exponential will show the discretization). Only
+    # the gap from one calendar date's last invoice to the next date's first
+    # is dropped, since it spans the closed hours.
+    invoice_ns = invoice_times.astype("datetime64[ns]")
+    deltas_s = np.diff(invoice_ns.astype(np.int64)) / 1e9
+    invoice_dates = invoice_ns.astype("datetime64[D]")
+    same_day = invoice_dates[1:] == invoice_dates[:-1]
+    inter_arrival = deltas_s[same_day]
 
-    # Open hours: 60-second buckets that had at least one invoice.
-    ts_minute = pd.to_datetime(invoice_times).floor("min").unique()
-    open_hours = max(len(ts_minute) / 60.0, 1e-6)
-    arrivals_per_hour = n_invoices / open_hours
+    # Buyers per open hour on the projection engine's own day model: the
+    # engine runs every CALENDAR day in the horizon and lifts weekends, so
+    # the basis is invoices per calendar day of the observed span, spread
+    # over the operating hours it uses for its daily lambda and divided by
+    # its average weekly multiplier. Spreading over trading days only (a
+    # calendar date with at least one invoice) would over-produce the
+    # dataset's volume on every closed day the engine still trades through:
+    # Online Retail II trades about 5.7 days a week. Counting only minutes
+    # that contain an invoice is not open time either -- each such minute
+    # holds at least one invoice, which pins the estimate near 60/h
+    # whatever the true rate.
+    n_trading_days = max(int(np.unique(invoice_dates).size), 1)
+    n_calendar_days = max(
+        int((invoice_dates[-1] - invoice_dates[0]).astype(np.int64)) + 1, 1)
+    arrivals_per_hour = ((n_invoices / n_calendar_days)
+                         / DEFAULT_OP_HOURS_PER_DAY / _MC_MEAN_DAY_MULTIPLIER)
 
     # Hour-of-day + day-of-week distributions
     ts = pd.to_datetime(invoice_times)
@@ -265,6 +399,13 @@ def calibrate_transactional(df: pd.DataFrame,
     # same semantics but 3-10x faster on 500k+ rows.
     prod_g = df.groupby("product_id")
     item_prices = prod_g["unit_price"].median().to_dict()
+
+    # Grouped by invoice id like ``inv_g``, so the order matches the other
+    # per-invoice samples.
+    inv_prod = df[["invoice_id", "product_id"]].drop_duplicates()
+    invoice_distinct_revs = (inv_prod["product_id"].map(item_prices)
+                             .groupby(inv_prod["invoice_id"]).sum()
+                             .to_numpy(dtype=np.float64))
 
     name_str = df["product_name"].astype(str)
     name_clean = df["product_name"].where(name_str.str.strip() != "", other=pd.NA)
@@ -295,17 +436,27 @@ def calibrate_transactional(df: pd.DataFrame,
     # per-invoice cap from 30 to 50 to recover pairs that wholesale baskets
     # previously truncated. The combinatorial growth at k=50 (1225 pairs) is
     # still bounded.
+    #
+    # An invoice over the cap keeps its most frequently purchased products
+    # (invoice count across the dataset, product id as tie-break). Cutting
+    # the sorted id list would keep the lexicographically smallest stock
+    # codes, so which pairs survive would depend on code spelling. The kept
+    # ids are re-sorted so each pair is counted under one (a, b) key.
     from itertools import combinations as _combinations
     pair_counter: Counter = Counter()
     inv_products = df.groupby("invoice_id")["product_id"].apply(
         lambda s: sorted(set(s))
     )
     PAIRS_BASKET_CAP = 50
+
+    def _popularity_key(pid):
+        return (-item_visit_counts.get(pid, 0), str(pid))
+
     for ids in inv_products:
         if len(ids) < 2:
             continue
         if len(ids) > PAIRS_BASKET_CAP:
-            ids = ids[:PAIRS_BASKET_CAP]
+            ids = sorted(sorted(ids, key=_popularity_key)[:PAIRS_BASKET_CAP])
         pair_counter.update(_combinations(ids, 2))
     top_pairs = [(a, b, c) for (a, b), c in pair_counter.most_common(top_pairs_n)]
 
@@ -350,6 +501,16 @@ def calibrate_transactional(df: pd.DataFrame,
         basket_units_median=basket_units_median,
         basket_distinct_median=basket_distinct_median,
         category_fallback_frac=category_fallback_frac,
+        basket_distinct_sizes=distinct_per_invoice,
+        invoice_distinct_revenues=invoice_distinct_revs,
+        # How the rate was put on the engine's day model, and how far the
+        # two day counts differ (UCI: 305 trading days over 374 calendar
+        # days), so a reader can see what the divisor was.
+        calibration_extra={
+            "arrival_rate_source": "invoices_per_calendar_day",
+            "n_trading_days": n_trading_days,
+            "n_calendar_days": n_calendar_days,
+        },
     )
 
 
@@ -372,8 +533,10 @@ def calibrate_omnichannel(families: pd.DataFrame,
       * item_categories        <- 'Zone <id>' (real in-store zone)
       * item_visit_counts      <- Average daily demand (popularity weight)
       * category_revenue_share <- demand*price aggregated per zone
-      * hourly/day-of-week profile + arrival rate <- arrivals table
-      * conversion rate        <- 1 - prod(1 - purchase_pct) (independence est.)
+      * hourly/day-of-week profile + arrival rate <- arrivals table (in-store
+                                  visitors; stored as buyers, see below)
+      * conversion rate        <- 1 - prod(1 - purchase_pct) (independence est.;
+                                  tagged 'assumption' when it saturates)
       * dwell / impulse        <- demand-weighted means (-> calibration meta)
 
     The basket-size and per-visit-revenue arrays are NOT observed; they are a
@@ -452,14 +615,24 @@ def calibrate_omnichannel(families: pd.DataFrame,
     if basket_sizes.size < 5:
         basket_sizes = np.array([max(1.0, float(p.sum()))] * 10)
         invoice_revenues = np.array([float((p * prices).sum())] * 10)
-    conv = float(buyer.mean()) if buyer.size else 0.30
-    conv = min(max(conv, 0.05), 0.99)
+    conv_raw = float(buyer.mean()) if buyer.size else 0.30
+    conv = min(max(conv_raw, 0.05), 0.99)
+    # Independent per-family draws make at least one purchase near-certain
+    # once the marginal probabilities sum well above 1 (the shipped bundle
+    # sums to ~12.7), so the estimate saturates at the clamp and carries no
+    # information from the data. When the clamp binds the value is the
+    # clamp bound itself, i.e. an assumption, and is flagged as one; the
+    # data only bounds visit conversion from below, by the largest
+    # single-family purchase probability (recorded in calibration_extra).
+    conv_source = ("estimated_from_purchase_probabilities" if conv == conv_raw
+                   else "assumption")
 
     # Arrivals -> hour-of-day + day-of-week + rate + span.
     hod = np.zeros(24, dtype=np.float64)
     dow = np.zeros(7, dtype=np.float64)
     arrivals_per_hour = 0.0
-    weekly_customers = float(df["daily_demand_instore"].sum() * 7.0)
+    weekly_customers = 0.0
+    arrival_rate_source = "derived_from_demand"
     if arrivals is not None and len(arrivals):
         a = arrivals.dropna(subset=["from_hour", "instore_arrivals"]).copy()
         if len(a):
@@ -474,15 +647,37 @@ def calibrate_omnichannel(families: pd.DataFrame,
             for i, wd in enumerate(wd_order):
                 if wd in wd_tot.index:
                     dow[i] = float(wd_tot[wd])
-            nz = hod[hod > 0]
-            arrivals_per_hour = float(nz.mean()) if nz.size else 0.0
+            # The table's own open-hour count (06:00-22:00 in the shipped
+            # bundle) is not the operating day the projection engine runs,
+            # so the measured weekly total is put on the same basis as the
+            # transactional path: visitors per average calendar day spread
+            # over DEFAULT_OP_HOURS_PER_DAY. Using the table's per-hour mean
+            # directly made the engine draw a 10-hour day's worth of a
+            # 17-hour store.
             weekly_customers = float(a["instore_arrivals"].sum())
+            if weekly_customers > 0:
+                arrivals_per_hour = (weekly_customers / 7.0
+                                     / DEFAULT_OP_HOURS_PER_DAY
+                                     / _MC_MEAN_DAY_MULTIPLIER)
+                arrival_rate_source = "arrivals_table"
 
     hod_share = hod / hod.sum() if hod.sum() > 0 else hod
     dow_share = dow / dow.sum() if dow.sum() > 0 else dow
     if arrivals_per_hour <= 0:
-        open_h = int((hod > 0).sum()) or 10
-        arrivals_per_hour = max(1e-3, weekly_customers / (7.0 * open_h))
+        # No arrivals table (missing file, or unrecognised columns). The
+        # only volume signal left is per-family daily demand, which counts
+        # FAMILY purchases: a trip buys about a dozen families, so feeding
+        # that sum in as visitors overstates traffic by an order of
+        # magnitude. Convert with the parametric trip size and the
+        # conversion estimate (buyers -> visitors) instead.
+        demand_units = float(df["daily_demand_instore"].sum())
+        trip_families = float(basket_sizes.mean()) if basket_sizes.size else 1.0
+        daily_visitors = (demand_units / max(trip_families, 1.0)
+                          / max(conv, 1e-6))
+        weekly_customers = 7.0 * daily_visitors
+        arrivals_per_hour = max(1e-3, daily_visitors / DEFAULT_OP_HOURS_PER_DAY
+                                / _MC_MEAN_DAY_MULTIPLIER)
+        arrival_rate_source = "derived_from_demand"
     if weekly_customers <= 0:
         weekly_customers = float(n_synth)
 
@@ -517,6 +712,9 @@ def calibrate_omnichannel(families: pd.DataFrame,
         "n_product_families": int(len(df)),
         "n_zones": int(df["category"].nunique()),
         "weekly_instore_customers": weekly_customers,
+        "conversion_rate_lower_bound": float(p.max()),
+        "conversion_rate_independence_estimate": conv_raw,
+        "arrival_rate_source": arrival_rate_source,
     }
 
     return CalibratedParams(
@@ -525,7 +723,10 @@ def calibrate_omnichannel(families: pd.DataFrame,
         n_unique_customers=0,
         n_unique_categories=int(df["category"].nunique()),
         span_seconds=span_seconds,
-        arrivals_per_hour=float(arrivals_per_hour),
+        # The arrivals table counts in-store VISITORS, while
+        # ``arrivals_per_hour`` means buyers throughout; storing visitors x
+        # conversion keeps ``visitors_per_hour`` equal to the measured rate.
+        arrivals_per_hour=float(arrivals_per_hour) * conv,
         assumed_conversion_rate=conv,
         return_customer_rate=0.0,
         basket_sizes=basket_sizes.astype(np.float64),
@@ -540,7 +741,7 @@ def calibrate_omnichannel(families: pd.DataFrame,
         category_revenue_share=category_revenue_share,
         top_pairs=[],
         currency=currency,
-        conversion_rate_source="estimated_from_purchase_probabilities",
+        conversion_rate_source=conv_source,
         calibration_extra=calibration_extra,
     )
 
@@ -586,30 +787,54 @@ class SpatialParams:
                 self.track_lengths_m.mean()
             )
 
-        # Heat map: scale traffic map to sim's heat_raw buffer.
-        # ``zone_traffic_raw`` is in trajectory's native cell space; the
-        # simulator owns its own heat_map_resolution and may have a
-        # different shop bbox, so we rasterize the traffic map into the
-        # sim's existing buffer via simple bilinear-ish nearest-neighbour
-        # scaling.
-        try:
-            from scipy.ndimage import zoom as _zoom
-        except Exception:
-            _zoom = None
-        if _zoom is not None and self.zone_traffic_raw.size:
-            target = sim.heat_raw
+        # Heat map: add the traffic counts to FLOOR 1's accumulator, without
+        # zeroing it (caller may have sim-derived heat already). The traffic
+        # is ground-floor data, and ``sim.heat_raw`` is only the display copy
+        # of whichever floor is on screen -- adding there while floor 2 is
+        # shown would hand floor 2's history to floor 1 and lose floor 1's.
+        # ``calibrate_trajectory`` is normally called with the sim's shop
+        # size and heat_map_resolution, so the grids match cell for cell and
+        # the counts are added directly. Otherwise the grid is resampled
+        # with bilinear zoom, which interpolates values rather than
+        # conserving them, so the result is rescaled to the source total.
+        if self.zone_traffic_raw.size and sim.heat_raw.size > 0:
+            get_floor_raw = getattr(sim, '_get_floor_heat_raw', None)
+            target = get_floor_raw(1) if callable(get_floor_raw) else sim.heat_raw
             src = self.zone_traffic_raw.astype(np.float32)
-            if src.shape != target.shape and target.size > 0:
-                zx = target.shape[0] / max(src.shape[0], 1)
-                zy = target.shape[1] / max(src.shape[1], 1)
-                scaled = _zoom(src, (zx, zy), order=1)
-                # Add to existing heat_raw without zeroing it (caller may
-                # have transactional data + sim-derived heat already).
-                slc = (slice(0, min(scaled.shape[0], target.shape[0])),
-                       slice(0, min(scaled.shape[1], target.shape[1])))
-                target[slc] = target[slc] + scaled[slc]
-                if hasattr(sim, '_floor_heat_raw'):
-                    sim._floor_heat_raw[1] = target
+            if src.shape == target.shape:
+                target += src
+            else:
+                try:
+                    from scipy.ndimage import zoom as _zoom
+                except Exception:
+                    _zoom = None
+                if _zoom is not None:
+                    zx = target.shape[0] / max(src.shape[0], 1)
+                    zy = target.shape[1] / max(src.shape[1], 1)
+                    scaled = _zoom(src, (zx, zy), order=1)
+                    slc = (slice(0, min(scaled.shape[0], target.shape[0])),
+                           slice(0, min(scaled.shape[1], target.shape[1])))
+                    part = scaled[slc]
+                    mass = float(part.sum())
+                    if mass > 0:
+                        part = part * (float(src.sum()) / mass)
+                    target[slc] = target[slc] + part
+            # Mirror into the display buffer only while floor 1 is the one
+            # being shown; the buffers stay separate objects so a later
+            # floor switch cannot overwrite the accumulator. The smoothed
+            # map is rebuilt from the display buffer, so it is refreshed
+            # whenever that buffer changed -- otherwise the heat view keeps
+            # showing the pre-load traffic until the next simulation tick.
+            floor1_shown = int(getattr(getattr(sim, 'shop', None),
+                                       'current_floor', 1) or 1) == 1
+            if target is not sim.heat_raw and floor1_shown:
+                w = min(target.shape[0], sim.heat_raw.shape[0])
+                h = min(target.shape[1], sim.heat_raw.shape[1])
+                sim.heat_raw[:w, :h] = target[:w, :h]
+            if target is sim.heat_raw or floor1_shown:
+                refresh = getattr(sim, '_refresh_smoothed_heatmap', None)
+                if callable(refresh):
+                    refresh()
 
         A['calibration']['spatial_source'] = 'trajectory_dataset'
         A['calibration']['n_tracks'] = self.n_tracks
@@ -648,7 +873,10 @@ def calibrate_trajectory(df: pd.DataFrame,
     df["y_sim"] = (df["y_m"] - y_min) / src_h * target_height_m
 
     # Per-track speed (m/s) -- use velocity column if provided, else from
-    # consecutive positions within each track.
+    # consecutive positions within each track. Positions come from the
+    # source coordinates in metres: x_sim/y_sim are stretched
+    # (anisotropically) to the shop size and are only for the heat map, so
+    # speeds or path lengths taken from them would scale with the shop.
     if "velocity_m_s" in df.columns:
         speeds = df["velocity_m_s"].to_numpy(dtype=np.float64)
         speeds = speeds[np.isfinite(speeds) & (speeds >= 0)]
@@ -657,8 +885,8 @@ def calibrate_trajectory(df: pd.DataFrame,
         # robust fallback when the source doesn't carry velocity.
         speeds_list: List[float] = []
         for tid, g in df.groupby("track_id"):
-            xs = g["x_sim"].to_numpy()
-            ys = g["y_sim"].to_numpy()
+            xs = g["x_m"].to_numpy()
+            ys = g["y_m"].to_numpy()
             ts = g["time_s"].to_numpy()
             if len(ts) < 2:
                 continue
@@ -675,8 +903,8 @@ def calibrate_trajectory(df: pd.DataFrame,
     track_len: List[float] = []
     for tid, g in df.groupby("track_id"):
         ts = g["time_s"].to_numpy()
-        xs = g["x_sim"].to_numpy()
-        ys = g["y_sim"].to_numpy()
+        xs = g["x_m"].to_numpy()
+        ys = g["y_m"].to_numpy()
         if len(ts) < 2:
             continue
         track_dur.append(float(ts.max() - ts.min()))

@@ -27,7 +27,13 @@ class HeatmapMixin:
         self.customer_simulation.simulation_speed = float(value)
 
     def _update_spawn_rate(self, value):
-        """Update customer spawn rate."""
+        """Update customer spawn rate.
+
+        Only the rate is written from here. The pending inter-arrival gap
+        belongs to the worker thread, which compares it against elapsed time
+        every tick and redraws it itself once the rate it was drawn under
+        changes; by memorylessness that redraw is exact, so the new rate
+        takes effect on the next arrival instead of after the old one."""
         self.customer_simulation.spawn_rate = float(value)
 
  
@@ -128,8 +134,9 @@ class HeatmapMixin:
             self.heat_toplevel.destroy()
 
         # Create a new Toplevel for the heat map
-        self.heat_toplevel = tk.Toplevel(self.tk_root)
-        self.heat_toplevel.title("Live Heat Map - Customer Traffic")
+        top = tk.Toplevel(self.tk_root)
+        self.heat_toplevel = top
+        top.title("Live Heat Map - Customer Traffic")
 
         # Build the Figure & Axes
         fig_heat = Figure(figsize=(14, 10), dpi=100)
@@ -138,22 +145,34 @@ class HeatmapMixin:
 
         cmap_custom = self._get_heatmap_cmap()
 
+        def _current_heat():
+            # The heat buffer keeps its allocated shape when the shop shrinks
+            # (e.g. importing a smaller layout), so crop it to the current
+            # dimensions and place it by the area its cells actually cover
+            # instead of stretching the whole buffer over the shop.
+            res = self.customer_simulation.heat_map_resolution
+            heat = self.customer_simulation.heat_map_data
+            heat = heat[:int(self.width * res) + 1, :int(self.height * res) + 1]
+            return heat, [0, heat.shape[0] / res, 0, heat.shape[1] / res]
+
         # Create an empty image to start with. ``aspect='equal'`` is critical
         # for an academic-paper heatmap: it forces 1 m on the x-axis to span
         # the same number of pixels as 1 m on the y-axis, so spatial features
         # (aisles, sections) keep their true geometry.
-        initial = np.zeros_like(self.customer_simulation.heat_map_data.T)
-        self._heat_im = ax_heat.imshow(
+        heat0, extent0 = _current_heat()
+        initial = np.zeros_like(heat0.T)
+        im = ax_heat.imshow(
             initial,
             cmap=cmap_custom,
             alpha=1.0,
-            extent=[0, self.width, 0, self.height],
+            extent=extent0,
             origin='lower',
             aspect='equal',
             interpolation='bilinear',
             vmin=0,
             vmax=1
         )
+        self._heat_im = im
 
         # --- Base styling & grid -----------------------------------
         ax_heat.set_xlim(0, self.width)
@@ -200,17 +219,38 @@ class HeatmapMixin:
             pass
 
         # Pack into the Tk window
-        canvas = FigureCanvasTkAgg(fig_heat, master=self.heat_toplevel)
+        canvas = FigureCanvasTkAgg(fig_heat, master=top)
         canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
 
-        # Define an update function to refresh data & redraw
+        # The title-bar close button destroys the window only on the Tcl side,
+        # which leaves the pending refresh scheduled; cancel it before
+        # destroying so the loop stops with its window.
+        def _close_heat():
+            try:
+                top.after_cancel(self._heat_after_id)
+            except Exception:
+                pass
+            self._heat_after_id = None
+            top.destroy()
+
+        top.protocol("WM_DELETE_WINDOW", _close_heat)
+
+        # Define an update function to refresh data & redraw. It is bound to
+        # this window and its image, and stops once the window is gone, so a
+        # reopened map never ends up driven by two loops.
         def _refresh_heat():
-            heat = self.customer_simulation.heat_map_data.T
-            disp = self._prepare_heatmap_display(heat, smooth=True)
-            self._heat_im.set_data(disp)
-            self._heat_im.set_clim(0, 1)
+            try:
+                if not top.winfo_exists():
+                    return
+            except Exception:
+                return
+            heat, extent = _current_heat()
+            disp = self._prepare_heatmap_display(heat.T, smooth=True)
+            im.set_data(disp)
+            im.set_extent(extent)
+            im.set_clim(0, 1)
             canvas.draw_idle()
-            self._heat_after_id = self.heat_toplevel.after(750, _refresh_heat)
+            self._heat_after_id = top.after(750, _refresh_heat)
 
         _refresh_heat()
 
@@ -319,6 +359,14 @@ class HeatmapMixin:
 
 
 
+
+        # Cancel any pending run first so a repeated call cannot start a
+        # second chain whose id the close handler never sees.
+        if getattr(self, '_analytics_after_id', None):
+            try:
+                self.tk_root.after_cancel(self._analytics_after_id)
+            except Exception:
+                pass
 
         # Always reschedule -- but remember the id so the root close handler
         # can cancel it. Otherwise the callback fires after tk_root is

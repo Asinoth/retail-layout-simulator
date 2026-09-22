@@ -1,0 +1,484 @@
+{
+  "strengths": [
+    0.0,
+    0.04,
+    0.08,
+    0.16,
+    0.32
+  ],
+  "n_reps": 5,
+  "rev_per_cust_mean": [
+    13.664,
+    13.5468,
+    13.7007,
+    13.3285,
+    13.7622
+  ],
+  "rev_per_cust_sd": [
+    0.1298,
+    0.4645,
+    0.7736,
+    0.4154,
+    0.3646
+  ],
+  "rev_per_cust_anova_F": 0.644,
+  "rev_per_cust_anova_p": 0.6375,
+  "completed_per_setting": [
+    1656,
+    1720,
+    1711,
+    1629,
+    1779
+  ],
+  "completed_per_rep": [
+    [
+      304,
+      332,
+      348,
+      361,
+      311
+    ],
+    [
+      355,
+      380,
+      323,
+      352,
+      310
+    ],
+    [
+      350,
+      308,
+      345,
+      334,
+      374
+    ],
+    [
+      330,
+      340,
+      332,
+      307,
+      320
+    ],
+    [
+      346,
+      351,
+      371,
+      353,
+      358
+    ]
+  ],
+  "conversion": [
+    0.9758,
+    0.9729,
+    0.9683,
+    0.9673,
+    0.9748
+  ],
+  "default_strength": 0.08,
+  "throughput_range_pct": 8.83,
+  "chi2": 8.084,
+  "chi2_p": 0.089,
+  "chi2_dof": 4,
+  "completions_anova_F": 1.575,
+  "completions_anova_p": 0.2197,
+  "dispersion_phi": 1.286,
+  "quasi_poisson_p": 0.1788,
+  "homogeneous": true,
+  "metric": "post_warmup_throughput",
+  "load": {
+    "arrivals": 8811,
+    "balked": 41,
+    "balked_frac": 0.0047
+  },
+  "protocol": {
+    "mode": "fixed_step",
+    "dt": 0.04,
+    "seed_base": 2000,
+    "seeds": {
+      "0.0": [
+        2000,
+        2001,
+        2002,
+        2003,
+        2004
+      ],
+      "0.04": [
+        2005,
+        2006,
+        2007,
+        2008,
+        2009
+      ],
+      "0.08": [
+        2010,
+        2011,
+        2012,
+        2013,
+        2014
+      ],
+      "0.16": [
+        2015,
+        2016,
+        2017,
+        2018,
+        2019
+      ],
+      "0.32": [
+        2020,
+        2021,
+        2022,
+        2023,
+        2024
+      ]
+    },
+    "reps": 5,
+    "warmup_s": 600.0,
+    "collect_s": 2280.0,
+    "spawn": 0.22,
+    "cap": 45,
+    "workers": 14,
+    "framing": "terminating"
+  },
+  "rows": [
+    {
+      "strength": 0.0,
+      "revenue": 22621.67,
+      "completed": 1656,
+      "abandoned": 41,
+      "customers": 1722,
+      "balked": 8,
+      "conversion": 0.9758397171479081,
+      "rev_per_cust_mean": 13.663991990959303,
+      "rev_per_cust_sd": 0.1298112874095483,
+      "runs": [
+        {
+          "strength": 0.0,
+          "seed": 2000,
+          "revenue": 4167.280000000002,
+          "completed": 304,
+          "abandoned": 10,
+          "customers": 326,
+          "balked": 0,
+          "conversion": 0.9681528662420382,
+          "rep": 0
+        },
+        {
+          "strength": 0.0,
+          "seed": 2001,
+          "revenue": 4551.829999999998,
+          "completed": 332,
+          "abandoned": 10,
+          "customers": 346,
+          "balked": 3,
+          "conversion": 0.9707602339181286,
+          "rep": 1
+        },
+        {
+          "strength": 0.0,
+          "seed": 2002,
+          "revenue": 4797.060000000003,
+          "completed": 348,
+          "abandoned": 3,
+          "customers": 353,
+          "balked": 0,
+          "conversion": 0.9914529914529915,
+          "rep": 2
+        },
+        {
+          "strength": 0.0,
+          "seed": 2003,
+          "revenue": 4853.069999999993,
+          "completed": 361,
+          "abandoned": 12,
+          "customers": 376,
+          "balked": 0,
+          "conversion": 0.967828418230563,
+          "rep": 3
+        },
+        {
+          "strength": 0.0,
+          "seed": 2004,
+          "revenue": 4252.429999999999,
+          "completed": 311,
+          "abandoned": 6,
+          "customers": 321,
+          "balked": 5,
+          "conversion": 0.9810725552050473,
+          "rep": 4
+        }
+      ]
+    },
+    {
+      "strength": 0.04,
+      "revenue": 23328.869999999995,
+      "completed": 1720,
+      "abandoned": 48,
+      "customers": 1759,
+      "balked": 7,
+      "conversion": 0.9728506787330317,
+      "rev_per_cust_mean": 13.54682649459192,
+      "rev_per_cust_sd": 0.464497348838933,
+      "runs": [
+        {
+          "strength": 0.04,
+          "seed": 2005,
+          "revenue": 4943.669999999998,
+          "completed": 355,
+          "abandoned": 9,
+          "customers": 363,
+          "balked": 0,
+          "conversion": 0.9752747252747253,
+          "rep": 0
+        },
+        {
+          "strength": 0.04,
+          "seed": 2006,
+          "revenue": 5355.579999999992,
+          "completed": 380,
+          "abandoned": 8,
+          "customers": 386,
+          "balked": 7,
+          "conversion": 0.979381443298969,
+          "rep": 1
+        },
+        {
+          "strength": 0.04,
+          "seed": 2007,
+          "revenue": 4253.189999999998,
+          "completed": 323,
+          "abandoned": 12,
+          "customers": 337,
+          "balked": 0,
+          "conversion": 0.9641791044776119,
+          "rep": 2
+        },
+        {
+          "strength": 0.04,
+          "seed": 2008,
+          "revenue": 4583.470000000006,
+          "completed": 352,
+          "abandoned": 9,
+          "customers": 353,
+          "balked": 0,
+          "conversion": 0.9750692520775623,
+          "rep": 3
+        },
+        {
+          "strength": 0.04,
+          "seed": 2009,
+          "revenue": 4192.960000000001,
+          "completed": 310,
+          "abandoned": 10,
+          "customers": 320,
+          "balked": 0,
+          "conversion": 0.96875,
+          "rep": 4
+        }
+      ]
+    },
+    {
+      "strength": 0.08,
+      "revenue": 23485.85999999999,
+      "completed": 1711,
+      "abandoned": 56,
+      "customers": 1766,
+      "balked": 3,
+      "conversion": 0.9683078664402943,
+      "rev_per_cust_mean": 13.700712696170081,
+      "rev_per_cust_sd": 0.7736091815239605,
+      "runs": [
+        {
+          "strength": 0.08,
+          "seed": 2010,
+          "revenue": 5164.159999999993,
+          "completed": 350,
+          "abandoned": 9,
+          "customers": 356,
+          "balked": 2,
+          "conversion": 0.9749303621169917,
+          "rep": 0
+        },
+        {
+          "strength": 0.08,
+          "seed": 2011,
+          "revenue": 4000.750000000001,
+          "completed": 308,
+          "abandoned": 9,
+          "customers": 312,
+          "balked": 0,
+          "conversion": 0.9716088328075709,
+          "rep": 1
+        },
+        {
+          "strength": 0.08,
+          "seed": 2012,
+          "revenue": 4460.639999999998,
+          "completed": 345,
+          "abandoned": 13,
+          "customers": 364,
+          "balked": 0,
+          "conversion": 0.9636871508379888,
+          "rep": 2
+        },
+        {
+          "strength": 0.08,
+          "seed": 2013,
+          "revenue": 4576.659999999997,
+          "completed": 334,
+          "abandoned": 15,
+          "customers": 351,
+          "balked": 0,
+          "conversion": 0.9570200573065902,
+          "rep": 3
+        },
+        {
+          "strength": 0.08,
+          "seed": 2014,
+          "revenue": 5283.6500000000015,
+          "completed": 374,
+          "abandoned": 10,
+          "customers": 383,
+          "balked": 1,
+          "conversion": 0.9739583333333334,
+          "rep": 4
+        }
+      ]
+    },
+    {
+      "strength": 0.16,
+      "revenue": 21711.55,
+      "completed": 1629,
+      "abandoned": 55,
+      "customers": 1687,
+      "balked": 10,
+      "conversion": 0.9673396674584323,
+      "rev_per_cust_mean": 13.328464201944428,
+      "rev_per_cust_sd": 0.4153619837810817,
+      "runs": [
+        {
+          "strength": 0.16,
+          "seed": 2015,
+          "revenue": 4542.99,
+          "completed": 330,
+          "abandoned": 21,
+          "customers": 345,
+          "balked": 1,
+          "conversion": 0.9401709401709402,
+          "rep": 0
+        },
+        {
+          "strength": 0.16,
+          "seed": 2016,
+          "revenue": 4543.84,
+          "completed": 340,
+          "abandoned": 3,
+          "customers": 338,
+          "balked": 5,
+          "conversion": 0.9912536443148688,
+          "rep": 1
+        },
+        {
+          "strength": 0.16,
+          "seed": 2017,
+          "revenue": 4376.130000000002,
+          "completed": 332,
+          "abandoned": 7,
+          "customers": 351,
+          "balked": 4,
+          "conversion": 0.9793510324483776,
+          "rep": 2
+        },
+        {
+          "strength": 0.16,
+          "seed": 2018,
+          "revenue": 4182.689999999997,
+          "completed": 307,
+          "abandoned": 11,
+          "customers": 313,
+          "balked": 0,
+          "conversion": 0.9654088050314465,
+          "rep": 3
+        },
+        {
+          "strength": 0.16,
+          "seed": 2019,
+          "revenue": 4065.8999999999987,
+          "completed": 320,
+          "abandoned": 13,
+          "customers": 340,
+          "balked": 0,
+          "conversion": 0.960960960960961,
+          "rep": 4
+        }
+      ]
+    },
+    {
+      "strength": 0.32,
+      "revenue": 24483.949999999986,
+      "completed": 1779,
+      "abandoned": 46,
+      "customers": 1836,
+      "balked": 13,
+      "conversion": 0.9747945205479452,
+      "rev_per_cust_mean": 13.762151757305626,
+      "rev_per_cust_sd": 0.3646164301858637,
+      "runs": [
+        {
+          "strength": 0.32,
+          "seed": 2020,
+          "revenue": 4715.8899999999985,
+          "completed": 346,
+          "abandoned": 5,
+          "customers": 351,
+          "balked": 0,
+          "conversion": 0.9857549857549858,
+          "rep": 0
+        },
+        {
+          "strength": 0.32,
+          "seed": 2021,
+          "revenue": 5022.83,
+          "completed": 351,
+          "abandoned": 9,
+          "customers": 362,
+          "balked": 1,
+          "conversion": 0.975,
+          "rep": 1
+        },
+        {
+          "strength": 0.32,
+          "seed": 2022,
+          "revenue": 5136.069999999995,
+          "completed": 371,
+          "abandoned": 6,
+          "customers": 383,
+          "balked": 7,
+          "conversion": 0.9840848806366048,
+          "rep": 2
+        },
+        {
+          "strength": 0.32,
+          "seed": 2023,
+          "revenue": 4698.039999999995,
+          "completed": 353,
+          "abandoned": 18,
+          "customers": 371,
+          "balked": 2,
+          "conversion": 0.9514824797843666,
+          "rep": 3
+        },
+        {
+          "strength": 0.32,
+          "seed": 2024,
+          "revenue": 4911.119999999998,
+          "completed": 358,
+          "abandoned": 8,
+          "customers": 369,
+          "balked": 3,
+          "conversion": 0.9781420765027322,
+          "rep": 4
+        }
+      ]
+    }
+  ]
+}

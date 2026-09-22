@@ -278,10 +278,17 @@ def _build_sections(width: float, height: float,
         # are updated by generate_synthetic_shop() after this returns.
         pass   # we return the section dict; generator handles dims.
 
+    # Row-major slots. Impulse takes the front-row slot nearest the
+    # checkout, which generate_synthetic_shop puts front-right, i.e.
+    # column cols - 1; the other categories fill the remaining slots in
+    # their order.
+    slots = [(i // cols, i % cols) for i in range(n)]
+    if "Impulse" in items_by_cat:
+        slots.remove((0, cols - 1))
+        slots.insert(0, (0, cols - 1))
+
     sections: Dict[str, Tuple[float, float, float, float]] = {}
-    for i, cat in enumerate(cats):
-        r = i // cols
-        c = i % cols
+    for cat, (r, c) in zip(cats, slots):
         x = pad + c * (sec_w + aisle)
         y = front_buffer + r * (sec_h + aisle)
         sections[cat] = (x, y, sec_w, sec_h)

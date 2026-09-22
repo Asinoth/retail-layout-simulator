@@ -18,6 +18,8 @@ from simulation import CustomerFlowSimulation
 import copy
 from scipy import stats as sp_stats
 
+from sim_calibration import _calib
+
 
 class OptimizeResultsMixin:
     """Detailed optimization-results report dialog (single very large method)."""
@@ -92,9 +94,18 @@ class OptimizeResultsMixin:
 
         real_pre  = pipe.get('real_pre_rev', 0)
         real_post = pipe.get('real_post_rev', 0)
-        real_lift = (real_post - real_pre) / max(real_pre, 1e-6) * 100
+        # The live lift is undefined when the PRE window collected no
+        # revenue; the pipeline records the reason in the analytics.
+        real_lift = (real_post - real_pre) / real_pre * 100 if real_pre > 0 else None
+        real_lift_note = A.get('optimization_impact_note', '')
 
+        # Two different baselines: mc_baseline is the CURRENT layout scored
+        # through the same score -> parameter transform as the optimized
+        # projection (so the lift isolates the layout change), while
+        # mc_calibrated_baseline is the run on the raw calibrated
+        # parameters, which is what the tornado swings were measured around.
         mc_base = pipe.get('mc_baseline', {})
+        mc_cal  = pipe.get('mc_calibrated_baseline', mc_base)
         mc_opt  = pipe.get('mc_optimized', {})
         mc_lift = (mc_opt.get('mean', 0) - mc_base.get('mean', 0)) / max(mc_base.get('mean', 1), 1e-6) * 100
 
@@ -126,12 +137,16 @@ class OptimizeResultsMixin:
         section("1", "EXECUTIVE SUMMARY")
 
         line(f"Items repositioned:          {n_changes}")
-        line(f"Real-time revenue lift:      {real_lift:+.1f}%  (${real_pre:.2f} -> ${real_post:.2f})",
-
-
-             'good' if real_lift > 0 else 'bad')
+        if real_lift is not None:
+            line(f"Real-time revenue lift:      {real_lift:+.1f}%  (${real_pre:.2f} -> ${real_post:.2f})",
+                 'good' if real_lift > 0 else 'bad')
+        else:
+            line(f"Real-time revenue lift:      n/a  (${real_pre:.2f} -> ${real_post:.2f})")
+            if real_lift_note:
+                line(f"  {real_lift_note}")
         line(f"MC projected 30-day lift:    {mc_lift:+.1f}%  (${mc_base.get('mean',0):,.0f} -> ${mc_opt.get('mean',0):,.0f})",
              'good' if mc_lift > 0 else 'bad')
+        line("  (current vs optimized layout, both under the layout model)")
         line(f"GA fitness improvement:      {ga_lift:+.1f}%", 'good' if ga_lift > 0 else 'bad')
         line(f"Conversion rate:             {performance_data.get('conversion_rate',0)*100:.1f}%")
         line(f"Current total revenue:       ${performance_data.get('total_revenue',0):,.2f}")
@@ -157,13 +172,18 @@ class OptimizeResultsMixin:
         line(f"Avg queue wait time:         {base_params.get('avg_queue_time',0):.1f}s")
         line(f"PRE-window revenue:          ${real_pre:.2f}")
 
-        subsection("2.2", "Monte Carlo Baseline (30-day projection)")
-        line(f"Mean revenue:                ${mc_base.get('mean',0):>12,.2f}")
-        line(f"Std deviation:               ${mc_base.get('std',0):>12,.2f}")
-        line(f"5th percentile (worst):      ${mc_base.get('p5',0):>12,.2f}")
-        line(f"95th percentile (best):      ${mc_base.get('p95',0):>12,.2f}")
-        line(f"Daily average:               ${mc_base.get('mean',0)/30:>12,.2f}")
-        line(f"Annual projection:           ${mc_base.get('mean',0)/30*365:>12,.0f}")
+        subsection("2.2", "Monte Carlo Baseline (raw calibrated parameters, "
+                          "30-day projection)")
+        line(f"Mean revenue:                ${mc_cal.get('mean',0):>12,.2f}")
+        line(f"Std deviation:               ${mc_cal.get('std',0):>12,.2f}")
+        line(f"5th percentile (worst):      ${mc_cal.get('p5',0):>12,.2f}")
+        line(f"95th percentile (best):      ${mc_cal.get('p95',0):>12,.2f}")
+        line(f"Daily average:               ${mc_cal.get('mean',0)/30:>12,.2f}")
+        line(f"Annual projection:           ${mc_cal.get('mean',0)/30*365:>12,.0f}")
+        line("")
+        line("Run on the parameters in 2.1 as measured, without the layout")
+        line("score -> conversion / impulse / basket transform that Secs. 7")
+        line("and 8 apply to both compared layouts.")
 
         subsection("2.3", "Area Revenue Distribution")
         area_shares = base_params.get('area_revenue_shares', {})
@@ -189,9 +209,13 @@ class OptimizeResultsMixin:
 
         line("Parameter ranking by revenue impact (+/-20% perturbation):", 'highlight')
         cite("[Uses tornado-chart methodology per Saltelli et al., 2008]")
+        line("Percentages are shares of the Sec. 2.2 raw calibrated baseline.")
         line("")
+        # The swings were measured by perturbing the raw calibrated
+        # parameters, so they are a share of the baseline those runs used
+        # (Sec. 2.2), not of the layout-model projection in Secs. 7 and 8.
         for rank, (lbl, d) in enumerate(sorted_t, 1):
-            pct_impact = d['swing'] / max(mc_base.get('mean', 1), 1e-6) * 100
+            pct_impact = d['swing'] / max(mc_cal.get('mean', 1), 1e-6) * 100
             contrib = d['swing'] / total_swing * 100
             line(f"  #{rank}  {lbl:<24s}  swing=${d['swing']:>10,.0f}  ({pct_impact:.1f}%)  contrib={contrib:.0f}%")
 
@@ -235,26 +259,55 @@ class OptimizeResultsMixin:
             line(f"  {state:<16s} {prob*100:6.2f}%  {bar}")
 
         subsection("4.4", "Markov Revenue Projection")
+        from retail_literature import DEFAULT_WEEKEND_MULTIPLIER as _WKND
         cph = base_params.get('customers_per_hour', 10)
-        rev_per = base_params.get('rev_per_converting_customer', 20)
-        mk_p = markov_absorb.get('p_purchase_from_entering', 0.5)
-        daily_cust = cph * 10
+        # Gross spend per purchaser (base plus expected impulse) and the MC
+        # engine's weekday/weekend traffic mix, so this projection is
+        # comparable with the MC baseline in Secs. 2.2 and 7.
+        rev_per = base_params.get(
+            'rev_per_customer_gross',
+            base_params.get('rev_per_converting_customer', 20)
+            + base_params.get('impulse_rate', 0) * base_params.get('avg_impulse_value', 0))
+        mk_chain = markov_absorb.get('p_purchase_from_entering', 0.5)
+        # With a transactional dataset the visitor rate is the observed buyer
+        # rate divided by the assumed conversion, so purchasers must use that
+        # same conversion; the chain's absorption probability (live agents or
+        # a prior) would count each observed buyer mk_chain / conversion times.
+        cal = _calib(A)
+        has_tx = bool(cal.get('arrivals_per_hour')) and 'conversion_rate' in cal
+        if has_tx:
+            mk_p = base_params.get('conversion_rate', mk_chain)
+            mk_src = "calibrated conversion"
+        else:
+            mk_p = mk_chain
+            mk_src = "Markov chain, Sec. 4.1"
+        daily_cust = cph * 10 * (5 + 2 * _WKND) / 7
         daily_rev_mk = daily_cust * mk_p * rev_per
+        line(f"Purchase probability used:   {mk_p*100:.1f}%  ({mk_src})")
         line(f"Daily customers:             {daily_cust:.0f}")
-        line(f"Daily purchasers (Markov):   {daily_cust * mk_p:.0f}")
+        line(f"Daily purchasers:            {daily_cust * mk_p:.0f}")
         line(f"Markov daily revenue:        ${daily_rev_mk:,.2f}")
         line(f"Markov monthly projection:   ${daily_rev_mk * 30:,.0f}")
         line(f"Markov annual projection:    ${daily_rev_mk * 365:,.0f}")
         line("")
-        cite("The Markov purchase probability calibrates the GA's conversion")
-        cite("rate, replacing naive flat-rate assumptions with state-based flow.")
+        if has_tx:
+            cite("The visitor rate was derived from the dataset's buyers with the")
+            cite("calibrated conversion, so these purchasers use that rate, not")
+            cite("the chain's P(Purchase | Enter) from 4.1.")
+        else:
+            cite("With no transactional calibration the chain's P(Purchase | Enter)")
+            cite("is the observed flow's own purchase estimate. It is reported here")
+            cite("and does not rescale the GA's conversion rate.")
 
         # --------------------------------------------------------
         # 5. GA OPTIMIZATION RESULTS
         # --------------------------------------------------------
         section("5", "GENETIC ALGORITHM OPTIMIZATION")
+        from retail_literature import GA_W_SECTION_COMPLIANCE, GA_W_ACCESSIBILITY
         cite("[Composite criteria per Larson 2005 / Hui 2009 / Hui-Inman 2013 /")
-        cite(" Sorensen 2009; equal weighting per Dawes 1979 — retail_literature.py]")
+        cite(" Sorensen 2009; five spatial criteria equal-weighted per Dawes 1979,")
+        cite(f" section compliance {GA_W_SECTION_COMPLIANCE:.2f}, entrance proximity "
+             f"{GA_W_ACCESSIBILITY:.2f} — retail_literature.py]")
 
         subsection("5.1", "GA Configuration")
         line(f"Population size:             {pipe.get('ga_pop_size', 0)}")
@@ -268,9 +321,11 @@ class OptimizeResultsMixin:
         line(f"Projection horizon:          {pipe.get('ga_mc_days', 30)} days")
         line(f"Movable items:               {len(pipe.get('ga_item_names', []))}")
         line(f"Selection:                   Tournament (k=5)")
-        line(f"Crossover:                   BLX-alpha + uniform mask")
-        line(f"Mutation:                    Gaussian (sigma=8% of shop diagonal)")
-        line(f"Fitness:                     Markov-corrected conversion x "
+        line(f"Crossover:                   uniform per-gene mask + arithmetic blend child "
+             f"(alpha~U(0.1,0.5))")
+        line(f"Mutation:                    Gaussian, sigma = 12% of section extent "
+             f"(min 0.2 m; unsectioned items 8% of max(W,H))")
+        line(f"Fitness:                     layout-adjusted conversion x "
              f"SA-weighted cited elasticities")
 
         subsection("5.2", "Revenue Comparison (GA)")
@@ -309,9 +364,14 @@ class OptimizeResultsMixin:
                 late_gain  = h_best[-1] - h_best[max(len(h_best)-5, 0)]
                 line(f"Early-stage gain (gen 1-5):  ${early_gain:+12,.2f}")
                 line(f"Late-stage gain (last 5):    ${late_gain:+12,.2f}")
-                if abs(late_gain) < abs(early_gain) * 0.1:
+                # Check the flat run first: with zero gains both ratio tests
+                # would otherwise fail and report a search that never moved
+                # as still improving.
+                if abs(h_best[-1] - h_best[0]) <= 1e-9 * max(abs(h_best[0]), 1.0):
+                    line("Convergence: NO IMPROVEMENT AFTER GENERATION 1 (flat search)", 'neutral')
+                elif abs(late_gain) <= abs(early_gain) * 0.1:
                     line("Convergence: FULLY CONVERGED (flat tail)", 'good')
-                elif abs(late_gain) < abs(early_gain) * 0.3:
+                elif abs(late_gain) <= abs(early_gain) * 0.3:
                     line("Convergence: NEARLY CONVERGED", 'good')
                 else:
                     line("Convergence: STILL IMPROVING (more generations may help)", 'highlight')
@@ -343,14 +403,19 @@ class OptimizeResultsMixin:
         line(f"Annual projection:           ${mc_opt.get('mean',0)/30*365:>12,.0f}")
         line("")
         mc_delta = mc_opt.get('mean', 0) - mc_base.get('mean', 0)
-        line(f"vs Baseline 30-day delta:    ${mc_delta:+12,.2f}  ({mc_lift:+.1f}%)",
+        line(f"vs current layout, 30-day:   ${mc_delta:+12,.2f}  ({mc_lift:+.1f}%)",
              'good' if mc_delta > 0 else 'bad')
-        line(f"vs Baseline annual delta:    ${mc_delta/30*365:+12,.0f}",
+        line(f"vs current layout, annual:   ${mc_delta/30*365:+12,.0f}",
              'good' if mc_delta > 0 else 'bad')
+        line("  (both layouts under the layout model; the raw calibrated")
+        line("   baseline is Sec. 2.2)")
 
         line("")
-        line("Confidence interval (90%):", 'highlight')
-        line(f"  Baseline:  ${mc_base.get('p5',0):>10,.0f}  to  ${mc_base.get('p95',0):>10,.0f}")
+        # 5th-95th percentiles of the simulated 30-day totals: the spread of
+        # outcomes the model produces, which is far wider than the Monte
+        # Carlo uncertainty about the projected mean.
+        line("90% range of simulated outcomes (5th-95th pct):", 'highlight')
+        line(f"  Current:   ${mc_base.get('p5',0):>10,.0f}  to  ${mc_base.get('p95',0):>10,.0f}")
         line(f"  Optimized: ${mc_opt.get('p5',0):>10,.0f}  to  ${mc_opt.get('p95',0):>10,.0f}")
 
         # --------------------------------------------------------
@@ -367,6 +432,17 @@ class OptimizeResultsMixin:
             rb = ab_r['B']
             ab_delta = rb['mean'] - ra['mean']
             ab_pct = ab_delta / max(ra['mean'], 1e-6) * 100
+            # Direction (and colour) comes from the paired-lift interval, not
+            # the sign of the mean, so Monte Carlo noise alone never shows up
+            # as a better or worse layout.
+            lift_mean = ab_t.get('lift_mean', ab_delta)
+            lift_ci = ab_t.get('lift_ci95')
+            if lift_ci and lift_ci[0] > 0:
+                ab_dir_tag = 'good'
+            elif lift_ci and lift_ci[1] < 0:
+                ab_dir_tag = 'bad'
+            else:
+                ab_dir_tag = 'neutral'
 
             subsection("8.1", "Revenue Summary (30-day MC)")
             line(f"  {'Metric':<22s} {'PRE (A)':>12s} {'POST (B)':>12s}")
@@ -377,10 +453,10 @@ class OptimizeResultsMixin:
             line(f"  {'95th pct':.<22s} ${ra['p95']:>11,.2f} ${rb['p95']:>11,.2f}")
             line("")
             line(f"  Delta (POST - PRE):    ${ab_delta:+12,.2f}  ({ab_pct:+.1f}%)",
-                 'good' if ab_delta > 0 else 'bad')
+                 ab_dir_tag)
             line(f"  Daily delta:           ${ab_delta/30:+12,.2f}")
             line(f"  Annual projection:     ${ab_delta/30*365:+12,.0f}",
-                 'good' if ab_delta > 0 else 'bad')
+                 ab_dir_tag)
 
             subsection("8.2", "Statistical Tests")
             sig_str = "YES" if ab_t.get('significant') else "NO"
@@ -390,17 +466,18 @@ class OptimizeResultsMixin:
             line(f"  Welch's t-test:")
             line(f"    t-statistic:         {ab_t.get('t_stat',0):.4f}")
             line(f"    p-value:             {ab_t.get('p_value',1):.6f}")
-            line(f"    Significant:         {sig_str} (alpha={ab_t.get('alpha',0.05)})",
-                 'good' if ab_t.get('significant') else 'neutral')
+            line(f"    p < alpha:           {sig_str} (alpha={ab_t.get('alpha',0.05)})")
             line("")
             line(f"  Kolmogorov-Smirnov test:")
             line(f"    KS statistic:        {ab_t.get('ks_stat',0):.4f}")
             line(f"    p-value:             {ab_t.get('ks_p',1):.6f}")
+            if ab_t.get('p_value_caveat'):
+                line(f"    Note: {ab_t['p_value_caveat']}")
             line("")
             line(f"  Effect Size:")
             line(f"    Cohen's d:           {ab_t.get('cohens_d',0):.4f}  ({effect})")
             line(f"    P(POST > PRE):       {ab_t.get('p_b_better',50):.1f}%",
-                 'good' if ab_t.get('p_b_better', 50) > 50 else 'bad')
+                 ab_dir_tag)
 
             subsection("8.3", "Layout Quality Scores")
             line(f"  PRE layout score:      {ra.get('score',0):.4f}")
@@ -413,17 +490,24 @@ class OptimizeResultsMixin:
             line(f"  Impulse rate POST:     {rb.get('imp_adj',0)*100:.2f}%")
 
             subsection("8.4", "Verdict")
-            if ab_t.get('significant'):
-                winner = 'POST (B)' if ab_delta > 0 else 'PRE (A)'
-                line(f"  {winner} is STATISTICALLY SIGNIFICANTLY BETTER",
-                     'good' if ab_delta > 0 else 'bad')
-                line(f"  Confidence: {(1.0 - ab_t.get('p_value', 1)) * 100:.2f}%")
-                line(f"  Effect magnitude: {effect}")
+            # PRE and POST are simulated under parameters that differ by
+            # construction, so both the p-values and the lift CI narrow as
+            # MC iterations grow; the verdict reports magnitude, not
+            # significance. The direction is the one set from the lift
+            # interval above.
+            if ab_dir_tag == 'good':
+                line(f"  POST (B) projects higher 30-day revenue than PRE (A)", 'good')
+            elif ab_dir_tag == 'bad':
+                line(f"  POST (B) projects lower 30-day revenue than PRE (A)", 'bad')
             else:
-                line(f"  No statistically significant difference detected.", 'neutral')
-                line(f"  (p={ab_t.get('p_value',1):.4f} > alpha={ab_t.get('alpha',0.05)})")
-                line(f"  The optimization may need more simulation data or")
-                line(f"  larger layout changes to produce measurable impact.")
+                line(f"  No difference distinguishable from MC noise", 'neutral')
+            line(f"  Mean lift (POST - PRE): ${lift_mean:+12,.2f}")
+            if lift_ci:
+                line(f"  95% CI (MC precision under the model): "
+                     f"${lift_ci[0]:+,.2f} to ${lift_ci[1]:+,.2f}")
+            line(f"  Effect magnitude:       Cohen's d = {ab_t.get('cohens_d', 0):.3f} ({effect})")
+            line(f"  The CI reflects simulation noise only, not real-world")
+            line(f"  uncertainty about the layout change.")
         else:
             line("A/B comparison could not be run (insufficient snapshot data).", 'bad')
 
@@ -436,8 +520,13 @@ class OptimizeResultsMixin:
         line(f"Measurement window:          {dur}s ({dur//60} min each)")
         line(f"PRE-window revenue:          ${real_pre:.2f}")
         line(f"POST-window revenue:         ${real_post:.2f}")
-        line(f"Real-time lift:              {real_lift:+.1f}%",
-             'good' if real_lift > 0 else 'bad')
+        if real_lift is not None:
+            line(f"Real-time lift:              {real_lift:+.1f}%",
+                 'good' if real_lift > 0 else 'bad')
+        else:
+            line(f"Real-time lift:              n/a")
+            if real_lift_note:
+                line(f"  {real_lift_note}")
         line("")
         line("Note: Short measurement windows have high stochastic variance.")
         line("The MC/GA projections (Sections 5, 7, 8) provide statistically")
@@ -465,16 +554,16 @@ class OptimizeResultsMixin:
                         "significant (Sec. 5.3).")
         if best_bk.get('section_compliance', 0) < 0.7:
             recs.append("Improve section compliance — some items placed outside their "
-                        "category zones reduce wayfinding efficiency [1][2].")
+                        "category zones reduce wayfinding efficiency [10][11].")
         if best_bk.get('cross_merch', 0) < 0.3:
             recs.append("Strengthen cross-merchandising — frequently co-purchased items "
-                        "are still far apart. Adjacent placement lifts basket size 10-30% [4][7].")
+                        "are still far apart. Adjacent placement lifts basket size 10-30% [5][6].")
         if best_bk.get('impulse', 0) < 0.4:
             recs.append("Reposition impulse items closer to checkout — checkout-adjacent "
-                        "placement increases impulse purchases by 25-45% [5][8].")
+                        "placement increases impulse purchases by 25-45% [7][8].")
         if ga_lift > 0:
             recs.append(f"The GA found a {ga_lift:.1f}% revenue improvement — "
-                        f"apply and monitor for 2+ weeks [10].")
+                        f"apply and monitor for 2+ weeks [17].")
         if not recs:
             recs.append("Layout appears well-optimized. Monitor metrics monthly for drift.")
 
@@ -498,7 +587,7 @@ class OptimizeResultsMixin:
         cite("[1] Chandon et al. (2009), Journal of Marketing, 73(6), 1-17.")
         cite("    'Does In-Store Marketing Work? Effects of the Number and")
         cite("    Position of Shelf Facings on Brand Attention and Evaluation'")
-        cite("[2] Dreze, Hoch & Purk (1994), Journal of Retailing, 70(4), 301-318.")
+        cite("[2] Dreze, Hoch & Purk (1994), Journal of Retailing, 70(4), 301-326.")
         cite("    'Shelf Management and Space Elasticity'")
         line("")
         line("APPLIED: Revenue-weighted placement score ensures high-value")
@@ -520,7 +609,7 @@ class OptimizeResultsMixin:
         cite("    factor' as key flow design principles.")
         line("")
         line("APPLIED: Flow efficiency score measures entrance -> top items ->")
-        line("checkout path length; Markov chain calibrates conversion probability.")
+        line("checkout path length.")
         flow_improvement = best_bk.get('flow', 0) - curr_bk.get('flow', 0)
         if abs(flow_improvement) > 0.001:
             line(f"YOUR RESULT: Flow efficiency score {flow_improvement:+.4f}",
@@ -530,10 +619,10 @@ class OptimizeResultsMixin:
         line("Placing frequently co-purchased items adjacent to each other")
         line("increases basket size by 10-30% and cross-category revenue by")
         line("up to 18%.")
-        cite("[5] Russell & Petersen (2000), Journal of Marketing Research,")
-        cite("    37(3), 369-381. 'Analysis of Cross Category Dependence in")
+        cite("[5] Russell & Petersen (2000), Journal of Retailing,")
+        cite("    76(3), 367-392. 'Analysis of Cross Category Dependence in")
         cite("    Market Basket Selection'")
-        cite("[6] Bezawada et al. (2009), Marketing Science, 28(3), 516-532.")
+        cite("[6] Bezawada et al. (2009), Journal of Marketing, 73(3), 99-117.")
         cite("    'Cross-Category Effects of Aisle and Display Placements'")
         line("")
         line("APPLIED: Cross-merchandising score rewards proximity-weighted")
@@ -548,12 +637,14 @@ class OptimizeResultsMixin:
         line("magazines, small accessories) increases unplanned purchases")
         line("by 25-45%. The 'waiting time' at checkout creates a captive")
         line("browsing window of 60-180 seconds.")
-        cite("[7] Inman, Winer & Ferraro (2009), Journal of Retailing, 85(3),")
-        cite("    294-307. 'The Interplay Among Category Characteristics,")
+        cite("[7] Inman, Winer & Ferraro (2009), Journal of Marketing, 73(5),")
+        cite("    19-29. 'The Interplay Among Category Characteristics,")
         cite("    Customer Characteristics, and Customer Activities on")
         cite("    In-Store Decision Making'")
-        cite("[8] Hui, Bradlow & Fader (2009), Marketing Science, 28(3),")
-        cite("    566-572. 'Path Data in Marketing: An Integrative Framework'")
+        cite("[8] Hui, Bradlow & Fader (2009), Journal of Consumer Research,")
+        cite("    36(3), 478-493. 'Testing Behavioral Hypotheses Using an")
+        cite("    Integrated Model of Grocery Store Shopping Path and")
+        cite("    Purchase Behavior'")
         line("")
         line("APPLIED: Impulse placement score penalises impulse items far")
         line("from checkout; GA evolves their positions toward the register.")
@@ -566,8 +657,8 @@ class OptimizeResultsMixin:
         line("Crowding and narrow-aisle congestion decrease dwell time by")
         line("15-25% and increase abandonment. 'Butt-brush effect' research")
         line("shows customers leave aisles when jostled, reducing purchases.")
-        cite("[9] Harrell, Hutt & Anderson (1980), Journal of Retailing,")
-        cite("    56(4), 8-28. 'Path Analysis of Buyer Behavior Under")
+        cite("[9] Harrell, Hutt & Anderson (1980), Journal of Marketing Research,")
+        cite("    17(1), 45-51. 'Path Analysis of Buyer Behavior Under")
         cite("    Conditions of Crowding'")
         cite("[4] Underhill (2009) — see above.")
         line("")
@@ -588,7 +679,7 @@ class OptimizeResultsMixin:
         cite("[10] Titus & Everett (1995), Journal of the Academy of Marketing")
         cite("     Science, 23(2), 106-119. 'The Consumer Retail Search Process'")
         cite("[11] Chebat, Gelinas-Chebat & Therrien (2005), Journal of Business")
-        cite("     Research, 58(12), 1680-1689. 'Lost in a Mall'")
+        cite("     Research, 58(11), 1590-1598. 'Lost in a Mall'")
         line("")
         line("APPLIED: Section compliance score rewards items staying in their")
         line("Section_<category> wall and penalises boundary violations.")
@@ -603,17 +694,14 @@ class OptimizeResultsMixin:
         line("Longer dwell times in product zones correlate positively with")
         line("purchase probability (r = 0.42-0.68 depending on category).")
         line("Each additional 30s of dwell time increases conversion by 2-5%.")
-        cite("[12] Hui, Fader & Bradlow (2009), Journal of Marketing Research,")
-        cite("     46(3), 395-409. 'The Traveling Salesman Goes Shopping'")
-        cite("[13] Larson, Bradlow & Fader (2005), Marketing Science, 24(4),")
-        cite("     594-611. 'An Exploratory Look at Supermarket Shopping Paths'")
+        cite("[12] Hui, Fader & Bradlow (2009), Marketing Science,")
+        cite("     28(3), 566-572. 'The Traveling Salesman Goes Shopping'")
+        cite("[13] Larson, Bradlow & Fader (2005), International Journal of")
+        cite("     Research in Marketing, 22(4), 395-414. 'An Exploratory Look at")
+        cite("     Supermarket Shopping Paths'")
         line("")
-        line("APPLIED: Dwell-time alignment score places items in zones where")
-        line("customers naturally linger, maximizing exposure-to-purchase conversion.")
-        dwell_improvement =best_bk.get('dwell_alignment', 0) - curr_bk.get('dwell_alignment', 0)
-        if abs(dwell_improvement) > 0.001:
-            line(f"YOUR RESULT: Dwell alignment score {dwell_improvement:+.4f}",
-                 'good' if dwell_improvement > 0 else 'bad')
+        line("NOT SCORED: dwell times are averaged per category, so they do not")
+        line("change when items move; the layout score has no dwell term.")
 
         # --------------------------------------------------------
         # 12. EXPECTED IMPROVEMENTS SUMMARY (with citations)
@@ -631,7 +719,6 @@ class OptimizeResultsMixin:
         line(f"  {'Optimized customer flow':<35s} {'20-40% more exposure':>18s}  {'[3][4]':>8s}")
         line(f"  {'Bottleneck elimination':<35s} {'15-25% less abandon':>18s}  {'[9][4]':>8s}")
         line(f"  {'Section compliance':<35s} {'20-35% less search':>18s}  {'[10][11]':>8s}")
-        line(f"  {'Dwell time optimization':<35s} {'2-5% per 30s dwell':>18s}  {'[12][13]':>8s}")
         line("")
 
         composite_lift = best_bk.get('composite', 0) - curr_bk.get('composite', 0)
@@ -656,7 +743,7 @@ class OptimizeResultsMixin:
         bibline("")
         bibline("[2]  Dreze, X., Hoch, S.J. & Purk, M.E. (1994). 'Shelf")
         bibline("     Management and Space Elasticity'. Journal of Retailing,")
-        bibline("     70(4), pp.301-318.")
+        bibline("     70(4), pp.301-326.")
         bibline("")
         bibline("[3]  Sorensen, H. (2009). Inside the Mind of the Shopper: The")
         bibline("     Science of Retailing. Upper Saddle River, NJ: Pearson/FT")
@@ -667,11 +754,11 @@ class OptimizeResultsMixin:
         bibline("")
         bibline("[5]  Russell, G.J. & Petersen, A. (2000). 'Analysis of Cross")
         bibline("     Category Dependence in Market Basket Selection'. Journal of")
-        bibline("     Marketing Research, 37(3), pp.369-381.")
+        bibline("     Retailing, 76(3), pp.367-392.")
         bibline("")
         bibline("[6]  Bezawada, R., Balachander, S., Kannan, P.K. & Shankar, V.")
         bibline("     (2009). 'Cross-Category Effects of Aisle and Display")
-        bibline("     Placements'. Marketing Science, 28(3), pp.516-532.")
+        bibline("     Placements'. Journal of Marketing, 73(3), pp.99-117.")
         bibline("")
         bibline("[7]  Inman, J.J., Winer, R.S. & Ferraro, R. (2009). 'The")
         bibline("     Interplay Among Category Characteristics, Customer")
@@ -695,8 +782,8 @@ class OptimizeResultsMixin:
         bibline("[11] Chebat, J.C., Gelinas-Chebat, C. & Therrien, K. (2005).")
         bibline("     'Lost in a Mall, the Effects of Gender, Familiarity with")
         bibline("     the Shopping Mall and the Shopping Values on Shoppers'")
-        bibline("     Wayfinding'. Journal of Business Research, 58(12),")
-        bibline("     pp.1680-1689.")
+        bibline("     Wayfinding Processes'. Journal of Business Research, 58(11),")
+        bibline("     pp.1590-1598.")
         bibline("")
         bibline("[12] Hui, S.K., Fader, P.S. & Bradlow, E.T. (2009). 'The")
         bibline("     Traveling Salesman Goes Shopping: The Systematic Deviations")
@@ -739,12 +826,6 @@ class OptimizeResultsMixin:
         report_text.insert(tk.END, "\n", 'neutral')
         report_text.insert(tk.END, "    END OF REPORT\n\n", 'section')
 
-        report_content = report_text.get("1.0", tk.END)
-        report_path = f"optimization_report_{time.strftime('%Y%m%d_%H%M%S')}.txt"
-        with open(report_path, "w", encoding="utf-8") as f:
-            f.write(report_content)
-        print(f"Report saved to {report_path}")
-
         report_text.config(state=tk.DISABLED)
 
         btn_frame = tk.Frame(results_dialog, bg='#1a1a2e')
@@ -756,4 +837,15 @@ class OptimizeResultsMixin:
                   pady=5).pack(side=tk.RIGHT, padx=5)
 
         results_dialog.grab_set()
+
+        # The saved copy is a convenience: an unwritable working directory
+        # must not abort the dialog before its Close button and grab exist.
+        report_content = report_text.get("1.0", tk.END)
+        report_path = f"optimization_report_{time.strftime('%Y%m%d_%H%M%S')}.txt"
+        try:
+            with open(report_path, "w", encoding="utf-8") as f:
+                f.write(report_content)
+            print(f"Report saved to {report_path}")
+        except OSError as e:
+            print(f"Could not save report to {report_path}: {e}")
 

@@ -88,7 +88,7 @@ class SimTabMixin:
 
         tk.Button(controls_frame,
                   text="Clear Customers",
-                  command=self._clear_simulation,
+                  command=self._on_clear_customers_clicked,
                   bg='orange', fg='white'
                   ).grid(row=2, column=2, padx=5, pady=2)
         tk.Button(controls_frame,
@@ -180,8 +180,6 @@ class SimTabMixin:
 
         self._create_customer_legend(legend_frame)
 
-        self._update_simulation_analytics()
-
     def _update_max_customers(self, *_args):
         """Push the spin-box value into ``simulation.max_customers``.
 
@@ -201,11 +199,13 @@ class SimTabMixin:
                 raw = 20
 
         clamped = max(1, min(100, raw))
-        if clamped != raw:
-            try:
-                self.max_customers_var.set(clamped)
-            except Exception:
-                pass
+        # Always write the accepted value back: unparsable text keeps raw
+        # equal to the model value, and "25.5" parses to 25, so a
+        # changed-only write would leave the typed text on screen.
+        try:
+            self.max_customers_var.set(clamped)
+        except Exception:
+            pass
 
         try:
             self.customer_simulation.max_customers = int(clamped)
@@ -232,12 +232,51 @@ class SimTabMixin:
         # don't keep nagging the user.
         self._max_customers_last_warned = clamped
 
+    def _optimization_in_progress(self, action):
+        """True (with a warning) while the Optimize pipeline owns the run.
+
+        The pipeline leaves the GUI interactive during its PRE and POST
+        measurement windows, and it keeps the window phase, the window start
+        stamps and its own working data inside the analytics dict. Clearing
+        from a button in the middle of a window silently empties the A/B
+        comparison the report is built from."""
+        if not getattr(self, '_opt_running', False):
+            return False
+        messagebox.showwarning(
+            "Optimization running",
+            f"'{action}' is unavailable until the Optimize measurement "
+            "finishes: it would discard the window being collected.",
+            parent=self.tk_root
+        )
+        return True
+
+    def _on_clear_customers_clicked(self):
+        """Clear Customers button. The pipeline clears the store itself at
+        points where it has already taken the reading, so only the manual
+        route is blocked while it runs."""
+        if self._optimization_in_progress("Clear Customers"):
+            return
+        self._clear_simulation()
+
     def _clear_current_data(self):
-        """Reset all simulation analytics and heat-map data to zero."""
+        """Reset all simulation analytics and heat-map data to zero.
+
+        Dataset calibration and provenance are inputs rather than live
+        counters, so they are carried over."""
+        if self._optimization_in_progress("Clear Current Data"):
+            return
         sim = self.customer_simulation
+
+        # Without these, MC / Markov / GA silently fall back to the live
+        # counters while the dataset's hourly profile and basket structure
+        # stay loaded, and the Validation tab loses its provenance.
+        keep = {k: sim.analytics[k]
+                for k in ('calibration', 'provenance', 'spatial_provenance')
+                if k in sim.analytics}
 
         sim.analytics = {
             'total_customers':            0,
+            'cleared_in_store':           0,
             'average_time_in_shop':       0,
             'popular_items':              defaultdict(int),
             'area_visits':                defaultdict(int),
@@ -274,6 +313,7 @@ class SimTabMixin:
             'phase':                      None,
             'floor_visits':               defaultdict(int),
         }
+        sim.analytics.update(keep)
 
         self.bottleneck_threshold = 50
         sim.bottleneck_threshold = 50
@@ -457,6 +497,9 @@ class SimTabMixin:
             # Legacy/dataset layouts stored Checkout as an item. Promote it to a
             # wall/special area so customer routing can find it consistently.
             floor1_walls['Checkout'] = floor1_items.pop('Checkout')
+            # It stops being a fixture obstacle and becomes a walk-up
+            # counter, so the caches are flagged as for any layout edit.
+            self._invalidate_sim_geometry()
         if 'Checkout' not in floor1_walls:
             messagebox.showerror("Missing Checkout",
                                  "Please define a checkout area (on floor 1) before starting.",
@@ -484,7 +527,20 @@ class SimTabMixin:
 
     def _clear_simulation(self):
         """Clear all customers from simulation."""
-        self.customer_simulation.customers.clear()
+        sim = self.customer_simulation
+        # total_customers and floor_visits count ARRIVALS, and these agents
+        # did arrive inside the elapsed simulated time that the arrival rate
+        # is divided by -- taking them back out would bias customers/hour
+        # low for every projection downstream. Rates that need a denominator
+        # of shoppers who had the chance to buy use completed + abandoned,
+        # which these agents never entered. They are recorded separately so
+        # the gap between arrivals and settled visits stays explainable.
+        dropped = list(sim.customers)
+        A = sim.analytics
+        A['cleared_in_store'] = A.get('cleared_in_store', 0) + len(dropped)
+        for cust in dropped:
+            sim.prev_state_by_cust.pop(cust.id, None)
+        sim.customers.clear()
 
         if hasattr(self.customer_simulation, 'customer_patches_by_id'):
             for patch in self.customer_simulation.customer_patches_by_id.values():

@@ -8,12 +8,13 @@ and ``.png`` into ``../figs/``:
     regret_boxplot, methods_bar, lhs_hist, figure_c
 
     python -m experiments.restyle_figures
+    python -m experiments.restyle_figures --figs-dir /tmp/figs
 """
 
 from __future__ import annotations
 
+import argparse
 import csv
-import glob
 import os
 import sys
 from collections import defaultdict
@@ -28,13 +29,12 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
 
 import figstyle  # noqa: E402
-
-_RES = os.path.join(_HERE, "results")
-
-
-def _latest(prefix):
-    ds = sorted(glob.glob(os.path.join(_RES, prefix + "*")))
-    return ds[-1] if ds else None
+# Pick artifacts with the same validators the macro generator uses, so a
+# smoke run or an in-progress directory cannot redraw a paper figure while
+# the macros still quote the paper-grade run.
+from make_results_macros import (  # noqa: E402
+    latest, cluster_boot_ci, _figa_big_enough, _figb_big_enough,
+    _lhs_big_enough, _figc_big_enough)
 
 
 def _rows(d):
@@ -42,18 +42,10 @@ def _rows(d):
         return list(csv.DictReader(f))
 
 
-def _boot_ci(x, n=2000, seed=0, alpha=0.05):
-    rng = np.random.default_rng(seed)
-    x = np.asarray(x, float)
-    m = np.array([rng.choice(x, x.size, replace=True).mean() for _ in range(n)])
-    return float(m.mean()), float(np.percentile(m, 100 * alpha / 2)), \
-        float(np.percentile(m, 100 * (1 - alpha / 2)))
-
-
-def regret_boxplot():
-    d = _latest("synthetic_gt_")
+def regret_boxplot(figs=None):
+    d = latest("synthetic_gt_", _figa_big_enough)
     if not d:
-        return
+        return False
     rows = _rows(d)
     by = defaultdict(list)
     for r in rows:
@@ -78,54 +70,72 @@ def regret_boxplot():
     ax.set_title("Optimum recovery: GA regret per scenario")
     ax.legend(loc="upper left")
     fig.tight_layout()
-    figstyle.save(fig, "regret_boxplot")
+    figstyle.save(fig, "regret_boxplot", out_dir=figs)
     plt.close(fig)
+    return True
 
 
-def methods_bar():
-    d = _latest("baseline_comparison_")
+def methods_bar(figs=None):
+    """Paired GA-minus-method differences with the table's intervals.
+
+    Plotting the per-method revenue LEVELS put most of the plotted
+    variation into differences between scenarios, which the paired design
+    removes: the same shop is laid out by every method under the same MC
+    seeds. The intervals are therefore the ones the results table
+    reports -- a scenario-level cluster bootstrap, Bonferroni-corrected
+    over the comparator family -- so figure and table say the same thing.
+    """
+    d = latest("baseline_comparison_", _figb_big_enough)
     if not d:
-        return
+        return False
     rows = _rows(d)
     order = ["random_valid", "perimeter_only", "popularity_rank",
-             "greedy_swap", "random_search", "simulated_annealing",
-             "oracle", "GA"]
+             "greedy_swap", "random_search", "simulated_annealing", "oracle"]
     labels = {"random_valid": "random", "perimeter_only": "perimeter",
               "popularity_rank": "popularity", "greedy_swap": "greedy",
               "random_search": "rand. search", "simulated_annealing": "sim. anneal.",
-              "oracle": "analytic\\nreference", "GA": "GA"}
-    vals = defaultdict(list)
+              "oracle": "analytic\\nreference"}
+    by = defaultdict(dict)          # (scenario, seed) -> {method: revenue}
     for r in rows:
-        vals[r["method"]].append(float(r["mc_revenue"]))
-    methods = [m for m in order if m in vals]
+        by[(r["scenario"], r["seed"])][r["method"]] = float(r["mc_revenue"])
+    methods = [m for m in order
+               if any("GA" in v and m in v for v in by.values())]
+    if not methods:
+        return False
+    alpha_bonf = 0.05 / len(methods)
     means, los, his, colors = [], [], [], []
     for m in methods:
-        mean, lo, hi = _boot_ci(vals[m])
+        clusters = defaultdict(list)
+        for (scen, _seed), v in by.items():
+            if "GA" in v and m in v:
+                clusters[scen].append(v["GA"] - v[m])
+        mean, lo, hi = cluster_boot_ci(list(clusters.values()),
+                                       alpha=alpha_bonf)
         means.append(mean); los.append(mean - lo); his.append(hi - mean)
-        colors.append(figstyle.GA if m == "GA"
-                      else figstyle.REFERENCE if m == "oracle"
+        colors.append(figstyle.REFERENCE if m == "oracle"
                       else figstyle.BASELINE)
     x = np.arange(len(methods))
     fig, ax = plt.subplots(figsize=(7.8, 4.2))
     ax.bar(x, means, yerr=[los, his], color=colors, alpha=0.9, capsize=4,
            edgecolor="white", linewidth=0.6)
+    ax.axhline(0, color=figstyle.BLACK, lw=1.0)
     ax.set_xticks(x)
     ax.set_xticklabels([labels[m].replace("\\n", "\n") for m in methods],
                        fontsize=9)
-    ax.set_ylabel("mean MC revenue (\\$)")
-    ax.set_title("Layout method comparison (paired-seed MC)")
-    lo_y = min(means) * 0.985
-    ax.set_ylim(lo_y, max(h + m for h, m in zip(his, means)) * 1.005)
+    ax.set_ylabel("GA $-$ method, paired MC revenue (\\$)")
+    ax.set_title(f"Layout method comparison: paired differences "
+                 f"({100 * (1 - alpha_bonf):.1f}% cluster-bootstrap CIs)")
     ax.grid(axis="x", visible=False)
     fig.tight_layout()
-    figstyle.save(fig, "methods_bar")
+    figstyle.save(fig, "methods_bar", out_dir=figs)
     plt.close(fig)
+    return True
 
 
-def lhs_hist():
-    d = _latest("elasticity_lhs_")
+def lhs_hist(figs=None):
+    d = latest("elasticity_lhs_", _lhs_big_enough)
     if not d:
-        return
+        return False
     rows = _rows(d)
     lifts = np.array([float(r["lift30"]) for r in rows])
     fig, ax = plt.subplots(figsize=(7.0, 4.0))
@@ -141,14 +151,15 @@ def lhs_hist():
                  f"({frac_pos:.0f}% of draws positive)")
     ax.legend()
     fig.tight_layout()
-    figstyle.save(fig, "lhs_hist")
+    figstyle.save(fig, "lhs_hist", out_dir=figs)
     plt.close(fig)
+    return True
 
 
-def figure_c():
-    d = _latest("real_data_uci_")
+def figure_c(figs=None):
+    d = latest("real_data_uci_", _figc_big_enough)
     if not d:
-        return
+        return False
     rows = _rows(d)
     base = np.array([float(r["baseline_revenue"]) for r in rows]) / 1e6
     opt = np.array([float(r["optimized_revenue"]) for r in rows]) / 1e6
@@ -165,16 +176,27 @@ def figure_c():
                  f"{lift_pct:+.2f}%")
     ax.legend(loc="upper center")
     fig.tight_layout()
-    figstyle.save(fig, "figure_c")
+    figstyle.save(fig, "figure_c", out_dir=figs)
     plt.close(fig)
+    return True
 
 
-def main():
+def main(argv=None):
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--figs-dir", type=str, default=None,
+                    help="Where to write the figures (default: repo figs/)")
+    args = ap.parse_args(argv)
     figstyle.apply()
+    figs = args.figs_dir
     for fn in (regret_boxplot, methods_bar, lhs_hist, figure_c):
-        fn()
-        print(f"  regenerated {fn.__name__}", flush=True)
-    print("wrote vector PDFs to ../figs/")
+        # A figure whose run fails the design check is left as it is, so
+        # say so rather than report it as redrawn.
+        if fn(figs):
+            print(f"  regenerated {fn.__name__}", flush=True)
+        else:
+            print(f"  skipped {fn.__name__}: no run passes the design "
+                  "check", flush=True)
+    print(f"wrote vector PDFs to {figs or figstyle.figs_dir()}")
     return 0
 
 

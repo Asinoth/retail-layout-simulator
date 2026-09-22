@@ -34,10 +34,20 @@ class LayoutMixin:
         Automatically schedules update_metrics() afterwards.
         """
 
-        # Ensure figure & axes exist
+        # Ensure figure & axes exist. A plain Figure, as show() builds: a
+        # pyplot figure would bring its own Tk interpreter, and interactive
+        # mode would stay on for the whole process, which matters for the
+        # figure scripts that call redraw() without show().
         if self.fig is None or self.ax is None:
-            self.fig, self.ax = plt.subplots(figsize=(10, 8))
-            plt.ion()
+            self.fig = Figure(figsize=(10, 8))
+            self.ax = self.fig.add_subplot()
+
+        # ax.clear() resets the limits but self.zoom survives it, so remember
+        # the visible centre and restore a zoomed view below; otherwise the
+        # zoom label, the zoom-scaled label fonts and the next scroll step
+        # no longer match what is on screen.
+        prev_xlim = self.ax.get_xlim()
+        prev_ylim = self.ax.get_ylim()
 
         # Clear previous drawings
         self._remove_resize_handles()
@@ -51,8 +61,18 @@ class LayoutMixin:
         self.fig.patch.set_facecolor('#1a1a2e')
         self.ax.set_facecolor('#16213e')
 
-        self.ax.set_xlim(0, self.width)
-        self.ax.set_ylim(0, self.height)
+        if self.zoom > 1.0:
+            view_w = self.width / self.zoom
+            view_h = self.height / self.zoom
+            cx = (prev_xlim[0] + prev_xlim[1]) / 2
+            cy = (prev_ylim[0] + prev_ylim[1]) / 2
+            vx0 = min(max(cx - view_w / 2, 0), self.width - view_w)
+            vy0 = min(max(cy - view_h / 2, 0), self.height - view_h)
+            self.ax.set_xlim(vx0, vx0 + view_w)
+            self.ax.set_ylim(vy0, vy0 + view_h)
+        else:
+            self.ax.set_xlim(0, self.width)
+            self.ax.set_ylim(0, self.height)
         self.ax.set_aspect('equal')
         self.ax.set_xlabel('Width (m)', color='#7f8c8d', fontsize=9)
         self.ax.set_ylabel('Depth (m)', color='#7f8c8d', fontsize=9)
@@ -83,8 +103,10 @@ class LayoutMixin:
             self.ax.add_patch(patch)
 
             # fetch text attributes
-            text_color = w.get('textcolor', 'black') if is_section else w.get('textcolor', 'white')
-            text_size  = min(w.get('fontsize', 14) * self.zoom, 48)
+            # Stored text keys can be None, so fall back on falsy values and
+            # not only on missing keys.
+            text_color = w.get('textcolor') or ('black' if is_section else 'white')
+            text_size  = min((w.get('fontsize') or 14) * self.zoom, 48)
             text_font  = w.get('font', None)
             if text_font in (None, '', 'System'):
                 text_font = None
@@ -154,8 +176,8 @@ class LayoutMixin:
             self.ax.add_patch(patch)
 
             # fetch item-text attributes
-            text_color = it.get('textcolor', 'white')
-            text_size  = min(it.get('fontsize', 10) * self.zoom, 48)
+            text_color = it.get('textcolor') or 'white'
+            text_size  = min((it.get('fontsize') or 10) * self.zoom, 48)
             text_font  = it.get('font', None)
 
             if hm > wm:
@@ -261,15 +283,19 @@ class LayoutMixin:
         Sections always keep their label at the top; other objects stay centered. 
         Sync a moved patch's new xy back into self.items or self.walls, and reposition its label.
         """
-        # 1) Sync the moved patch position back into items or walls dict
+        # 1) Sync the moved patch geometry back into items or walls dict.
+        #    Handle resizes also route through here, so the size is synced
+        #    too; for a plain move it is unchanged.
         is_section = False
         for nm, p in self.item_patches.items():
             if p is patch:
                 self.items[nm]["position"] = patch.get_xy()
+                self.items[nm]["size"] = (patch.get_width(), patch.get_height())
                 break
         for nm, p in self.wall_patches.items():
             if p is patch:
                 self.walls[nm]["position"] = patch.get_xy()
+                self.walls[nm]["size"] = (patch.get_width(), patch.get_height())
                 if nm.startswith("Section_"):
                     is_section = True
                 break
@@ -289,11 +315,11 @@ class LayoutMixin:
                 ann.set_position((x + w/2, y + h/2))
                 ann.set_va('center')
 
-        # Invalidate metrics and simulation geometry caches
+        # Invalidate metrics and simulation geometry caches. Items are
+        # obstacles for the live agents, so an item drag or handle resize
+        # changes the path grid just as a wall move does.
         self._metrics_dirty = True
-        if hasattr(self, 'customer_simulation'):
-            self.customer_simulation._zones_cache = None
-            self.customer_simulation.geometry_dirty = True
+        self._invalidate_sim_geometry()
 
     def export_layout(self):
         """
@@ -371,19 +397,20 @@ class LayoutMixin:
             dims = data["shop_dimensions"]
             new_w, new_h = dims["width"], dims["height"]
             if (new_w, new_h) != (self.width, self.height):
-                if messagebox.askyesno("Different Dimensions",
+                if not messagebox.askyesno("Different Dimensions",
                     f"Current: {self.width}×{self.height}\nImport: {new_w}×{new_h}\nContinue?",
                     parent=self.tk_root):
-                    self.width, self.height = new_w, new_h
-                else:
                     return
 
+            # Parse the whole file into locals before touching self, so a
+            # malformed file cannot leave new dimensions and no floor 1
+            # behind (every items/walls/prices access would then raise).
             # Multi-floor format
             if "floors" in data:
-                self.floors = {}
+                new_floors = {}
                 for fid_str, fdata in data["floors"].items():
                     fid = int(fid_str)
-                    self.floors[fid] = {
+                    new_floors[fid] = {
                         "items":  fdata.get("items",  {}),
                         "walls":  fdata.get("walls",  {}),
                         "prices": fdata.get("prices", {}),
@@ -391,20 +418,19 @@ class LayoutMixin:
                         "door_position": tuple(fdata["door_position"]) if fdata.get("door_position") else None,
                         "door_side": fdata.get("door_side"),
                     }
-                self.num_floors = len(self.floors)
                 # Restore connector floor-ID keys from JSON strings back to ints
                 raw_connectors = data.get("connectors", {})
-                self.connectors = {}
+                new_connectors = {}
                 for cid, mapping in raw_connectors.items():
-                    self.connectors[cid] = {
+                    new_connectors[cid] = {
                         int(k): v for k, v in mapping.items()
                     }
-                self.current_floor = int(data.get("current_floor", 1))
+                new_current = int(data.get("current_floor", 1))
             else:
                 # Legacy single-floor file
                 if "items" not in data or "walls" not in data:
                     raise ValueError("Missing 'items' or 'walls' in layout file")
-                self.floors = {1: {
+                new_floors = {1: {
                     "items":  data["items"],
                     "walls":  data["walls"],
                     "prices": {},
@@ -412,9 +438,41 @@ class LayoutMixin:
                     "door_position": None,
                     "door_side": None,
                 }}
-                self.num_floors    = 1
-                self.connectors    = {}
-                self.current_floor = 1
+                new_connectors = {}
+                new_current    = 1
+
+            if 1 not in new_floors:
+                raise ValueError("Layout file has no floor 1")
+            if new_current not in new_floors:
+                raise ValueError(f"current_floor {new_current} is not a floor in the layout file")
+            for fid, fdata in new_floors.items():
+                for kind in ("items", "walls"):
+                    for nm, obj in fdata[kind].items():
+                        if "position" not in obj or "size" not in obj:
+                            raise ValueError(
+                                f"'{nm}' on floor {fid} is missing position or size")
+
+            # The file has validated, so the swap is going ahead. Live agents
+            # hold targets, lane places and a floor id that belong to the
+            # layout being replaced, and an agent left on a floor the import
+            # does not have can never reach the door (it is on floor 1), so
+            # it would hold a capacity slot for the rest of the run.
+            if hasattr(self, 'customer_simulation'):
+                try:
+                    self.customer_simulation.hard_stop()
+                except Exception:
+                    pass
+                for btn, state in ((getattr(self, 'start_sim_btn', None), tk.NORMAL),
+                                   (getattr(self, 'stop_sim_btn', None), tk.DISABLED)):
+                    if btn is not None:
+                        try: btn.config(state=state)
+                        except Exception: pass
+
+            self.width, self.height = new_w, new_h
+            self.floors        = new_floors
+            self.num_floors    = len(new_floors)
+            self.connectors    = new_connectors
+            self.current_floor = new_current
 
             self._assign_default_prices()
             for name in self.items:
@@ -435,6 +493,25 @@ class LayoutMixin:
             if hasattr(self, 'customer_simulation'):
                 self.customer_simulation.door_position = self.door_position
                 self.customer_simulation.door_side     = self.door_side
+                # The imported floors replace every wall and section: rebuild
+                # the path grid, drop the zone cache (it is only rebuilt on a
+                # floor change, so zone analytics would keep crediting the old
+                # sections) and discard heat accumulated on the old floors.
+                # The heat buffers regrow to the new dimensions on demand.
+                self.customer_simulation.geometry_dirty = True
+                self.customer_simulation.invalidate_zones_cache()
+                self.customer_simulation._floor_heat_raw = {}
+                # Only the running loop refreshes the display buffer, so
+                # without this the stopped simulation would keep showing the
+                # previous layout's traffic over the imported floor plan.
+                try:
+                    self.customer_simulation.switch_floor_heatmap(self.current_floor)
+                except Exception:
+                    pass
+                try:
+                    self._refresh_embedded_heatmap()
+                except Exception:
+                    pass
 
             if hasattr(self, '_floor_label') and self._floor_label is not None:
                 self._floor_label.config(text=f"F{self.current_floor}/{self.num_floors}")
@@ -446,98 +523,3 @@ class LayoutMixin:
         except Exception as e:
             messagebox.showerror("Import Failed",
                 f"Error importing layout: {e}", parent=self.tk_root)
-
-
-
-
-    def _clear_current_data(self):
-        """Reset all simulation analytics and heat-map data to zero."""
-        sim = self.customer_simulation
-
-        # Reinitialize analytics to fresh defaults, including customers_over_time
-        sim.analytics = {
-            'total_customers':            0,
-            'average_time_in_shop':       0,
-            'popular_items':              defaultdict(int),
-            'area_visits':                defaultdict(int),
-            'exit_traffic_by_minute':     defaultdict(int),
-            'customers_over_time':        defaultdict(int),
-            'total_revenue':              0.0,
-            'completed_purchases':        0,
-            'abandoned_carts':            0,
-            'basket_sizes':               [],
-            'impulse_purchases':          0,
-            'impulse_item_sales':         defaultdict(int),
-            'revenue_by_area':            defaultdict(float),
-            'dwell_times_by_zone':        defaultdict(list),
-            'customer_paths':             [],
-            'return_customers':           0,
-            'customer_lifetime_values':   defaultdict(float),
-            'cross_merchandising':        defaultdict(int),
-            'item_conversion_rates':      defaultdict(lambda: {'visits':0,'purchases':0}),
-            'foot_traffic_density':       defaultdict(float),
-            'bottlenecks':                defaultdict(int),
-            'queue_wait_times':           [],
-            'processing_times':           [],
-            'data_points_collected':      0,
-            'accuracy_metrics':           [],
-            'optimization_history':       [],
-            'pre_optimization_revenue':   0.0,
-            'post_optimization_revenue':  0.0,
-            'optimization_impact':        0.0
-        }
-
-        # Reset bottleneck threshold on the simulation (previously set on self only)
-        self.bottleneck_threshold = 50       # keep for backward compatibility
-        sim.bottleneck_threshold  = 50       # actually used by the simulation
-
-        # Fully reset heat map buffers and timers on the simulation.
-        # Operate on ``sim`` (the simulation), not ``self`` (the
-        # visualizer) -- the visualizer doesn't own analytics/run_time/
-        # prev_state_by_cust, so the previous version silently no-op'd
-        # via the bare except.
-        try:
-            self.reset_heatmap()
-            if 'foot_traffic_density' in sim.analytics:
-                sim.analytics['foot_traffic_density'].clear()
-            if 'bottlenecks' in sim.analytics:
-                sim.analytics['bottlenecks'].clear()
-            sim.prev_state_by_cust.clear()
-        except Exception:
-            pass
-
-        # Reset the simulation runtime timer back to 0
-        sim.run_time = 0.0
-        sim.simulation_start_time = time.time()
-
-        # Close any existing live heat map window and cancel its scheduled updates
-        try:
-            if hasattr(self, 'heat_toplevel') and self.heat_toplevel.winfo_exists():
-                if hasattr(self, '_heat_after_id'):
-                    try:
-                        self.heat_toplevel.after_cancel(self._heat_after_id)
-                    except Exception:
-                        pass
-                self.heat_toplevel.destroy()
-        except Exception:
-            pass
-
-        # Immediately refresh the embedded heat map (Customer Flow tab) to show zeros
-        if hasattr(self, 'heat_im') and hasattr(self, 'heat_canvas'):
-            try:
-                zero = np.zeros_like(sim.heat_map_data.T)
-                self.heat_im.set_data(zero)
-                self.heat_im.set_clim(0, 1)  # normalize to zeroed map
-                self.heat_canvas.draw_idle()
-            except Exception:
-                pass
-
-        messagebox.showinfo(
-            "Data Cleared",
-            "All simulation metrics and heat‐map data have been reset.",
-            parent=self.tk_root
-        )
-
-
-  
-
