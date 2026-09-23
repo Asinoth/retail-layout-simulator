@@ -520,7 +520,8 @@ def _abm_ok(s):
            em.get('ratio_to_geometric_null_ci95'))
     proto = s.get('protocol', {})
     reps = s.get('per_rep') or []
-    return (int(proto.get('reps', 0)) >= MIN_ABM_REPS
+    return (_list_law_ok(s.get('data'))
+            and int(proto.get('reps', 0)) >= MIN_ABM_REPS
             and _live_protocol_ok(proto, proto.get('spawn'), proto.get('cap'),
                                   _live_design('abm'))
             and int(mk.get('n_censored_final', -1)) == 0
@@ -533,6 +534,18 @@ def _abm_ok(s):
                     for r in reps))
 
 
+LIVE_STORE_SCRIPT = 'experiments/_live_store.py'
+
+
+def _list_law_ok(data):
+    """The run's store drew its shoppers' lists under the current list
+    law (read from the live-store module). Runs from before each list
+    became one stocked invoice carry no ``list_law`` and describe a
+    different agent model."""
+    want = _script_constants(LIVE_STORE_SCRIPT, ('LIST_LAW',))['LIST_LAW']
+    return isinstance(data, dict) and data.get('list_law') == want
+
+
 def _abm_big_enough(d):
     return _dir_summary_ok(d, _abm_ok)
 
@@ -543,6 +556,7 @@ def _struct_ok(s):
     per-replication tests the sweep is now read from."""
     proto = s.get('protocol', {})
     return (int(s.get('n_reps', 0)) >= MIN_STRUCT_REPS
+            and _list_law_ok(s.get('data'))
             and _live_protocol_ok(proto, proto.get('spawn'), proto.get('cap'),
                                   _live_design('structural'))
             and s.get('rev_per_cust_anova_p') is not None
@@ -564,6 +578,7 @@ def _queue_ok(s):
         return False
     design = _live_design('queue')
     return (isinstance(s.get('provenance'), dict)
+            and _list_law_ok(s.get('data'))
             and int(proto.get('n_reps', 0)) >= MIN_QUEUE_REPS
             and _live_protocol_ok(proto, spawn.get('nominal'),
                                   cap.get('nominal'), design)
@@ -578,32 +593,77 @@ def _queue_big_enough(d):
 GOF_DESIGNS = ('in_sample', 'held_out')
 GOF_PERIODS = ('current', 'prior')
 
+# The category row's test, read from the module that runs it. Runs from
+# before it moved whole baskets compared item purchases as if each were an
+# independent observation, which rejects a model that reproduces the data
+# exactly far more often than alpha; they carry neither this label nor a
+# permutation count, and cannot set the category numbers.
+GOF_CATEGORY_SCRIPT = 'dataset_validation.py'
+_GOF_CATEGORY_NAMES = ('CATEGORY_N_PERM', 'CATEGORY_TEST_KIND')
+
+
+def _gof_category_row(block):
+    """The pooled category-shares row of one design, or None."""
+    return next((t for t in block.get('pooled') or []
+                 if 'categor' in str(t.get('test', '')).lower()), None)
+
+
+def _gof_category_ok(block):
+    """The pooled category row ran as the basket-level permutation test at
+    its full permutation count, with the naive item-level p beside it."""
+    want = _script_constants(GOF_CATEGORY_SCRIPT, _GOF_CATEGORY_NAMES)
+    row = _gof_category_row(block)
+    try:
+        return (row is not None
+                and row.get('kind') == want['CATEGORY_TEST_KIND']
+                and int(row.get('n_permutations') or 0)
+                >= want['CATEGORY_N_PERM']
+                and row.get('p_value') is not None
+                and 'naive_p_value' in row)
+    except Exception:
+        return False
+
 
 def _gof_block_ok(b):
     """One design's replicated tests under the shared protocol, with the
-    pooled tests present."""
+    pooled tests present and the category row tested on whole baskets."""
     proto = b.get('protocol', {})
     return (int(b.get('n_reps', 0)) >= MIN_GOF_REPS
             and _live_protocol_ok(proto, proto.get('spawn'), proto.get('cap'),
                                   _live_design('gof'))
-            and bool(b.get('pooled')))
+            and bool(b.get('pooled'))
+            and _gof_category_ok(b))
 
 
 def _gof_ok(s):
     """Replicated goodness-of-fit run under the shared protocol, with the
     pooled tests present for the in-sample design (the top level) and for
-    the held-out one, and the record of what each design's store was built
-    from and tested against: both periods, and per design the products it
-    placed and the reference invoices holding one of them. Without the
-    held-out block the rows are transfer checks only."""
+    the held-out one, the category row tested on whole baskets in both,
+    and the record of what each design's store was built from and tested
+    against: both periods, and per design the products it placed and the
+    reference invoices holding one of them, and for the held-out design
+    the category test between the two periods' own invoices. Without the
+    held-out block the rows are transfer checks only. Each design must
+    also carry its size-matched replicas of the store period for all
+    three rows: the only yardstick on the simulator's own sample size, so
+    a run without them cannot set the held-out comparison."""
     design = s.get('design')
     if not (isinstance(design, dict) and isinstance(s.get('held_out'), dict)):
         return False
     periods = design.get('periods')
+    shift = (design.get('held_out') or {}).get('year_shift') or {}
     return (_gof_block_ok(s) and _gof_block_ok(s['held_out'])
             and all(isinstance(design.get(k), dict) for k in GOF_DESIGNS)
             and isinstance(periods, dict)
-            and all(isinstance(periods.get(p), dict) for p in GOF_PERIODS))
+            and all(isinstance(periods.get(p), dict) for p in GOF_PERIODS)
+            and all(_list_law_ok(periods.get(p)) for p in GOF_PERIODS)
+            and isinstance(shift.get('category'), dict)
+            and all(isinstance(((design.get(d) or {}).get('replica')
+                                or {}).get(row), dict)
+                    for d in GOF_DESIGNS for row in GOF_REPLICA_ROWS))
+
+
+GOF_REPLICA_ROWS = ('basket', 'revenue', 'category')
 
 
 def _gof_big_enough(d):
@@ -826,7 +886,12 @@ def gof_macros(block, prefix):
     """The pooled tests of one goodness-of-fit design under ``prefix``:
     statistic, p-value, decision and both sample sizes per test, how many
     single windows reached the pooled test's verdict on their own, the
-    replication count and the share of arrivals turned away at the cap."""
+    replication count and the share of arrivals turned away at the cap.
+
+    The category row's p-value is its permutation p, and its sample sizes
+    count baskets (reference invoices, simulated visits). The item-level
+    p of the same statistic, which treats every purchase as independent,
+    goes beside it as ``CategoryNaiveP``."""
     out = {}
     split = block.get('per_test_decisions', {})
     for t in block.get('pooled', []):
@@ -835,12 +900,16 @@ def gof_macros(block, prefix):
         if not tag or t.get('p_value') is None:
             continue
         out.update({
-            f'{prefix}{tag}Stat': f"{t['statistic']:.3f}",
+            # KS distances to three places; the category chi-square to one.
+            f'{prefix}{tag}Stat': format(t['statistic'],
+                                         '.1f' if tag == 'Category' else '.3f'),
             f'{prefix}{tag}P': pfmt(t['p_value']),
             f'{prefix}{tag}Decision': t['decision'],
             f'{prefix}{tag}NObs': f"{int(t['n_observed']):,}",
             f'{prefix}{tag}NSim': f"{int(t['n_simulated']):,}",
         })
+        if tag == 'Category' and t.get('naive_p_value') is not None:
+            out[f'{prefix}CategoryNaiveP'] = pfmt(t['naive_p_value'])
         # How many single windows reached the same verdict on their
         # own: a pooled decision that rests on the pooled sample size
         # shows up as a split here.
@@ -886,6 +955,7 @@ def main():
         _live_design(family)
     _script_constants(FIGURES_SCRIPT, tuple(_FIGURE_SCENARIO))
     _script_constants(LIT_SCRIPT, LIT_CONSTANTS)
+    _script_constants(GOF_CATEGORY_SCRIPT, _GOF_CATEGORY_NAMES)
 
     # Refuse to overwrite a good macros file from an artifact-less tree
     # (audit R15.1): on a clean checkout with experiments/results/ empty,
@@ -1711,6 +1781,10 @@ def main():
         # has always had.
         macros.update(gof_macros(s, 'Gof'))
         macros['GofAlpha'] = f"{float(s['alpha']):.2f}"
+        # Relabellings behind the category p-values (both designs run the
+        # same count; the validator holds each to the module's).
+        macros['GofCategoryNPerm'] = \
+            f"{int(_gof_category_row(s)['n_permutations']):,}"
         # The held-out design: a store calibrated on the prior period and
         # tested against the current one, whose invoices the model never
         # saw. Same tests, level and replication count, under a HeldOut
@@ -1764,12 +1838,40 @@ def main():
         _list_stats('HeldOutRefList',
                     design['held_out'].get('list_length_reference'))
         # How far the two periods' own invoices differ on the held-out
-        # store's products: the yardstick for the held-out distances.
-        for tag, key in (('Basket', 'basket'), ('Revenue', 'revenue')):
+        # store's products: the yardstick for the held-out distances. The
+        # category one is the category row's own test with the prior
+        # period's invoices in the simulated visits' place.
+        for tag, key in (('Basket', 'basket'), ('Revenue', 'revenue'),
+                         ('Category', 'category')):
             ys = (design['held_out'].get('year_shift') or {}).get(key)
             if ys:
-                macros[f'GofYearShift{tag}Stat'] = f"{ys['statistic']:.3f}"
+                # KS distances to three places; the category row's
+                # chi-square to one.
+                fmt = '.1f' if key == 'category' else '.3f'
+                macros[f'GofYearShift{tag}Stat'] = format(ys['statistic'], fmt)
                 macros[f'GofYearShift{tag}P'] = pfmt(ys['p_value'])
+        # Size-matched replicas of each store's calibration period: what a
+        # perfect transfer of that period scores at the simulator's own
+        # sample size (median and central 95% range), how often the test
+        # rejects one, and the share of replicas scoring no more than the
+        # simulator. In sample the replicas are the test's null.
+        for name, prefix in (('in_sample', 'Gof'), ('held_out', 'GofHeldOut')):
+            replica = design[name].get('replica') or {}
+            for tag, key in (('Basket', 'basket'), ('Revenue', 'revenue'),
+                             ('Category', 'category')):
+                r = replica.get(key)
+                if not r:
+                    continue
+                fmt = '.1f' if key == 'category' else '.3f'
+                macros[f'{prefix}{tag}ReplicaMedian'] = format(r['median'], fmt)
+                macros[f'{prefix}{tag}ReplicaLo'] = format(r['lo'], fmt)
+                macros[f'{prefix}{tag}ReplicaHi'] = format(r['hi'], fmt)
+                macros[f'{prefix}{tag}ReplicaReject'] = \
+                    f"{100 * r['reject_rate']:.0f}\\%"
+                if r.get('simulator_percentile') is not None:
+                    macros[f'{prefix}{tag}ReplicaBelow'] = \
+                        f"{100 * r['simulator_percentile']:.0f}\\%"
+                macros['GofReplicaN'] = str(int(r['n_replicas']))
     else:
         missing.append('validation_gof')
 

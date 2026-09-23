@@ -1,5 +1,5 @@
 {
-  "git_sha": "f18e38f28686ba2082536fe8a448977883b4743c",
+  "git_sha": "cdff891c103683202a48e004ba68599681e666d7",
   "git_dirty": false,
   "git_diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
   "git_modified": [],
@@ -14,7 +14,7 @@
     "matplotlib": "3.10.1",
     "openpyxl": "3.1.5"
   },
-  "iso_time": "2026-09-23T14:52:29",
+  "iso_time": "2026-09-24T02:02:48",
   "elasticities": {
     "GA_weights": {
       "traffic": 0.16,
@@ -34,18 +34,19 @@
     "ELASTICITY_BSK_BASE": 0.1,
     "ELASTICITY_BSK_GAIN_MAX": 0.2
   },
-  "experiment": "structural_sensitivity",
+  "experiment": "abm_diagnostics",
   "args": {
     "seconds": 1860.0,
-    "warmup": 900.0,
-    "spawn": 0.26,
+    "warmup": 1020.0,
+    "reps": 10,
+    "spawn": 0.27,
     "cap": 45,
-    "reps": 5,
     "dt": 0.04,
-    "seed": 2000,
+    "seed": 1000,
+    "max_drain": 3600.0,
     "workers": 4,
     "retail_path": null,
     "out_root": "CODE/experiments/results"
   },
-  "wall_seconds": 262.4896043000008
+  "wall_seconds": 159.32504369999515
 }

@@ -1,5 +1,5 @@
 {
-  "git_sha": "72c4b80da40b87b6b7231e904acc866b5043bd72",
+  "git_sha": "df2317cf713bb01ef4cf9b20bfd7f373f58d3084",
   "git_dirty": false,
   "git_diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
   "git_modified": [],
@@ -14,7 +14,7 @@
     "matplotlib": "3.10.1",
     "openpyxl": "3.1.5"
   },
-  "iso_time": "2026-09-23T14:21:51",
+  "iso_time": "2026-09-24T02:39:42",
   "elasticities": {
     "GA_weights": {
       "traffic": 0.16,
@@ -37,9 +37,9 @@
   "experiment": "validation_gof",
   "args": {
     "seconds": 1860.0,
-    "warmup": 900.0,
+    "warmup": 1020.0,
     "reps": 5,
-    "spawn": 0.26,
+    "spawn": 0.27,
     "cap": 45,
     "dt": 0.04,
     "seed": 4000,
@@ -48,7 +48,7 @@
     "retail_path": null,
     "out_root": "CODE/experiments/results"
   },
-  "wall_seconds": 108.84603540000171,
+  "wall_seconds": 108.26227310000104,
   "csv_path": "results.csv",
   "summary": {
     "alpha": 0.05,
@@ -85,6 +85,51 @@
             "p_value": 1.0,
             "n_store": 14776,
             "n_reference": 14776
+          },
+          "category": {
+            "statistic": 0.0,
+            "p_value": 1.0,
+            "naive_p_value": 1.0,
+            "n_store": 14776,
+            "n_reference": 14776,
+            "n_categories": 9,
+            "n_permutations": 2000,
+            "permutation_seed": 20260924
+          }
+        },
+        "replica": {
+          "basket": {
+            "n_replicas": 200,
+            "n_per_replica": 1815,
+            "seed": 20260925,
+            "median": 0.014697405963956134,
+            "lo": 0.006069288519391913,
+            "hi": 0.03285295490714597,
+            "reject_rate": 0.02,
+            "simulator_statistic": 0.00885058937059724,
+            "simulator_percentile": 0.1
+          },
+          "revenue": {
+            "n_replicas": 200,
+            "n_per_replica": 1815,
+            "seed": 20260925,
+            "median": 0.017996796234232865,
+            "lo": 0.010632397894881263,
+            "hi": 0.034893510770947135,
+            "reject_rate": 0.045,
+            "simulator_statistic": 0.02778785790672378,
+            "simulator_percentile": 0.86
+          },
+          "category": {
+            "n_replicas": 200,
+            "n_per_replica": 1815,
+            "seed": 20260925,
+            "median": 9.648508099317528,
+            "lo": 2.7942184750080012,
+            "hi": 25.16944030464027,
+            "reject_rate": 0.03,
+            "simulator_statistic": 28.07635131311027,
+            "simulator_percentile": 0.975
           }
         }
       },
@@ -120,6 +165,51 @@
             "p_value": 7.816898738521924e-23,
             "n_store": 14804,
             "n_reference": 14271
+          },
+          "category": {
+            "statistic": 565.2058226867097,
+            "p_value": 0.0004997501249375312,
+            "naive_p_value": 7.032537788323722e-117,
+            "n_store": 14804,
+            "n_reference": 14271,
+            "n_categories": 9,
+            "n_permutations": 2000,
+            "permutation_seed": 20260924
+          }
+        },
+        "replica": {
+          "basket": {
+            "n_replicas": 200,
+            "n_per_replica": 1541,
+            "seed": 20260925,
+            "median": 0.06475887555486498,
+            "lo": 0.04367743340858475,
+            "hi": 0.08598312783906557,
+            "reject_rate": 0.995,
+            "simulator_statistic": 0.07278061620860793,
+            "simulator_percentile": 0.76
+          },
+          "revenue": {
+            "n_replicas": 200,
+            "n_per_replica": 1541,
+            "seed": 20260925,
+            "median": 0.06611614310565969,
+            "lo": 0.0445111399524119,
+            "hi": 0.09290206956643605,
+            "reject_rate": 1.0,
+            "simulator_statistic": 0.07364280861461214,
+            "simulator_percentile": 0.74
+          },
+          "category": {
+            "n_replicas": 200,
+            "n_per_replica": 1541,
+            "seed": 20260925,
+            "median": 124.81638238249853,
+            "lo": 78.58518059834341,
+            "hi": 173.06784897671884,
+            "reject_rate": 1.0,
+            "simulator_statistic": 130.5158893000526,
+            "simulator_percentile": 0.59
           }
         }
       },
@@ -135,7 +225,8 @@
           "last_date": "2011-12-09",
           "first_timestamp": "2010-12-01T08:26:00",
           "last_timestamp": "2011-12-09T12:50:00",
-          "n_invoices": 19773
+          "n_invoices": 19773,
+          "list_law": "stocked-invoice"
         },
         "prior": {
           "period": "prior",
@@ -151,7 +242,8 @@
           "n_invoices": 19743,
           "cut_before": "2010-12-01",
           "n_invoices_dropped_at_cut": 830,
-          "n_invoices_shared_with_current": 0
+          "n_invoices_shared_with_current": 0,
+          "list_law": "stocked-invoice"
         }
       }
     },
@@ -159,32 +251,54 @@
       {
         "test": "Basket size (items/visit)",
         "kind": "KS-2sample",
-        "statistic": 0.020083203473193367,
-        "p_value": 0.5604411864788874,
+        "statistic": 0.00885058937059724,
+        "p_value": 0.9994933783789244,
         "n_observed": 14776,
-        "n_simulated": 1708,
+        "n_simulated": 1815,
         "decision": "PASS",
         "note": "Observed = distinct stocked products per invoice; simulated = distinct items per visit. 14,776 of 19,773 invoices hold at least one of the 72 products placed in the shop; the rest are left out."
       },
       {
         "test": "Per-visit revenue",
         "kind": "KS-2sample",
-        "statistic": 0.03254391259197458,
-        "p_value": 0.07639136558191773,
+        "statistic": 0.02778785790672378,
+        "p_value": 0.16176164693317985,
         "n_observed": 14776,
-        "n_simulated": 1708,
+        "n_simulated": 1815,
         "decision": "PASS",
         "note": "Observed = one unit of each stocked product on an invoice, at the shop's calibrated prices; simulated = one unit of each item a visit bought. 14,776 of 19,773 invoices hold at least one of the 72 products placed in the shop; the rest are left out."
       },
       {
         "test": "Category purchase shares",
-        "kind": "Chi-square",
-        "statistic": 51.612949725668514,
-        "p_value": 1.9989985773588485e-08,
-        "n_observed": 68005,
-        "n_simulated": 8241,
+        "kind": "Chi-square, cluster permutation",
+        "statistic": 28.07635131311027,
+        "p_value": 0.02148925537231384,
+        "n_observed": 14776,
+        "n_simulated": 1815,
         "decision": "FAIL",
-        "note": "Item purchases per category against the dataset's product-invoice touches, both over the 72 products placed in the shop."
+        "note": "Whole baskets: 14,776 invoices holding at least one of the 72 products placed in the shop against 1,815 simulated visits that bought one, each reduced to its purchases of those products per category (9 categories; 68,005 reference and 8,436 simulated purchases). Statistic = Pearson chi-square of the 2 x K table of category totals; p from 2,000 random reassignments of the visit / invoice labels (seed 20260924), which move each basket whole. Naive item-level p = 0.00046 (the chi-square(8) tail, which treats every purchase as independent; the reassigned statistics average 1.50 x its null mean).",
+        "naive_p_value": 0.00045994650774479806,
+        "n_permutations": 2000,
+        "permutation_seed": 20260924,
+        "df": 8,
+        "n_categories": 9,
+        "categories": [
+          "Bags & Accessories",
+          "Baking & Decor",
+          "Cards & Stationery",
+          "General Merchandise",
+          "Gifts & Ornaments",
+          "Home & Candles",
+          "Kitchen & Tableware",
+          "Seasonal",
+          "Toys & Games"
+        ],
+        "unreferenced_categories": [],
+        "n_items_observed": 68005,
+        "n_items_simulated": 8436,
+        "clustering_inflation": 1.5019646950280574,
+        "items_left_out": 0,
+        "visits_without_placed_item": 0
       },
       {
         "test": "Inter-arrival vs. Poisson reference",
@@ -198,7 +312,7 @@
       }
     ],
     "pooled_notes": [
-      "Traffic (not a test): 7808 of 12095 zone entries fell in a category section; busiest Bags & Accessories 17%, Home & Candles 13%, Kitchen & Tableware 13%."
+      "Traffic (not a test): 7227 of 11624 zone entries fell in a category section; busiest Bags & Accessories 16%, General Merchandise 13%, Baking & Decor 13%."
     ],
     "per_test_decisions": {
       "Basket size (items/visit)": {
@@ -212,8 +326,8 @@
         "N/A": 0
       },
       "Category purchase shares": {
-        "PASS": 3,
-        "FAIL": 2,
+        "PASS": 4,
+        "FAIL": 1,
         "N/A": 0
       },
       "Inter-arrival vs. Poisson reference": {
@@ -224,8 +338,8 @@
     },
     "n_reps": 5,
     "load": {
-      "arrivals": 1830,
-      "balked": 45
+      "arrivals": 1867,
+      "balked": 27
     },
     "protocol": {
       "mode": "fixed_step",
@@ -239,9 +353,9 @@
         4004
       ],
       "reps": 5,
-      "warmup_s": 900.0,
+      "warmup_s": 1020.0,
       "collect_s": 1860.0,
-      "spawn": 0.26,
+      "spawn": 0.27,
       "cap": 45,
       "workers": 4,
       "framing": "terminating"
@@ -252,32 +366,54 @@
         {
           "test": "Basket size (items/visit)",
           "kind": "KS-2sample",
-          "statistic": 0.053524495524110316,
-          "p_value": 0.0008800708039049456,
+          "statistic": 0.07278061620860793,
+          "p_value": 7.473070586137408e-07,
           "n_observed": 14271,
-          "n_simulated": 1481,
+          "n_simulated": 1541,
           "decision": "FAIL",
           "note": "Observed = distinct stocked products per invoice; simulated = distinct items per visit. 14,271 of 19,773 invoices hold at least one of the 72 products placed in the shop; the rest are left out."
         },
         {
           "test": "Per-visit revenue",
           "kind": "KS-2sample",
-          "statistic": 0.02627332756385259,
-          "p_value": 0.3070531945152527,
+          "statistic": 0.07364280861461214,
+          "p_value": 5.252637783742251e-07,
           "n_observed": 14271,
-          "n_simulated": 1481,
-          "decision": "PASS",
+          "n_simulated": 1541,
+          "decision": "FAIL",
           "note": "Observed = one unit of each stocked product on an invoice, at the shop's calibrated prices; simulated = one unit of each item a visit bought. 14,271 of 19,773 invoices hold at least one of the 72 products placed in the shop; the rest are left out."
         },
         {
           "test": "Category purchase shares",
-          "kind": "Chi-square",
-          "statistic": 139.6754651968191,
-          "p_value": 2.771805905982688e-26,
-          "n_observed": 57349,
-          "n_simulated": 6416,
+          "kind": "Chi-square, cluster permutation",
+          "statistic": 130.5158893000526,
+          "p_value": 0.0004997501249375312,
+          "n_observed": 14271,
+          "n_simulated": 1541,
           "decision": "FAIL",
-          "note": "Item purchases per category against the dataset's product-invoice touches, both over the 72 products placed in the shop."
+          "note": "Whole baskets: 14,271 invoices holding at least one of the 72 products placed in the shop against 1,541 simulated visits that bought one, each reduced to its purchases of those products per category (9 categories; 57,349 reference and 6,761 simulated purchases). Statistic = Pearson chi-square of the 2 x K table of category totals; p from 2,000 random reassignments of the visit / invoice labels (seed 20260924), which move each basket whole. Naive item-level p = 2.21e-24 (the chi-square(8) tail, which treats every purchase as independent; the reassigned statistics average 1.47 x its null mean).",
+          "naive_p_value": 2.2115513427661645e-24,
+          "n_permutations": 2000,
+          "permutation_seed": 20260924,
+          "df": 8,
+          "n_categories": 9,
+          "categories": [
+            "Bags & Accessories",
+            "Baking & Decor",
+            "Cards & Stationery",
+            "General Merchandise",
+            "Gifts & Ornaments",
+            "Home & Candles",
+            "Kitchen & Tableware",
+            "Seasonal",
+            "Toys & Games"
+          ],
+          "unreferenced_categories": [],
+          "n_items_observed": 57349,
+          "n_items_simulated": 6761,
+          "clustering_inflation": 1.4670945057780884,
+          "items_left_out": 0,
+          "visits_without_placed_item": 0
         },
         {
           "test": "Inter-arrival vs. Poisson reference",
@@ -291,22 +427,22 @@
         }
       ],
       "pooled_notes": [
-        "Traffic (not a test): 6666 of 10398 zone entries fell in a category section; busiest Bags & Accessories 17%, General Merchandise 13%, Gifts & Ornaments 12%."
+        "Traffic (not a test): 6444 of 10273 zone entries fell in a category section; busiest Bags & Accessories 17%, General Merchandise 15%, Gifts & Ornaments 13%."
       ],
       "per_test_decisions": {
         "Basket size (items/visit)": {
-          "PASS": 5,
-          "FAIL": 0,
+          "PASS": 2,
+          "FAIL": 3,
           "N/A": 0
         },
         "Per-visit revenue": {
-          "PASS": 5,
-          "FAIL": 0,
+          "PASS": 2,
+          "FAIL": 3,
           "N/A": 0
         },
         "Category purchase shares": {
-          "PASS": 0,
-          "FAIL": 5,
+          "PASS": 1,
+          "FAIL": 4,
           "N/A": 0
         },
         "Inter-arrival vs. Poisson reference": {
@@ -317,7 +453,7 @@
       },
       "n_reps": 5,
       "load": {
-        "arrivals": 1547,
+        "arrivals": 1595,
         "balked": 0
       },
       "protocol": {
@@ -332,9 +468,9 @@
           4009
         ],
         "reps": 5,
-        "warmup_s": 900.0,
+        "warmup_s": 1020.0,
         "collect_s": 1860.0,
-        "spawn": 0.26,
+        "spawn": 0.27,
         "cap": 45,
         "workers": 4,
         "framing": "terminating"

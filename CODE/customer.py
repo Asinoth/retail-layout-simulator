@@ -12,17 +12,31 @@ from retail_literature import (
     IMPULSE_BASE_PROPENSITY, IMPULSE_BROWSER_BONUS,
     IMPULSE_LONG_DWELL_BONUS, IMPULSE_LONG_DWELL_SECS,
     CHECKOUT_BASE_SECS, CHECKOUT_PER_ITEM_SECS,
-    CHECKOUT_LOGNORM_SIGMA, CHECKOUT_MIN_SECS,
-    BASKET_AFFINITY_PROB, BASKET_POP_SMOOTHING, LIST_LENGTH_BY_TYPE,
+    CHECKOUT_LOGNORM_SIGMA, CHECKOUT_MIN_SECS, LIST_LENGTH_BY_TYPE,
     STUCK_PROGRESS_M, STUCK_WINDOW_MOVING_S, STUCK_WINDOW_EXITING_S,
 )
+
+
+def is_regular_item(name, data):
+    """True for an item that can go on a shopping list.
+
+    Impulse displays are reached from the checkout lane after payment, and
+    the checkout and the washroom are destinations rather than products,
+    so none of them is ever on a list. ``CalibratedParams.seed_into`` cuts
+    the stored invoices with this same test, so the invoices an agent
+    draws hold exactly the items its list can contain.
+    """
+    return ((data or {}).get('category') != 'Impulse'
+            and name not in ('Checkout', 'WC'))
+
+
 class Customer(PathfindingMixin):
    """Customer in shop sim. Handles movement, shopping, states etc."""
 
 
    def __init__(self, customer_id, start_pos, shop_items, shop_dimensions, door_position=None, door_side=None, floor=1, simulation_ref=None):
             self.id= customer_id
-            # Set before the shopping list is drawn: the calibrated basket
+            # Set before the shopping list is drawn: the calibrated invoice
             # draw reads the simulation's calibration through it.
             self._simulation_ref = simulation_ref
             # Simulated seconds seen by an agent driven without a simulation;
@@ -163,7 +177,7 @@ class Customer(PathfindingMixin):
         This is the one way an agent reads dataset-derived inputs. Only
         ``analytics['calibration']`` is read: the same keys at top level
         are live counters filled from this simulator's own exits, and
-        drawing baskets from them would let earlier agents' visits make
+        drawing lists from them would let earlier agents' visits make
         already-popular items more popular.
         """
         sim_ref = getattr(self, '_simulation_ref', None)
@@ -172,159 +186,78 @@ class Customer(PathfindingMixin):
         A = getattr(sim_ref, 'analytics', {}) or {}
         return A.get('calibration') or {}
 
-   def _calibrated_basket_structure(self, regular_items):
-        """(names, popularity weights, affinity map), or None.
+   def _draw_invoice(self, regular_items):
+        """The stocked part of one empirical invoice, or None.
 
-        The transactional calibration keys both popularity and the
-        co-purchase pairs by product description, which is what the
-        layout builder uses for item names, so the join is direct; a
-        product_id lookup is kept as a fallback for adapters that key by
-        stock code instead. Returns None when no dataset has been loaded
-        or nothing matches, leaving generated and synthetic shops on the
-        original uniform draw.
+        ``CalibratedParams.seed_into``, given the shop, stores the part of
+        every invoice that falls on the shop's regular items, as
+        compressed-sparse-row arrays over the shop's item keys
+        (``list_invoice_keys`` / ``list_invoice_ptr`` /
+        ``list_invoice_items``). One stored invoice is chosen uniformly --
+        a single ``randint`` on the global stream -- and its keys are
+        returned in stored order, keeping those still among this agent's
+        ``regular_items`` (the reachable regular items of the current
+        layout).
+
+        Returns None, drawing nothing, when no invoices are stored: a
+        generated or synthetic shop, an aggregate source without invoices,
+        or a calibration seeded without its shop. Returns an empty list
+        when the draw was made but none of the invoice's items is on this
+        agent's floor plan any more (see ``_generate_shopping_list``).
         """
-        sim_ref = getattr(self, '_simulation_ref', None)
-        if sim_ref is None:
-            return None
-
         cal = self._calibration()
-        popular_src = cal.get('popular_items')
-        pairs_src = cal.get('cross_merchandising')
-
-        # Build once per assortment, not once per spawning agent: this
-        # walks the whole item set and the pair table, and doing it on
-        # every spawn starved the arrival loop badly enough to change
-        # measured throughput. Seeding a calibration assigns fresh dicts,
-        # so the cache holds the ones it was built from and compares by
-        # identity; a re-seed over the same item names then rebuilds.
-        cache_key = frozenset(regular_items)
-        cached = getattr(sim_ref, '_basket_struct_cache', None)
-        if (cached is not None and cached[0] == cache_key
-                and cached[2] is popular_src and cached[3] is pairs_src):
-            return cached[1]
-
-        def _remember(value):
-            sim_ref._basket_struct_cache = (cache_key, value,
-                                            popular_src, pairs_src)
-            return value
-
-        popular = popular_src or {}
-        pairs = pairs_src or {}
-        if not popular and not pairs:
-            return _remember(None)
-
-        names = list(regular_items.keys())
-        idx = {nm: i for i, nm in enumerate(names)}
-        # Secondary route for adapters that key by stock code.
-        alias = {}
-        for nm, data in regular_items.items():
-            pid = data.get('product_id')
-            if pid is not None:
-                alias[str(pid)] = nm
-
-        def resolve(key):
-            k = str(key)
-            if k in idx:
-                return k
-            return alias.get(k)
-
-        weights = np.zeros(len(names), dtype=float)
-        matched = 0
-        for key, cnt in popular.items():
-            nm = resolve(key)
-            if nm is not None:
-                weights[idx[nm]] += float(cnt)
-                matched += 1
-        if matched == 0 and not pairs:
-            return _remember(None)
-        weights += BASKET_POP_SMOOTHING
-        total = weights.sum()
-        if not np.isfinite(total) or total <= 0:
-            return _remember(None)
-        weights = weights / total
-
-        affinity = {}
-        for key, cnt in pairs.items():
-            if '|' not in str(key):
-                continue
-            a, b = str(key).split('|', 1)
-            na, nb = resolve(a), resolve(b)
-            if na is None or nb is None or na == nb:
-                continue
-            affinity.setdefault(na, []).append(nb)
-            affinity.setdefault(nb, []).append(na)
-
-        return _remember((names, idx, weights, affinity))
-
-   def _draw_basket(self, regular_items, num):
-        """Choose `num` distinct item names for this agent's list.
-
-        With calibration present the draw is popularity-weighted and
-        pulls co-purchase partners of items already chosen, so the
-        assortment's real association structure reaches agent behaviour.
-        Without it, this is the original uniform sample.
-        """
-        struct = self._calibrated_basket_structure(regular_items)
-        if struct is None:
-            return np.random.choice(list(regular_items.keys()),
-                                    size=num, replace=False).tolist()
-
-        names, idx, weights, affinity = struct
-        chosen, chosen_set = [], set()
-
-        # Sample without replacement by zeroing taken entries in a local
-        # copy and drawing against the running cumulative sum. This is
-        # hot -- it runs for every spawning agent -- so it avoids both
-        # linear name lookups and np.random.choice's p= path.
-        w = weights.copy()
-
-        while len(chosen) < num:
-            candidate = None
-            # Extend an existing basket item along a co-purchase edge.
-            if chosen and affinity and np.random.random() < BASKET_AFFINITY_PROB:
-                seed_item = chosen[np.random.randint(len(chosen))]
-                partners = [p for p in affinity.get(seed_item, ())
-                            if p not in chosen_set]
-                if partners:
-                    candidate = partners[np.random.randint(len(partners))]
-            if candidate is None:
-                cum = np.cumsum(w)
-                total = cum[-1]
-                if total <= 0:
-                    break
-                candidate = names[int(np.searchsorted(
-                    cum, np.random.random() * total))]
-            chosen.append(candidate)
-            chosen_set.add(candidate)
-            w[idx[candidate]] = 0.0
-
-        return chosen
+        keys = cal.get('list_invoice_keys')
+        ptr = cal.get('list_invoice_ptr')
+        entries = cal.get('list_invoice_items')
+        if keys is None or ptr is None or entries is None:
+            return None
+        if len(keys) == 0 or len(ptr) < 2:
+            return None
+        i = np.random.randint(len(ptr) - 1)
+        lo, hi = int(ptr[i]), int(ptr[i + 1])
+        return [keys[j] for j in entries[lo:hi] if keys[j] in regular_items]
 
    def _generate_shopping_list(self, shop_items):
         """Draw this agent's shopping list over the regular items (impulse
-        displays, checkout and WC excluded).
+        displays, checkout and WC excluded; see ``is_regular_item``).
 
-        List LENGTH: when the calibration namespace holds a
-        ``list_length_sample`` -- distinct stocked products per invoice,
-        written by a transactional calibration seeded onto its own shop --
-        the length is one value drawn uniformly from that sample, clipped
-        to [1, number of regular items]. Otherwise it follows the
-        type-conditional ``LIST_LENGTH_BY_TYPE`` law, an operational
-        assumption kept for generated and synthetic shops. Either way it
-        is one call on the global stream, in the place the type law's
-        ``randint`` always had, so the spawn makes the same sequence of
-        calls with or without a calibration (the basket draw that follows
-        still depends on the length drawn).
+        On a calibrated shop the list IS one empirical invoice: the stocked
+        part of an invoice drawn uniformly from those holding at least one
+        of the shop's regular items (``_draw_invoice``). The invoice is the
+        unit the data observe. Its size, its contents, its category mix and
+        its co-purchases come jointly, so drawing whole invoices hands all
+        four to the agents with no free constant. Building a list from
+        marginal popularity and then pulling in co-purchase partners counts
+        every co-purchase twice -- a product's popularity already includes
+        each invoice it shares with its partners -- and needs a pull
+        strength nothing in the data fixes. For the same reason the list
+        does not depend on customer type: the data give invoices, not
+        shopper types, and conditioning them on an unobserved label would
+        reintroduce an assumption. Type still sets the impulse propensity
+        (set below, plus the browser bonus at the checkout) and the
+        washroom probability.
 
-        Under a calibration the length therefore no longer depends on
-        customer type: the data give invoice sizes, not shopper types, and
-        conditioning a measured size distribution on an unobserved label
-        would reintroduce the assumption the sample replaces. Type still
-        sets the impulse propensity (set below, plus the browser bonus at
-        the checkout) and the washroom probability.
+        Without stored invoices -- generated and synthetic shops, aggregate
+        sources, a calibration seeded without its shop -- the length
+        follows the type-conditional ``LIST_LENGTH_BY_TYPE`` law, an
+        operational assumption, and the items are a uniform sample of that
+        many regular items.
 
-        List CONTENT is ``_draw_basket``'s: popularity-weighted with
-        co-purchase pulls under a calibration, uniform without one.
+        Global-stream calls: the calibrated branch makes exactly one, the
+        ``randint`` that picks the invoice, in the place the type law's
+        length ``randint`` has always had; the uncalibrated branch makes
+        that ``randint`` and then the ``choice`` of items. Everything a
+        spawn draws before the list is the same in both.
+
+        GUI-edit edge case: an edit made after seeding (an item deleted or
+        renamed, or its floor made unreachable) can leave none of the drawn
+        invoice's items on this agent's floor plan. The agent then falls
+        back to the uncalibrated law, so that spawn makes three calls: the
+        invoice ``randint`` already made, then the type law's ``randint``
+        and ``choice``. No second invoice is drawn, so the fallback cannot
+        loop. A shop seeded after its last edit, as every headless run is,
+        never takes this branch: each stored invoice holds at least one of
+        its regular items.
         """
         # Per-type propensities are set before any early return: an agent
         # with an empty list still checks out, and the checkout and WC
@@ -340,26 +273,21 @@ class Customer(PathfindingMixin):
         if not shop_items:
             return
 
-        # filter out special items
-        regular_items = {}
-        for nm, data in shop_items.items():
-            cat = data.get('category')
-            if cat != 'Impulse' and nm not in ('Checkout','WC'):
-                regular_items[nm] = data
-        
+        regular_items = {nm: data for nm, data in shop_items.items()
+                         if is_regular_item(nm, data)}
         if len(regular_items) == 0:
             return
-        
-        sample = self._calibration().get('list_length_sample')
-        if sample is not None and len(sample) > 0:
-            drawn = int(sample[np.random.randint(len(sample))])
-            num = min(max(drawn, 1), len(regular_items))
+
+        invoice = self._draw_invoice(regular_items)
+        if invoice:
+            self.shopping_list = invoice
         else:
             min_items, max_items = LIST_LENGTH_BY_TYPE[cust_type]
             num = min(np.random.randint(min_items, max_items + 1),
                       len(regular_items))
-        self.shopping_list = self._draw_basket(regular_items, num)
-        
+            self.shopping_list = np.random.choice(
+                list(regular_items.keys()), size=num, replace=False).tolist()
+
         # calc basket value
         val = 0.0
         for itm in self.shopping_list:

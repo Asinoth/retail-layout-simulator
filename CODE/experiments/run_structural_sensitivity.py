@@ -20,8 +20,8 @@ same for any worker count.
 
 The store is ``experiments._live_store``'s: the UCI workbook's current
 period (its last sheet, every row), laid out naively and seeded with the
-shop so the agents draw their list lengths from the invoices cut to the
-stocked products. ``--retail-path`` names the workbook; without it
+shop so each agent's shopping list is the stocked part of one invoice
+of that period. ``--retail-path`` names the workbook; without it
 ``dataset_paths.uci_workbook()`` finds it. The summary records the period,
 its date range and the workbook.
 
@@ -30,24 +30,23 @@ The defaults were set by a transient study on this store (3,600 s runs
 from 09:00 on seeds disjoint from the runners' own), each value by a fixed
 rule:
 
-  --spawn 0.26 --cap 45  The highest arrival rate on a 0.01/s grid at which
+  --spawn 0.27 --cap 45  The highest arrival rate on a 0.01/s grid at which
       occupancy stays below the cap at least 99% of the time after the
-      warm-up. The cap binds 0.66% of the time at 0.26/s and 1.49% at
-      0.27/s (16 replications each). The calibrated hour-of-day profile
-      scales the rate by 0.744 in the 09:00-10:00 hour a run falls in.
-  --warmup 900  Welch's procedure on the replication-mean occupancy at the
-      nominal rate. The moving average is taken only where its window is
-      complete, with the smallest half-window (from 30, 60, 120, 240 and
-      480 s) whose plateau noise is under a third of the 5% band: 240 s.
-      The smoothed curve then stays within 5% of its plateau (32.4
-      customers in store) from 435 s on; doubled and rounded up to the
-      next 60 s that is 900 s. MSER-5 on the same curve truncates at
-      600 s, so it asks for no more.
+      warm-up. The cap binds 0.38% of the time at 0.26/s, 0.88% at
+      0.27/s and 1.27% at 0.28/s (16 replications each). The calibrated
+      hour-of-day profile scales the rate by 0.744 in the 09:00-10:00
+      hour a run falls in.
+  --warmup 1020  The first whole minute after which the expected
+      occupancy of the store, which starts empty, is within 1% of its
+      steady state, computed from the visit-length distribution at the
+      nominal rate (see run_abm_diagnostics, which also records the
+      drift check and why Welch's procedure and MSER-5 no longer set
+      it): 965 s, rounded up to 1,020 s.
   --seconds 1860  The shortest whole-minute window in which every study
       replication completes at least 300 visits (agents that arrive after
-      the warm-up and leave inside the window; the fewest was 301 and the
-      mean 329) and that spans at least ten median visits (median 120 s).
-      Warm-up plus window ends at 2,760 s, inside the first trading hour,
+      the warm-up and leave inside the window; the fewest was 306 and the
+      mean 339) and that spans at least ten median visits (median 118 s).
+      Warm-up plus window ends at 2,880 s, inside the first trading hour,
       so the arrival rate is constant over a run.
 
     python -m experiments.run_structural_sensitivity
@@ -77,9 +76,9 @@ STRENGTHS = [0.0, 0.04, 0.08, 0.16, 0.32]
 DEFAULT = 0.08
 
 # Default protocol; the module docstring records how each value was chosen.
-NOMINAL_SPAWN = 0.26
+NOMINAL_SPAWN = 0.27
 NOMINAL_CAP = 45
-WARMUP_S = 900.0
+WARMUP_S = 1020.0
 COLLECT_S = 1860.0
 
 

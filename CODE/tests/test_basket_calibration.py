@@ -1,13 +1,14 @@
 """Per-invoice product sets, the in-store portion of an invoice, and the
-list-length law it calibrates.
+shopping-list law it calibrates.
 
 A dataset-built shop stocks only the top products of each category, so a
 simulated shopper can only reproduce the part of a real invoice that the
 shop carries. The calibration keeps each invoice's distinct product set
 (CSR arrays), ``placed_invoice_sample`` cuts every invoice to a given
-assortment, ``seed_into`` hands that sample to the agents as their list
-length, and the basket-size / per-visit-revenue goodness-of-fit rows use
-the same sample as their reference.
+assortment, ``seed_into`` stores those cut invoices over the shop's item
+keys, each spawning agent takes one of them as its shopping list, and the
+basket-size / per-visit-revenue goodness-of-fit rows use the same sample as
+their reference.
 """
 from dataclasses import replace
 from types import SimpleNamespace
@@ -21,8 +22,11 @@ import customer as customer_mod
 from customer import Customer
 from dataset_calibration import (calibrate_omnichannel,
                                  calibrate_transactional,
-                                 placed_invoice_sample)
-from dataset_validation import validate_against_simulation
+                                 placed_invoice_lists,
+                                 placed_invoice_sample,
+                                 regular_item_keys)
+from dataset_validation import (observed_category_counts,
+                                validate_against_simulation)
 from retail_literature import LIST_LENGTH_BY_TYPE
 
 PRICES = {'P1': 1.0, 'P2': 2.0, 'P3': 4.0, 'P4': 8.0}
@@ -62,14 +66,17 @@ def hand_params():
 def _stub_sim(analytics=None, shop=None):
     return SimpleNamespace(analytics={} if analytics is None else analytics,
                            run_time=0.0, sim_time=0.0, simulation_speed=1.0,
-                           shop=shop, _basket_struct_cache=None)
+                           shop=shop)
 
 
 def _shop(floor_items):
-    """A shop stand-in: ``{floor: {item name: product_id}}``."""
+    """A shop stand-in: ``{floor: {item name: product_id}}``, or
+    ``(product_id, category)`` for an item outside 'General'."""
+    def item(spec):
+        pid, cat = spec if isinstance(spec, tuple) else (spec, 'General')
+        return {'product_id': pid, 'category': cat}
     return SimpleNamespace(floors={
-        fid: {'items': {name: {'product_id': pid, 'category': 'General'}
-                        for name, pid in items.items()}}
+        fid: {'items': {name: item(spec) for name, spec in items.items()}}
         for fid, items in floor_items.items()})
 
 
@@ -169,34 +176,56 @@ def test_placed_sample_with_nothing_stocked_is_empty(hand_params):
 
 # --- seed_into ----------------------------------------------------------------
 
-def test_seed_into_writes_list_length_only_with_a_shop(hand_params):
+LIST_KEYS = ('list_invoice_keys', 'list_invoice_ptr', 'list_invoice_items',
+             'list_length_sample', 'list_length_source',
+             'n_invoices_with_placed')
+
+
+def _stored_invoices(cal):
+    """The stored invoices, decoded to lists of item keys."""
+    keys, ptr, items = (cal['list_invoice_keys'], cal['list_invoice_ptr'],
+                        cal['list_invoice_items'])
+    return [[keys[j] for j in items[ptr[i]:ptr[i + 1]]]
+            for i in range(len(ptr) - 1)]
+
+
+def test_seed_into_writes_the_invoices_only_with_a_shop(hand_params):
     sim = _stub_sim()
     hand_params.seed_into(sim)
-    assert 'list_length_sample' not in sim.analytics['calibration']
+    for key in LIST_KEYS:
+        assert key not in sim.analytics['calibration']
 
     # P3 is stocked on the upper floor only; it still counts.
     shop = _shop({1: {'Mug': 'P1', 'Sign': None}, 2: {'Lamp': 'P3'}})
     hand_params.seed_into(sim, shop=shop)
     cal = sim.analytics['calibration']
+    # A -> [Mug], B -> [Lamp], C -> [Mug, Lamp], D holds neither and is
+    # left out, E -> [Mug]; stored order is the calibration's own.
+    assert cal['list_invoice_keys'] == ['Mug', 'Lamp']
+    assert cal['list_invoice_ptr'].tolist() == [0, 1, 2, 4, 5]
+    assert cal['list_invoice_items'].tolist() == [0, 1, 0, 1, 0]
+    assert cal['list_invoice_ptr'].dtype == np.int64
+    assert cal['list_invoice_items'].dtype == np.int32
+    assert _stored_invoices(cal) == [['Mug'], ['Lamp'], ['Mug', 'Lamp'],
+                                     ['Mug']]
     assert cal['list_length_sample'] == [1, 1, 2, 1]
     assert all(type(v) is int for v in cal['list_length_sample'])
     assert cal['list_length_source'] == 'placed-invoice empirical'
     assert cal['n_invoices_with_placed'] == 4
-    for key in ('list_length_sample', 'list_length_source',
-                'n_invoices_with_placed'):
+    for key in LIST_KEYS:
         assert key in sim._calibration_seeded_keys
 
 
-def test_reseeding_pops_the_list_length_sample(hand_params):
+def test_reseeding_pops_the_stored_invoices(hand_params):
     sim = _stub_sim()
     shop = _shop({1: {'Mug': 'P1', 'Lamp': 'P3'}})
     hand_params.seed_into(sim, shop=shop)
     assert sim.analytics['calibration']['list_length_sample']
+    assert len(sim.analytics['calibration']['list_invoice_keys'])
 
-    hand_params.seed_into(sim)                     # no shop: no sample
+    hand_params.seed_into(sim)                     # no shop: no invoices
     cal = sim.analytics['calibration']
-    for key in ('list_length_sample', 'list_length_source',
-                'n_invoices_with_placed'):
+    for key in LIST_KEYS:
         assert key not in cal
 
     # A source without invoices, onto a shop: nothing to cut, nothing left.
@@ -205,7 +234,14 @@ def test_reseeding_pops_the_list_length_sample(hand_params):
                           invoice_ptr=np.zeros(0, dtype=np.int64),
                           invoice_items=np.zeros(0, dtype=np.int32))
     no_invoices.seed_into(sim, shop=shop)
-    assert 'list_length_sample' not in sim.analytics['calibration']
+    for key in LIST_KEYS:
+        assert key not in sim.analytics['calibration']
+
+    # A shop none of whose regular items the dataset sells: likewise.
+    hand_params.seed_into(sim, shop=shop)
+    hand_params.seed_into(sim, shop=_shop({1: {'Mug': 'NOT_SOLD'}}))
+    for key in LIST_KEYS:
+        assert key not in sim.analytics['calibration']
 
 
 def test_seed_into_rekeys_as_before_with_the_shop(hand_params):
@@ -219,7 +255,71 @@ def test_seed_into_rekeys_as_before_with_the_shop(hand_params):
     assert cal['popular_items']['Mug'] == 3        # P1 is on A, C, E
 
 
-# --- the agent's list length --------------------------------------------------
+def test_stored_invoices_hold_only_regular_items(hand_params):
+    """Impulse displays, the checkout and the WC are never on a list, so
+    their products are not part of any stored invoice, even when they carry
+    a product id; ``list_length_sample`` is the stored invoices' sizes and
+    matches ``placed_invoice_sample`` over the regular products."""
+    sim = _stub_sim()
+    shop = _shop({1: {'Mug': 'P1', 'Gum': ('P2', 'Impulse'),
+                      'Checkout': 'P4', 'WC': 'P4'},
+                  2: {'Lamp': 'P3'}})
+    assert regular_item_keys(shop) == {'P1': 'Mug', 'P3': 'Lamp'}
+    hand_params.seed_into(sim, shop=shop)
+    cal = sim.analytics['calibration']
+    assert set(cal['list_invoice_keys']) == {'Mug', 'Lamp'}
+    assert _stored_invoices(cal) == [['Mug'], ['Lamp'], ['Mug', 'Lamp'],
+                                     ['Mug']]
+    sizes = np.diff(cal['list_invoice_ptr']).tolist()
+    assert cal['list_length_sample'] == sizes
+    assert sizes == placed_invoice_sample(hand_params,
+                                          ['P1', 'P3'])['sizes'].tolist()
+    assert cal['n_invoices_with_placed'] == len(sizes)
+
+
+def test_invoice_keys_are_the_keys_agents_receive(hand_params):
+    """Agents are handed ``shop.all_items_across_floors()``, so the stored
+    invoices use that view's keys -- including the 'F<floor>:' spelling a
+    name repeated on a higher floor gets there."""
+    class _FlatShop:
+        floors = {1: {'items': {'Mug': {'product_id': 'P1'}}},
+                  2: {'items': {'Mug': {'product_id': 'P3'}}}}
+
+        def all_items_across_floors(self):
+            return {'Mug': dict(self.floors[1]['items']['Mug'], floor=1),
+                    'F2:Mug': dict(self.floors[2]['items']['Mug'], floor=2)}
+
+    sim = _stub_sim()
+    hand_params.seed_into(sim, shop=_FlatShop())
+    cal = sim.analytics['calibration']
+    assert _stored_invoices(cal) == [['Mug'], ['F2:Mug'], ['Mug', 'F2:Mug'],
+                                     ['Mug']]
+
+
+def test_placed_invoice_lists_match_the_placed_sample():
+    """Same invoices, same order, same sizes as ``placed_invoice_sample``,
+    whatever the source row order."""
+    invoices, prices = _larger_example()
+    df = _invoices_df(invoices, prices).sample(frac=1.0, random_state=5)
+    params = calibrate_transactional(df)
+    stocked = {'P0': 'Item P0', 'P3': 'Item P3', 'P7': 'Item P7'}
+    lists = placed_invoice_lists(params, stocked)
+    sample = placed_invoice_sample(params, stocked)
+    assert np.diff(lists['ptr']).tolist() == sample['sizes'].tolist()
+    assert lists['n_with_placed'] == sample['n_with_placed']
+    assert lists['n_invoices'] == sample['n_invoices'] == len(invoices)
+    by_id = dict(invoices)
+    expected = [{stocked[p] for p in by_id[k] if p in stocked}
+                for k in sorted(by_id)]
+    expected = [s for s in expected if s]
+    got = [{lists['keys'][j] for j in lists['items'][a:b]}
+           for a, b in zip(lists['ptr'][:-1], lists['ptr'][1:])]
+    assert got == expected
+    empty = placed_invoice_lists(params, {})
+    assert empty['n_with_placed'] == 0 and empty['keys'] == []
+
+
+# --- the agent's shopping list ------------------------------------------------
 
 def _regular_items(n):
     items = {f'Item{i}': {'category': 'General', 'price': 1.0 + i}
@@ -229,52 +329,147 @@ def _regular_items(n):
     return items
 
 
+def _hand_store_items():
+    """Agent-side items for ``_shop({1: {'Mug': 'P1', 'Lamp': 'P3'}})``,
+    plus an item the dataset never sold and the non-list items."""
+    return {'Mug': {'category': 'General', 'price': 1.0, 'product_id': 'P1'},
+            'Lamp': {'category': 'General', 'price': 4.0, 'product_id': 'P3'},
+            'Poster': {'category': 'General', 'price': 9.0},
+            'Gum': {'category': 'Impulse', 'price': 0.5},
+            'Checkout': {'category': 'Checkout', 'price': 0.0}}
+
+
 def _spawn(sim, items, k):
     return Customer(k, [1.0, 1.0], items, (10.0, 10.0),
                     door_position=(5.0, 0.0), door_side='bottom',
                     simulation_ref=sim)
 
 
-def test_calibrated_list_length_is_drawn_from_the_sample():
-    np.random.seed(7)
-    sim = _stub_sim({'calibration': {'list_length_sample': [3] * 40}})
-    items = _regular_items(6)
-    agents = [_spawn(sim, items, k) for k in range(60)]
-    # Every type, including 'thorough' (6-12 under the type law), gets 3.
-    assert {a.customer_type for a in agents} == set(LIST_LENGTH_BY_TYPE)
-    assert all(len(a.shopping_list) == 3 for a in agents)
-    assert all(len(set(a.shopping_list)) == 3 for a in agents)
-    assert all(i not in ('Gum', 'Checkout')
-               for a in agents for i in a.shopping_list)
-
-
-def test_calibrated_list_length_is_clipped_to_the_assortment():
-    np.random.seed(8)
-    items = _regular_items(4)
-    big = _stub_sim({'calibration': {'list_length_sample': [50]}})
-    assert all(len(_spawn(big, items, k).shopping_list) == 4
-               for k in range(10))
-    zero = _stub_sim({'calibration': {'list_length_sample': [0]}})
-    assert all(len(_spawn(zero, items, k).shopping_list) == 1
-               for k in range(10))
-
-
-def test_list_length_follows_the_seeded_placed_sample(hand_params):
-    np.random.seed(9)
+def _seeded_hand_store(hand_params):
     sim = _stub_sim()
     hand_params.seed_into(sim, shop=_shop({1: {'Mug': 'P1', 'Lamp': 'P3'}}))
-    items = _regular_items(8)
-    lengths = {len(_spawn(sim, items, k).shopping_list) for k in range(80)}
-    assert lengths == {1, 2}
+    return sim
 
 
-def test_without_a_sample_the_type_law_applies():
+def test_calibrated_list_is_one_stored_invoice(hand_params, monkeypatch):
+    """The list is the invoice the one ``randint`` picks, in stored order."""
+    sim = _seeded_hand_store(hand_params)
+    stored = _stored_invoices(sim.analytics['calibration'])
+    items = _hand_store_items()
+    a = _spawn(sim, items, 0)
+    for i, invoice in enumerate(stored):
+        with monkeypatch.context() as m:
+            m.setattr(customer_mod.np.random, 'randint',
+                      lambda n, *rest, _i=i: _i)
+            a._generate_shopping_list(items)
+        assert a.shopping_list == invoice
+        assert a.basket_value == sum(items[k]['price'] for k in invoice)
+
+
+def test_calibrated_lists_cover_the_stored_invoices_for_every_type(
+        hand_params):
+    np.random.seed(7)
+    sim = _seeded_hand_store(hand_params)
+    stored = _stored_invoices(sim.analytics['calibration'])
+    items = _hand_store_items()
+    agents = [_spawn(sim, items, k) for k in range(80)]
+    assert {a.customer_type for a in agents} == set(LIST_LENGTH_BY_TYPE)
+    assert all(a.shopping_list in stored for a in agents)
+    # Every type draws from the same invoices -- 'thorough' included, whose
+    # type law would ask for 6-12 items.
+    for t in LIST_LENGTH_BY_TYPE:
+        assert {len(a.shopping_list) for a in agents
+                if a.customer_type == t} <= {1, 2}
+    assert {tuple(a.shopping_list) for a in agents} == {
+        tuple(s) for s in stored}
+    # Items the dataset never sold, and impulse / checkout items, are never
+    # on a calibrated list.
+    assert all(i in ('Mug', 'Lamp') for a in agents for i in a.shopping_list)
+
+
+def test_items_off_the_floor_are_dropped_from_the_invoice(hand_params,
+                                                          monkeypatch):
+    """An invoice item no longer among the agent's regular items (deleted,
+    renamed, on an unreachable floor) is left out; the rest of the invoice
+    stays."""
+    sim = _seeded_hand_store(hand_params)
+    items = _hand_store_items()
+    del items['Lamp']
+    a = _spawn(sim, items, 0)
+    with monkeypatch.context() as m:
+        m.setattr(customer_mod.np.random, 'randint',
+                  lambda n, *rest: 2)                    # invoice C
+        a._generate_shopping_list(items)
+    assert a.shopping_list == ['Mug']
+
+
+_COUNTED = ('randint', 'choice', 'random', 'uniform', 'normal', 'lognormal',
+            'exponential', 'shuffle', 'permutation')
+
+
+def _calls_for(monkeypatch, sim, items, seed=11):
+    """The global-stream calls one ``_generate_shopping_list`` makes, in
+    order, for a fresh agent on ``sim``."""
+    np.random.seed(seed)
+    a = _spawn(sim, items, 0)
+    calls = []
+    with monkeypatch.context() as m:
+        for name in _COUNTED:
+            real = getattr(np.random, name)
+
+            def counting(*args, _name=name, _real=real, **kwargs):
+                calls.append(_name)
+                return _real(*args, **kwargs)
+            m.setattr(customer_mod.np.random, name, counting)
+        a._generate_shopping_list(items)
+    return calls, a
+
+
+def test_one_global_call_picks_the_list_in_either_branch(hand_params,
+                                                         monkeypatch):
+    """The invoice draw is one ``randint`` in the place the type law's
+    length ``randint`` has, and a calibrated list needs no other draw: the
+    spawn's calls up to the list are the same with or without a
+    calibration."""
+    calibrated, a = _calls_for(monkeypatch, _seeded_hand_store(hand_params),
+                               _hand_store_items())
+    assert a.shopping_list
+    uncalibrated, b = _calls_for(monkeypatch, _stub_sim(), _regular_items(8))
+    assert b.shopping_list
+    assert calibrated == ['random', 'randint']
+    assert uncalibrated == ['random', 'randint', 'choice']
+    assert calibrated.count('randint') == uncalibrated.count('randint') == 1
+
+
+def test_empty_intersection_falls_back_to_the_type_law(hand_params,
+                                                       monkeypatch):
+    """GUI-edit edge case: every item of the drawn invoice is gone. The
+    agent falls back to the uncalibrated law; the spawn then makes the
+    invoice ``randint`` it already made plus the type law's ``randint`` and
+    ``choice``, and draws no second invoice."""
+    sim = _seeded_hand_store(hand_params)
+    items = _regular_items(20)         # neither Mug nor Lamp is on the floor
+    calls, a = _calls_for(monkeypatch, sim, items)
+    assert calls == ['random', 'randint', 'randint', 'choice']
+    lo, hi = LIST_LENGTH_BY_TYPE[a.customer_type]
+    assert lo <= len(a.shopping_list) <= hi
+    assert len(set(a.shopping_list)) == len(a.shopping_list)
+    assert all(i.startswith('Item') for i in a.shopping_list)
+
+
+def test_without_stored_invoices_the_type_law_applies():
     np.random.seed(10)
     items = _regular_items(20)
-    for analytics in ({}, {'calibration': {'popular_items': {}}},
-                      {'calibration': {'list_length_sample': []}},
-                      # Live counters are never read for the list length.
-                      {'list_length_sample': [3] * 40}):
+    for analytics in ({}, {'calibration': {'popular_items': {'Item1': 50}}},
+                      # A size sample alone does not make a list.
+                      {'calibration': {'list_length_sample': [3] * 40}},
+                      {'calibration': {'list_invoice_keys': [],
+                                       'list_invoice_ptr': [0],
+                                       'list_invoice_items': []}},
+                      # Live counters are never read for the list.
+                      {'list_invoice_keys': ['Item1'],
+                       'list_invoice_ptr': [0, 1],
+                       'list_invoice_items': [0]}):
         sim = _stub_sim(dict(analytics))
         for k in range(60):
             a = _spawn(sim, items, k)
@@ -287,27 +482,77 @@ def test_without_a_sample_the_type_law_applies():
                for k in range(30))
 
 
-def test_list_length_costs_one_draw_either_way(monkeypatch):
-    """The calibrated draw replaces the type law's randint one for one, so
-    a calibration does not add or remove a call on the global stream."""
-    calls = []
-    real = np.random.randint
+def _category_example():
+    """Three categories whose products co-occur within an invoice far more
+    than across them, the way a trip clusters in a few departments."""
+    rng = np.random.default_rng(21)
+    cats = {'Kitchen': ['K0', 'K1', 'K2'], 'Garden': ['G0', 'G1', 'G2'],
+            'Toys': ['T0', 'T1', 'T2']}
+    cat_of = {p: c for c, ps in cats.items() for p in ps}
+    rows = []
+    t0 = pd.Timestamp('2010-12-01 09:00')
+    for i in range(400):
+        home = ['Kitchen', 'Garden', 'Toys'][rng.choice(3, p=[0.6, 0.3, 0.1])]
+        n = int(rng.integers(1, 5))
+        pids = set(rng.choice(cats[home], size=min(n, 3), replace=False))
+        if rng.random() < 0.3:                      # an occasional side trip
+            pids.add(str(rng.choice(sorted(cat_of))))
+        for pid in sorted(pids):
+            rows.append({'invoice_id': f'INV{i:04d}', 'product_id': pid,
+                         'product_name': f'NAME {pid}', 'quantity': 1,
+                         'timestamp': t0 + pd.Timedelta(minutes=i),
+                         'unit_price': 2.0, 'category': cat_of[pid]})
+    return pd.DataFrame(rows), cat_of
 
-    def counting(*args, **kwargs):
-        calls.append(args)
-        return real(*args, **kwargs)
 
-    items = _regular_items(8)
-    counts = []
-    for analytics in ({}, {'calibration': {'list_length_sample': [2, 3, 4]}}):
-        np.random.seed(11)
-        a = _spawn(_stub_sim(analytics), items, 0)
-        monkeypatch.setattr(customer_mod.np.random, 'randint', counting)
-        calls.clear()
-        a._generate_shopping_list(items)
-        monkeypatch.setattr(customer_mod.np.random, 'randint', real)
-        counts.append(len(calls))
-    assert counts == [1, 1]
+def test_calibrated_lists_reproduce_the_reference_category_shares():
+    """Drawing whole invoices reproduces the reference's category shares in
+    expectation: the stored invoices hold exactly the product-invoice
+    touches the category test counts, and the drawn lists match them up to
+    sampling noise (judged per category against the invoice-level spread,
+    since items cluster within a list). The within-invoice co-purchase rate
+    of a pair comes along with no constant."""
+    df, cat_of = _category_example()
+    params = calibrate_transactional(df)
+    stocked = ['K0', 'K1', 'G0', 'G1', 'T0', 'T1']      # K2, G2, T2 unplaced
+    shop = _shop({1: {f'Item {p}': (p, cat_of[p]) for p in stocked}})
+    sim = _stub_sim()
+    params.seed_into(sim, shop=shop)
+    stored = _stored_invoices(sim.analytics['calibration'])
+    cats = sorted(set(cat_of.values()))
+
+    def cat_counts(lists):
+        return np.array([[sum(cat_of[k.split()[1]] == c for k in lst)
+                          for c in cats] for lst in lists], dtype=float)
+
+    # The stored invoices carry the reference's touches exactly.
+    ref = observed_category_counts(params, stocked)
+    stored_counts = cat_counts(stored)
+    assert np.allclose(stored_counts.sum(axis=0), [ref[c] for c in cats])
+
+    items = {f'Item {p}': {'category': cat_of[p], 'price': 2.0,
+                           'product_id': p} for p in stocked}
+    items['Gum'] = {'category': 'Impulse', 'price': 0.5}
+    np.random.seed(2024)
+    n_draws = 4000
+    drawn = [_spawn(sim, items, k).shopping_list for k in range(n_draws)]
+    drawn_counts = cat_counts(drawn)
+
+    se = stored_counts.std(axis=0) / np.sqrt(n_draws)
+    gap = drawn_counts.mean(axis=0) - stored_counts.mean(axis=0)
+    assert np.all(np.abs(gap) < 4.0 * se), (gap, se)
+    ref_share = stored_counts.sum(axis=0) / stored_counts.sum()
+    drawn_share = drawn_counts.sum(axis=0) / drawn_counts.sum()
+    assert np.max(np.abs(drawn_share - ref_share)) < 0.03
+
+    pair = ('Item K0', 'Item K1')
+
+    def both(lists):
+        return np.array([pair[0] in lst and pair[1] in lst for lst in lists],
+                        dtype=float)
+    p_ref, p_drawn = both(stored).mean(), both(drawn).mean()
+    assert p_ref > 0
+    assert abs(p_drawn - p_ref) < 4.0 * np.sqrt(p_ref * (1 - p_ref) / n_draws)
 
 
 # --- goodness-of-fit reference ------------------------------------------------

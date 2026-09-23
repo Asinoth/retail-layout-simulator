@@ -23,8 +23,8 @@ figure are the same for any worker count.
 
 The store is ``experiments._live_store``'s: the UCI workbook's current
 period (its last sheet, every row), laid out naively and seeded with the
-shop so the agents draw their list lengths from the invoices cut to the
-stocked products. ``--retail-path`` names the workbook; without it
+shop so each agent's shopping list is the stocked part of one invoice
+of that period. ``--retail-path`` names the workbook; without it
 ``dataset_paths.uci_workbook()`` finds it. The summary records the period,
 its date range and the workbook.
 
@@ -33,32 +33,35 @@ from 09:00 on seeds disjoint from the runners' own), each value by a fixed
 rule. Lane utilisation below is the fraction of time a lane is serving a
 customer, averaged over the lanes.
 
-  --spawn 0.26 --cap 45  The nominal load shared with the other live
+  --spawn 0.27 --cap 45  The nominal load shared with the other live
       diagnostics: the highest arrival rate on a 0.01/s grid at which
       occupancy stays below the cap at least 99% of the time after the
-      warm-up. The cap binds 0.66% of the time at 0.26/s and 1.49% at
-      0.27/s (16 replications each); lane utilisation there is 0.27.
+      warm-up. The cap binds 0.88% of the time at 0.27/s and 1.27% at
+      0.28/s (16 replications each); lane utilisation there is 0.29.
   --stress-spawn 0.70 --stress-cap 110  The lowest rate on the grid at
       which lane utilisation reaches 0.7 while the cap binds less than 5%
       of the time, with the cap raised only as far as that needs. Cap 45
       cannot get there: the cap binds long before the lanes saturate. With
-      the cap out of reach (200) utilisation climbs 0.34 / 0.38 / 0.43 /
-      0.48 / 0.51 / 0.59 / 0.61 / 0.72 at 0.30 / 0.35 / 0.40 / 0.45 /
-      0.50 / 0.55 / 0.60 / 0.70 arrivals per second, so 0.70/s is the first
-      rate on the grid that reaches 0.7. At 0.70/s a cap of 90 binds 5.5%
-      of the time and holds utilisation to 0.672, and a cap of 100 binds
-      1.4% at 0.698, because refused arrivals never reach a lane; a cap of
-      110 binds 0.42% with utilisation 0.710, so the stress level uses 110.
-  --warmup 900  The nominal level's warm-up (see run_abm_diagnostics:
-      Welch's procedure, settle at 435 s, doubled and rounded up; MSER-5
-      600 s). At the stress level Welch's procedure cannot separate the
-      transient from sampling noise on the study's eight 1,800 s
-      replications at any half-window the run length allows, while MSER-5
-      truncates at 370 s, so the nominal 900 s serves both levels.
+      the cap out of reach (200) utilisation climbs 0.32 / 0.36 / 0.42 /
+      0.48 / 0.51 / 0.55 / 0.63 / 0.71 at 0.30 / 0.35 / 0.40 / 0.45 /
+      0.50 / 0.55 / 0.60 / 0.70 arrivals per second (six replications
+      each), so 0.70/s is the first rate on the grid that reaches 0.7. At
+      0.70/s a cap of 90 reaches 0.700 but binds 5.3% of the time, and a
+      cap of 100 binds 1.3% but holds utilisation to 0.697, because
+      refused arrivals never reach a lane; a cap of 110 binds 0.34% with
+      utilisation 0.720 (eight replications each), so the stress level
+      uses 110.
+  --warmup 1020  The nominal level's warm-up (see run_abm_diagnostics:
+      the first whole minute after which an initially empty store's
+      expected occupancy is within 1% of its steady state, from the
+      visit-length distribution; 965 s, rounded up). The same criterion
+      at the stress level, on the study's eight 1,800 s replications
+      there, gives 845 s, and MSER-5 truncates at 450 s, so the nominal
+      1,020 s serves both levels.
   --seconds 1860  The nominal collection window of the other live
       diagnostics: every study replication completes at least 300 visits
-      in it (the fewest 301) and it spans at least ten median visits
-      (median 120 s). Runs end at 2,760 s, inside the first trading hour,
+      in it (the fewest 306) and it spans at least ten median visits
+      (median 118 s). Runs end at 2,880 s, inside the first trading hour,
       so both rates are constant over a run; the calibrated hour-of-day
       profile scales them by 0.744 in that hour.
 
@@ -94,11 +97,11 @@ from experiments._common import (make_run_dir, package_versions,  # noqa: E402
 SAMPLE_INTERVAL_S = 0.4     # simulated seconds between queue samples
 
 # Default protocol; the module docstring records how each value was chosen.
-NOMINAL_SPAWN = 0.26
+NOMINAL_SPAWN = 0.27
 NOMINAL_CAP = 45
 STRESS_SPAWN = 0.70
 STRESS_CAP = 110
-WARMUP_S = 900.0
+WARMUP_S = 1020.0
 COLLECT_S = 1860.0
 
 

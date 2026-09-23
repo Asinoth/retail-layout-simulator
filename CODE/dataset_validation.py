@@ -15,8 +15,18 @@ Test choice:
     (basket size, revenue, inter-arrival). KS makes no distributional
     assumption -- appropriate when the simulator's distribution is itself
     empirical and may not match any known family.
-  - **Chi-square** for the categorical distribution of per-category
-    purchases.
+  - **Chi-square with a cluster permutation null** for the per-category
+    purchases. Items bought on one trip are not independent draws -- a
+    shopper who came for one department buys several of its products --
+    so the chi-square distribution, which assumes every purchase is a
+    separate observation, rejects a model that reproduces the data
+    exactly far more often than alpha. The p-value instead comes from
+    reassigning whole baskets (simulated visits and reference invoices)
+    between the two sides at random, which keeps every basket's purchases
+    together; the chi-square-distribution p is reported beside it as the
+    naive item-level figure. Sources without invoices (aggregate data)
+    have no baskets to reassign and fall back to the item-level test,
+    labelled as such.
 
 Matching units is what makes these tests meaningful, and it is the part
 that is easy to get wrong: the dataset counts units per invoice and prices
@@ -53,6 +63,10 @@ class GoodnessOfFit:
     n_observed: int
     n_simulated: int
     note: str = ""
+    # Test-specific record beside the common fields -- for the category
+    # test the item-level p, the permutation count and seed, the categories
+    # compared. Plain JSON values, so a runner can write it as it stands.
+    extra: Dict[str, Any] = field(default_factory=dict)
 
     def pass_at(self, alpha: float = 0.05) -> bool:
         """KS/chi-square: p > alpha means we cannot reject equality of
@@ -97,6 +111,10 @@ class ValidationResult:
             lines.append(f"  [{verdict}] {t.name}")
             lines.append(f"          {t.test}  {stat}={t.statistic:.4f}  p={t.p_value:.4g}")
             lines.append(f"          n_obs={t.n_observed}  n_sim={t.n_simulated}")
+            naive = t.extra.get('naive_p_value')
+            if naive is not None and np.isfinite(naive):
+                lines.append(f"          naive item-level p={naive:.4g} "
+                             f"(treats purchases as independent)")
             if t.note:
                 lines.append(f"          {t.note}")
             lines.append("")
@@ -156,8 +174,14 @@ def _ks_safe(observed: np.ndarray, simulated: np.ndarray,
 def _chi2_categorical(observed: Dict[str, float],
                       simulated: Dict[str, int],
                       name: str, note: str = "") -> Optional[GoodnessOfFit]:
-    """Chi-square goodness of fit of the raw simulated counts to the
-    observed category distribution.
+    """Item-level chi-square goodness of fit of the raw simulated counts to
+    the observed category distribution.
+
+    Only used where there are no baskets to reassign (aggregate sources):
+    it counts every purchase as an independent observation, which purchases
+    made on one visit are not, so it rejects a correct model more often
+    than alpha. ``cluster_permutation_chi2`` is the test wherever invoices
+    exist.
 
     The dataset side is large (tens of thousands of invoices) while a live
     run records a few hundred visits, so the observed shares are the
@@ -170,7 +194,7 @@ def _chi2_categorical(observed: Dict[str, float],
     n_obs = int(round(obs_total))
     n_sim = int(sum(simulated.values())) if simulated else 0
     if obs_total <= 0 or n_sim <= 0:
-        return GoodnessOfFit(name=name, test="Chi-square",
+        return GoodnessOfFit(name=name, test=CATEGORY_ITEM_TEST_KIND,
                              statistic=float('nan'), p_value=float('nan'),
                              n_observed=n_obs, n_simulated=n_sim,
                              note="One side empty. " + note)
@@ -184,7 +208,7 @@ def _chi2_categorical(observed: Dict[str, float],
     # approximation holds.
     keep = exp >= 5
     if keep.sum() < 2:
-        return GoodnessOfFit(name=name, test="Chi-square",
+        return GoodnessOfFit(name=name, test=CATEGORY_ITEM_TEST_KIND,
                              statistic=float('nan'), p_value=float('nan'),
                              n_observed=n_obs, n_simulated=n_sim,
                              note="Too few categories with expected count >= 5. " + note)
@@ -204,13 +228,287 @@ def _chi2_categorical(observed: Dict[str, float],
     try:
         chi2, p = sp_stats.chisquare(sim_kept, f_exp=exp_kept)
     except Exception as e:
-        return GoodnessOfFit(name=name, test="Chi-square",
+        return GoodnessOfFit(name=name, test=CATEGORY_ITEM_TEST_KIND,
                              statistic=float('nan'), p_value=float('nan'),
                              n_observed=n_obs, n_simulated=n_sim,
                              note=f"Chi-square failed: {e}. " + note)
-    return GoodnessOfFit(name=name, test="Chi-square",
+    return GoodnessOfFit(name=name, test=CATEGORY_ITEM_TEST_KIND,
                          statistic=float(chi2), p_value=float(p),
                          n_observed=n_obs, n_simulated=n_sim, note=note)
+
+
+# --- Category shares on whole baskets -------------------------------------
+
+# Random relabellings behind the category test's p-value. Fixed with the
+# test's design, before any result under it was seen. At 2000 the Monte
+# Carlo standard error of a p-value near 0.05 is about 0.005.
+CATEGORY_N_PERM = 2000
+# Seed of those relabellings: a given pair of samples always gets the same
+# p-value, so a re-run, a worker count or a GUI click cannot move it.
+CATEGORY_PERM_SEED = 20260924
+# The row's name, and the test's label, which the paper-macro validator
+# also checks for.
+CATEGORY_TEST_NAME = "Category purchase shares"
+CATEGORY_TEST_KIND = "Chi-square, cluster permutation"
+# Label of the fallback for sources with no invoices to reassign.
+CATEGORY_ITEM_TEST_KIND = "Chi-square, item-level"
+# Column holding every category no reference invoice touches.
+UNREFERENCED_CATEGORY = "(not in reference)"
+# Fewest baskets on either side the test is run with, the same floor as
+# the KS rows' five samples.
+MIN_CATEGORY_CLUSTERS = 5
+# Uniform keys drawn per block of relabellings (about 32 MB as float64).
+# Blocks only bound memory: the keys are drawn in one sequence, so the
+# p-value does not depend on the block size.
+_PERM_BLOCK_VALUES = 4_000_000
+
+
+def pearson_chi2_two_rows(first, col_totals) -> np.ndarray:
+    """Pearson chi-square of 2 x K tables given one row and the column
+    totals.
+
+    ``first`` is (..., K), one row of each table; the other row is the
+    column totals minus it. In a two-row table the rows' deviations from
+    their expected counts are equal and opposite, so the statistic is
+    sum_k dev_k^2 (1/E1_k + 1/E2_k) with dev the first row's deviation,
+    and is the same whichever row is called first. Written this way, the
+    statistics of thousands of relabelled tables are one array expression.
+    Every column total and both row totals must be positive.
+    """
+    col = np.asarray(col_totals, dtype=np.float64)
+    first = np.asarray(first, dtype=np.float64)
+    total = col.sum()
+    r1 = first.sum(axis=-1, keepdims=True)
+    r2 = total - r1
+    e1 = r1 * col / total
+    e2 = r2 * col / total
+    dev = first - e1
+    return (dev * dev * (1.0 / e1 + 1.0 / e2)).sum(axis=-1)
+
+
+def cluster_permutation_chi2(sim_counts, ref_counts,
+                             n_perm: int = CATEGORY_N_PERM,
+                             seed: int = CATEGORY_PERM_SEED
+                             ) -> Dict[str, Any]:
+    """Two-sample test of category shares that moves whole baskets.
+
+    ``sim_counts`` and ``ref_counts`` hold one row per basket (a simulated
+    visit, a reference invoice) and one column per category: how many of
+    the basket's purchases fall in each. The statistic is the Pearson
+    chi-square of the 2 x K table of category totals, simulated against
+    reference. Its null distribution comes from pooling the baskets and
+    handing the two labels out again at random, ``n_perm`` times, keeping
+    how many baskets each side has; p = (1 + #{relabelled >= observed}) /
+    (1 + n_perm). Under the null that the simulated visits and the
+    reference invoices are draws from one distribution of baskets -- which
+    is what a model drawing each shopping list from the data's invoices
+    claims -- the labels are exchangeable and this p-value is exact at any
+    sample size, and because a basket moves as a unit, purchases made
+    together stay together: the within-visit clustering that inflates the
+    item-level chi-square is in the null distribution by construction.
+
+    Each relabelling draws one uniform key per basket and gives the
+    smaller side's label to the baskets with the smallest keys, a
+    uniformly random split with both counts kept. The statistic is
+    symmetric in the two rows, so the smaller side's totals are all it
+    needs. A relabelled statistic within 1e-9 (relative) of the observed
+    one counts as reaching it, so floating-point noise in a tie cannot
+    shrink p.
+
+    Baskets with no purchase in any column, and columns with no purchase
+    on either side, carry nothing and are dropped first. Returns the
+    statistic, the permutation p, ``naive_p_value`` (the chi-square(K - 1)
+    tail of the same statistic, i.e. the item-level test, which treats
+    every purchase as independent), the sizes of both sides in baskets and
+    items, and ``clustering_inflation``: the relabelled statistics' mean
+    over K - 1. It is about 1 when purchases are independent, above 1 when
+    they cluster within baskets -- the factor by which that clustering
+    inflates the item-level statistic -- and below 1 when a basket's
+    purchases tend to avoid sharing a category. When the test cannot run,
+    the numbers are NaN and ``reason`` says why.
+    """
+    if int(n_perm) < 1:
+        raise ValueError("n_perm must be at least 1")
+    sim = np.asarray(sim_counts, dtype=np.float64)
+    ref = np.asarray(ref_counts, dtype=np.float64)
+    width = max(sim.shape[-1] if sim.ndim == 2 else 0,
+                ref.shape[-1] if ref.ndim == 2 else 0)
+    sim = sim.reshape(-1, width) if sim.size else np.zeros((0, width))
+    ref = ref.reshape(-1, width) if ref.size else np.zeros((0, width))
+    sim = sim[sim.sum(axis=1) > 0]
+    ref = ref[ref.sum(axis=1) > 0]
+    n_perm = int(n_perm)
+    out = {'statistic': float('nan'), 'p_value': float('nan'),
+           'naive_p_value': float('nan'), 'df': 0, 'n_categories': 0,
+           'n_permutations': n_perm, 'permutation_seed': int(seed),
+           'n_sim_clusters': int(sim.shape[0]),
+           'n_ref_clusters': int(ref.shape[0]),
+           'n_items_sim': int(round(sim.sum())),
+           'n_items_ref': int(round(ref.sum())),
+           'clustering_inflation': float('nan'), 'reason': ''}
+    if min(sim.shape[0], ref.shape[0]) < MIN_CATEGORY_CLUSTERS:
+        out['reason'] = (f"Insufficient baskets (need >= "
+                         f"{MIN_CATEGORY_CLUSTERS} on each side).")
+        return out
+    pooled = np.vstack([sim, ref])
+    col = pooled.sum(axis=0)
+    used = col > 0
+    pooled, col = pooled[:, used], col[used]
+    k = int(pooled.shape[1])
+    out['n_categories'] = k
+    if k < 2:
+        out['reason'] = "Fewer than two categories with a purchase."
+        return out
+
+    observed = float(pearson_chi2_two_rows(sim[:, used].sum(axis=0), col))
+    df = k - 1
+    n = int(pooled.shape[0])
+    m = int(min(sim.shape[0], ref.shape[0]))
+    rng = np.random.default_rng(seed)
+    block = max(1, min(n_perm, _PERM_BLOCK_VALUES // n))
+    null = np.empty(n_perm, dtype=np.float64)
+    for start in range(0, n_perm, block):
+        b = min(block, n_perm - start)
+        keys = rng.random((b, n))
+        cut = np.partition(keys, m - 1, axis=1)[:, m - 1:m]
+        chosen = (keys <= cut).astype(np.float64)
+        null[start:start + b] = pearson_chi2_two_rows(chosen @ pooled, col)
+    tol = 1e-9 * max(abs(observed), 1.0)
+    reached = int(np.count_nonzero(null >= observed - tol))
+    out.update({
+        'statistic': observed,
+        'p_value': (1.0 + reached) / (1.0 + n_perm),
+        'naive_p_value': float(sp_stats.chi2.sf(observed, df)),
+        'df': df,
+        'clustering_inflation': float(null.mean() / df),
+    })
+    return out
+
+
+def placed_product_categories(params: CalibratedParams, shop
+                              ) -> Dict[str, str]:
+    """product_id -> category for every product the shop carries.
+
+    Both sides of the category test put a product in the category the
+    reference calibration (``params``) gives it, so a product counts in
+    the same column whether a simulated visit or a reference invoice
+    bought it. A store built from another period's calibration can carry
+    a product under that period's label; the reference's decides. A
+    product the reference does not know keeps the label on its fixture.
+    """
+    ref_cat = {str(k): str(v)
+               for k, v in (getattr(params, 'item_categories', None)
+                            or {}).items()}
+    out: Dict[str, str] = {}
+    for _, data in _iter_shop_items(shop):
+        pid = data.get('product_id')
+        if pid is None or str(pid) in out:
+            continue
+        cat = ref_cat.get(str(pid), data.get('category'))
+        out[str(pid)] = 'Unknown' if cat is None else str(cat)
+    return out
+
+
+def invoice_category_clusters(params: CalibratedParams,
+                              product_category: Dict[str, str],
+                              categories: List[str]) -> np.ndarray:
+    """One row per invoice holding at least one product of
+    ``product_category``: how many of those products it holds in each of
+    ``categories``. int64 (n, K), invoice order.
+
+    Invoices store distinct products, so a row sums to the invoice's
+    ``placed_invoice_sample`` size -- the unit a simulated visit buys in
+    (one of each item). Vectorised over the CSR arrays like
+    ``placed_invoice_sample``. Empty when the params carry no per-invoice
+    product sets.
+    """
+    k = len(categories)
+    if not getattr(params, 'has_invoice_structure', False) or k == 0:
+        return np.zeros((0, k), dtype=np.int64)
+    col_of = {c: j for j, c in enumerate(categories)}
+    code = np.asarray([col_of.get(product_category.get(str(p)), -1)
+                       for p in params.invoice_product_index],
+                      dtype=np.int64)
+    ptr = np.asarray(params.invoice_ptr, dtype=np.int64)
+    items = np.asarray(params.invoice_items, dtype=np.int64)
+    n_inv = int(ptr.size) - 1
+    row = np.repeat(np.arange(n_inv, dtype=np.int64), np.diff(ptr))
+    c = code[items]
+    hit = c >= 0
+    counts = np.bincount(row[hit] * k + c[hit],
+                         minlength=n_inv * k).reshape(n_inv, k)
+    return counts[counts.sum(axis=1) > 0].astype(np.int64)
+
+
+def visit_category_clusters(visit_purchases, item_product: Dict[str, str],
+                            product_category: Dict[str, str],
+                            categories: List[str]
+                            ) -> Tuple[np.ndarray, int, int]:
+    """One row per simulated visit that bought at least one product of
+    ``product_category``: its purchases in each of ``categories``.
+
+    ``visit_purchases`` is ``analytics['visit_purchases']``, the item keys
+    each paying visit took home; ``item_product`` maps an item key to its
+    product id (``_item_field_map(shop, 'product_id')``). Returns the
+    int64 (n, K) matrix, the purchases left out (items no longer on a
+    floor, or carrying no product id) and the visits left with nothing,
+    which are dropped as the reference drops invoices holding no placed
+    product.
+    """
+    k = len(categories)
+    col_of = {c: j for j, c in enumerate(categories)}
+    rows: List[np.ndarray] = []
+    left_out = 0
+    empty = 0
+    for basket in visit_purchases or ():
+        v = np.zeros(k, dtype=np.int64)
+        for item in basket or ():
+            pid = item_product.get(str(item))
+            j = (None if pid is None
+                 else col_of.get(product_category.get(str(pid))))
+            if j is None:
+                left_out += 1
+            else:
+                v[j] += 1
+        if v.any():
+            rows.append(v)
+        else:
+            empty += 1
+    matrix = np.vstack(rows) if rows else np.zeros((0, k), dtype=np.int64)
+    return matrix, left_out, empty
+
+
+def merge_unreferenced_categories(ref: np.ndarray, other: np.ndarray,
+                                  categories: List[str]
+                                  ) -> Tuple[np.ndarray, np.ndarray,
+                                             List[str], List[str]]:
+    """Pool the categories no reference basket touches into one column.
+
+    The only merging the category test does. The permutation null needs no
+    minimum expected count, so sparse categories stay as they are; but a
+    category the reference never buys is pooled, not dropped -- a
+    simulated purchase there is one the data never makes, which is
+    evidence against the model -- and pooling keeps that evidence in one
+    column instead of spreading it over several whose reference row is
+    all zero. When the other side has not bought them either, they carry
+    nothing and no column is kept for them. Returns both matrices, the
+    column labels and the categories the reference never touches.
+    """
+    ref = np.asarray(ref, dtype=np.int64).reshape(-1, len(categories))
+    other = np.asarray(other, dtype=np.int64).reshape(-1, len(categories))
+    touched = ref.sum(axis=0) > 0
+    if touched.all():
+        return ref, other, list(categories), []
+    unreferenced = [c for c, t in zip(categories, touched) if not t]
+    labels = [c for c, t in zip(categories, touched) if t]
+    if not other[:, ~touched].any():
+        return ref[:, touched], other[:, touched], labels, unreferenced
+    labels.append(UNREFERENCED_CATEGORY)
+
+    def _merge(mat):
+        return np.hstack([mat[:, touched],
+                          mat[:, ~touched].sum(axis=1, keepdims=True)])
+    return _merge(ref), _merge(other), labels, unreferenced
 
 
 # Live zone keys are Section wall names minus 'Section_'; the architecture
@@ -580,43 +878,25 @@ def validate_against_simulation(params: CalibratedParams,
                                    "comparable with a simulated visit's.")
         if t: res.tests.append(t)
 
-    # -- Category purchase shares (chi-square) --
+    # -- Category purchase shares --
     # Both sides count item purchases: the dataset's product-invoice touches
-    # restricted to the products the shop carries, against the live per-item
-    # purchase counters of those products mapped onto their category. Zone
-    # entries are not comparable -- an agent crossing a department on its
-    # way elsewhere is counted there too, and the dataset has no such notion.
+    # restricted to the products the shop carries, against the live
+    # purchases of those products, per category. Zone entries are not
+    # comparable -- an agent crossing a department on its way elsewhere is
+    # counted there too, and the dataset has no such notion. Where the
+    # calibration kept its invoices, the test moves whole baskets
+    # (``_category_basket_test``); otherwise only per-item totals exist and
+    # the item-level test below is all that can run.
     cat_observed = observed_category_counts(params,
                                             product_ids=pids or None)
-    cat_sim, left_out = simulated_category_purchases(
-        sim, product_ids=pids or None)
-    outside_set = " or are not among those products" if pids else ""
-    if sum(cat_sim.values()) > 0:
-        if pids:
-            note = (f"Item purchases per category against the dataset's "
-                    f"product-invoice touches, both over the {len(pids)} "
-                    f"products placed in the shop.")
-        else:
-            note = ("Item purchases per category against the dataset's "
-                    "product-invoice touches over the whole catalogue: the "
-                    "shop's items carry no product ids to narrow it to the "
-                    "assortment on the floor.")
-        if left_out:
-            note += (f" {left_out} purchases of items that are no longer on a "
-                     f"floor{outside_set} were excluded.")
-        t = _chi2_categorical(cat_observed, cat_sim,
-                              name="Category purchase shares", note=note)
-        if t: res.tests.append(t)
-    elif left_out:
-        res.summary_lines.append(
-            f"{left_out} purchases were recorded, all of items that are no "
-            f"longer on a floor{outside_set}; category shares were not tested."
-        )
+    if getattr(params, 'has_invoice_structure', False):
+        t, line = _category_basket_test(params, sim, pids)
+        if t is not None:
+            res.tests.append(t)
+        if line:
+            res.summary_lines.append(line)
     else:
-        res.summary_lines.append(
-            "No simulated purchases yet -- run the simulation until customers "
-            "reach the checkout before validating category shares."
-        )
+        _category_item_test(params, sim, pids, cat_observed, res)
 
     # Zone entries measure traffic, including agents passing through a
     # department on the way somewhere else, so they are reported alongside
@@ -667,3 +947,158 @@ def validate_against_simulation(params: CalibratedParams,
         if t: res.tests.append(t)
 
     return res
+
+
+
+def _no_purchases_line(left_out: int, outside_set: str) -> str:
+    """The report line for a run whose purchases give the category test
+    nothing to count."""
+    if left_out:
+        return (f"{left_out} purchases were recorded, all of items that are "
+                f"no longer on a floor{outside_set}; category shares were "
+                f"not tested.")
+    return ("No simulated purchases yet -- run the simulation until customers "
+            "reach the checkout before validating category shares.")
+
+
+def _json_float(x) -> Optional[float]:
+    x = float(x)
+    return x if np.isfinite(x) else None
+
+
+def _category_basket_test(params: CalibratedParams, sim, pids
+                          ) -> Tuple[Optional[GoodnessOfFit], str]:
+    """The category row as a test on whole baskets: simulated visits
+    against reference invoices, both cut to the products placed in the
+    shop, compared by ``cluster_permutation_chi2``.
+
+    Returns the row (None when there is nothing to test yet) and a report
+    line saying why a row is missing, if one is."""
+    A = sim.analytics
+    shop = getattr(sim, 'shop', None)
+    name = CATEGORY_TEST_NAME
+
+    def _not_run(why, n_obs=0, n_sim=0):
+        return GoodnessOfFit(name=name, test=CATEGORY_TEST_KIND,
+                             statistic=float('nan'), p_value=float('nan'),
+                             n_observed=int(n_obs), n_simulated=int(n_sim),
+                             note="Not run: " + why)
+
+    visits = A.get('visit_purchases')
+    if visits is None:
+        # Per-item totals alone cannot be split back into visits. A record
+        # that has none of either is a run nobody has paid in yet.
+        cat_sim, left_out = simulated_category_purchases(
+            sim, product_ids=pids or None)
+        if not cat_sim and not left_out:
+            return None, _no_purchases_line(0, "")
+        return _not_run(
+            "the analytics record carries no per-visit purchases "
+            "('visit_purchases'), only per-item totals, and the category "
+            "test compares whole visits with whole invoices. Re-run the "
+            "simulation to record them."), ""
+    if not pids:
+        return _not_run(
+            "the shop's items carry no product ids, so neither a visit nor "
+            "an invoice can be cut to the products placed in the shop."), ""
+
+    product_category = placed_product_categories(params, shop)
+    categories = sorted(set(product_category.values()))
+    ref = invoice_category_clusters(params, product_category, categories)
+    simm, left_out, empty = visit_category_clusters(
+        visits, _item_field_map(shop, 'product_id'), product_category,
+        categories)
+    if simm.shape[0] == 0:
+        return None, _no_purchases_line(
+            left_out, " or carry no product id")
+    if ref.shape[0] == 0:
+        return _not_run(f"none of the {len(pids)} products placed in the "
+                        f"shop appears on an invoice.",
+                        n_sim=simm.shape[0]), ""
+    ref, simm, labels, unreferenced = merge_unreferenced_categories(
+        ref, simm, categories)
+    r = cluster_permutation_chi2(simm, ref)
+
+    note = (f"Whole baskets: {r['n_ref_clusters']:,} invoices holding at "
+            f"least one of the {len(pids)} products placed in the shop "
+            f"against {r['n_sim_clusters']:,} simulated visits that bought "
+            f"one, each reduced to its purchases of those products per "
+            f"category ({r['n_categories']} categories; "
+            f"{r['n_items_ref']:,} reference and {r['n_items_sim']:,} "
+            f"simulated purchases). "
+            f"Statistic = Pearson chi-square of the 2 x K table of category "
+            f"totals; p from {r['n_permutations']:,} random reassignments of "
+            f"the visit / invoice labels (seed {r['permutation_seed']}), "
+            f"which move each basket whole.")
+    if np.isfinite(r['naive_p_value']):
+        note += (f" Naive item-level p = {r['naive_p_value']:.3g} (the "
+                 f"chi-square({r['df']}) tail, which treats every purchase as "
+                 f"independent; the reassigned statistics average "
+                 f"{r['clustering_inflation']:.2f} x its null mean).")
+    if UNREFERENCED_CATEGORY in labels:
+        note += (f" Categories no reference invoice touches are pooled into "
+                 f"one column: {', '.join(unreferenced)}.")
+    elif unreferenced:
+        note += (f" Categories neither side bought are left out: "
+                 f"{', '.join(unreferenced)}.")
+    if left_out:
+        note += (f" {left_out} purchases of items that are no longer on a "
+                 f"floor or carry no product id were excluded.")
+    if empty:
+        note += (f" {empty} paying visits bought none of the placed products "
+                 f"and are left out, as invoices holding none are.")
+    if r['reason']:
+        note = "Not run: " + r['reason'] + " " + note
+    extra = {'naive_p_value': _json_float(r['naive_p_value']),
+             'n_permutations': int(r['n_permutations']),
+             'permutation_seed': int(r['permutation_seed']),
+             'df': int(r['df']),
+             'n_categories': int(r['n_categories']),
+             'categories': list(labels),
+             'unreferenced_categories': list(unreferenced),
+             'n_items_observed': int(r['n_items_ref']),
+             'n_items_simulated': int(r['n_items_sim']),
+             'clustering_inflation': _json_float(r['clustering_inflation']),
+             'items_left_out': int(left_out),
+             'visits_without_placed_item': int(empty)}
+    return GoodnessOfFit(name=name, test=CATEGORY_TEST_KIND,
+                         statistic=float(r['statistic']),
+                         p_value=float(r['p_value']),
+                         n_observed=int(r['n_ref_clusters']),
+                         n_simulated=int(r['n_sim_clusters']),
+                         note=note, extra=extra), ""
+
+
+def _category_item_test(params: CalibratedParams, sim, pids,
+                        cat_observed: Dict[str, float],
+                        res: ValidationResult) -> None:
+    """The category row for a calibration with no invoices to reassign
+    (aggregate sources): per-item totals against the reference shares,
+    the item-level test, labelled as such."""
+    cat_sim, left_out = simulated_category_purchases(
+        sim, product_ids=pids or None)
+    outside_set = " or are not among those products" if pids else ""
+    if sum(cat_sim.values()) > 0:
+        if pids:
+            note = (f"Item purchases per category against the dataset's "
+                    f"product-invoice touches, both over the {len(pids)} "
+                    f"products placed in the shop.")
+        else:
+            note = ("Item purchases per category against the dataset's "
+                    "product-invoice touches over the whole catalogue: the "
+                    "shop's items carry no product ids to narrow it to the "
+                    "assortment on the floor.")
+        if left_out:
+            note += (f" {left_out} purchases of items that are no longer on a "
+                     f"floor{outside_set} were excluded.")
+        t = _chi2_categorical(cat_observed, cat_sim,
+                              name=CATEGORY_TEST_NAME, note=note)
+        if t:
+            t.note += (" Item-level test: the source has no invoices whose "
+                       "baskets could be reassigned, so every purchase counts "
+                       "as an independent observation. Purchases made on one "
+                       "visit are not independent, so this test rejects a "
+                       "correct model more often than alpha.")
+            res.tests.append(t)
+    else:
+        res.summary_lines.append(_no_purchases_line(left_out, outside_set))

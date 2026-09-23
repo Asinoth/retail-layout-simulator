@@ -210,10 +210,11 @@ class EditMixin:
     def _rekey_item_calibration(self, old_name, new_name):
         """Move an item's calibrated data onto its new name.
 
-        The dataset pipeline keys popularity, per-item conversion and the
-        co-purchase pairs on the shop's item names, so a rename would leave
-        them behind and the item would be scored and optimized as if it had
-        never been observed."""
+        The dataset pipeline keys popularity, per-item conversion, the
+        co-purchase pairs and the stocked invoices the shoppers draw their
+        lists from on the shop's item names, so a rename would leave them
+        behind: the item would be scored and optimized as if it had never
+        been observed, and would drop out of every shopping list."""
         sim = getattr(self, 'customer_simulation', None)
         cal = (getattr(sim, 'analytics', None) or {}).get('calibration')
         if not cal:
@@ -234,11 +235,11 @@ class EditMixin:
                 b = new_name if b == old_name else b
                 renamed[f"{a}|{b}"] = count
             cross.update(renamed)
-        # Spawning agents cache basket weights built from these dicts.
-        try:
-            sim._basket_struct_cache = None
-        except Exception:
-            pass
+        # The invoices refer to items by position in this key list, so
+        # renaming the key in place keeps every invoice pointing at it.
+        keys = cal.get('list_invoice_keys')
+        if isinstance(keys, list) and old_name in keys:
+            keys[keys.index(old_name)] = new_name
 
     def _on_handle_drag(self, dr, mx, my):
         """Resize with collision detection and opposite-side fallback.

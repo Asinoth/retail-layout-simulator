@@ -205,22 +205,24 @@ IMPULSE_LONG_DWELL_BONUS  = 0.15     # added after this many seconds in store
 IMPULSE_LONG_DWELL_SECS   = 120.0
 
 
-# --- basket composition ---
-# Shopping lists used to be drawn uniformly over the assortment, which
-# meant the calibrated co-purchase structure reached the layout score
-# and the MC parameters but never an agent. Co-locating two frequently
-# co-purchased products therefore could not change anyone's behaviour
-# inside the ABM, so that criterion was carried by the model rather
-# than exhibited by it.
+# --- basket composition (no constants) ---
+# On a calibrated shop an agent's shopping list is the stocked part of ONE
+# empirical invoice, drawn uniformly from the invoices holding at least one
+# of the shop's regular items (``Customer._draw_invoice``; the invoices are
+# stored by ``CalibratedParams.seed_into``). The invoice is what the data
+# observe: its size, its contents, its category mix and its co-purchases
+# come jointly, so the draw carries all four to the agents and leaves no
+# coefficient to set. Co-locating two products that real invoices hold
+# together therefore changes agent behaviour through the data alone.
 #
-# Lists are now drawn with popularity weighting, and each item after
-# the first is taken from the co-purchase partners of something already
-# in the basket with probability BASKET_AFFINITY_PROB. Both fall back
-# to the old uniform draw when no calibration is loaded, so generated
-# and synthetic shops behave exactly as before.
-
-BASKET_AFFINITY_PROB = 0.35   # chance the next item comes from an affinity pair
-BASKET_POP_SMOOTHING = 1.0    # additive smoothing on popularity counts
+# The earlier law -- popularity-weighted items plus a fixed chance of
+# pulling a co-purchase partner of an item already chosen -- had two
+# free constants (pull probability, popularity smoothing) that nothing
+# cited fixed, and it counted each co-purchase twice: a product's
+# popularity already counts every invoice it shares with its partners.
+#
+# Without a calibration the list is a uniform draw over the regular items,
+# its length set by LIST_LENGTH_BY_TYPE below.
 
 
 # --- shopping-list length (uncalibrated shops only) ---
@@ -231,11 +233,12 @@ BASKET_POP_SMOOTHING = 1.0    # additive smoothing on popularity counts
 # type, and a transaction log cannot label its buyers 'quick' or
 # 'thorough' either.
 #
-# It applies only while no calibration supplies a list-length sample. A
-# transactional calibration seeded onto its own shop replaces it with the
-# distribution of distinct STOCKED products per invoice
+# It applies only while no calibration supplies stored invoices. A
+# transactional calibration seeded onto its own shop replaces it: each
+# agent's list is then one invoice's stocked part, so its length follows
+# the distribution of distinct STOCKED products per invoice
 # (``analytics['calibration']['list_length_sample']``), which the data do
-# observe, so a calibrated shop's list length no longer depends on type.
+# observe, and no longer depends on type.
 
 LIST_LENGTH_BY_TYPE = {
     'quick':    (2, 4),

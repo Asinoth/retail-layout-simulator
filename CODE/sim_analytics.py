@@ -170,6 +170,15 @@ class AnalyticsMixin:
             # validation revenue test and the projections' revenue spread
             # both need the per-customer values, not just the running total.
             A.setdefault('customer_revenues', []).append(rev)
+            # The items themselves, one list per visit in the same order as
+            # basket_sizes and customer_revenues (so a window is cut from all
+            # three by one index). The category goodness-of-fit test needs a
+            # visit's purchases kept together: items bought on one trip are
+            # not independent draws, and the per-item counters below cannot
+            # be split back into the visits they came from. Keys are stored
+            # as strings so the record stays JSON-serialisable.
+            A.setdefault('visit_purchases', []).append(
+                [str(it) for it in items_bought])
 
             imp_cnt = len(cust.impulse_items)
             A['impulse_purchases'] += imp_cnt

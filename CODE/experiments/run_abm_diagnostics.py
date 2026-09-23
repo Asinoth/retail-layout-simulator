@@ -36,8 +36,8 @@ Two ABM-reviewer questions, answered from one calibrated live simulation:
 
 The store is ``experiments._live_store``'s: the UCI workbook's current
 period (its last sheet, every row), laid out naively and seeded with the
-shop so the agents draw their list lengths from the invoices cut to the
-stocked products. ``--retail-path`` names the workbook; without it
+shop so each agent's shopping list is the stocked part of one invoice
+of that period. ``--retail-path`` names the workbook; without it
 ``dataset_paths.uci_workbook()`` finds it. The summary records the period,
 its date range and the workbook.
 
@@ -53,24 +53,39 @@ The defaults were set by a transient study on this store (3,600 s runs
 from 09:00 on seeds disjoint from the runners' own), each value by a fixed
 rule:
 
-  --spawn 0.26 --cap 45  The highest arrival rate on a 0.01/s grid at which
+  --spawn 0.27 --cap 45  The highest arrival rate on a 0.01/s grid at which
       occupancy stays below the cap at least 99% of the time after the
-      warm-up. The cap binds 0.66% of the time at 0.26/s and 1.49% at
-      0.27/s (16 replications each). The calibrated hour-of-day profile
-      scales the rate by 0.744 in the 09:00-10:00 hour a run falls in.
-  --warmup 900  Welch's procedure on the replication-mean occupancy at the
-      nominal rate. The moving average is taken only where its window is
-      complete, with the smallest half-window (from 30, 60, 120, 240 and
-      480 s) whose plateau noise is under a third of the 5% band: 240 s.
-      The smoothed curve then stays within 5% of its plateau (32.4
-      customers in store) from 435 s on; doubled and rounded up to the
-      next 60 s that is 900 s. MSER-5 on the same curve truncates at
-      600 s, so it asks for no more.
+      warm-up. The cap binds 0.38% of the time at 0.26/s, 0.88% at
+      0.27/s and 1.27% at 0.28/s (16 replications each). The calibrated
+      hour-of-day profile scales the rate by 0.744 in the 09:00-10:00
+      hour a run falls in.
+  --warmup 1020  The first whole minute after which the expected
+      occupancy of the store, which starts empty, is within 1% of its
+      steady state. With arrivals at a constant rate and visits that do
+      not depend on one another (an infinite-server queue; Eick, Massey
+      and Whitt 1993) that expectation is E[N(t)] / L = 1 - E[(S - t)+] /
+      E[S] for visit length S, so the rule needs only the visit-length
+      distribution, estimated by Kaplan-Meier from the study's visits at
+      the nominal rate (still-open visits censored at the run's end;
+      mean 163 s). The 1% point is 965 s, rounded up to 1,020 s. Visits
+      do interact through the checkout lanes and the cap, but at this
+      load a lane is busy 29% of the time and the cap binds under 1%,
+      and the occupancy after 1,020 s shows no drift: the per-replication
+      slope over the measured part of a run is 0.9 +- 1.9 customers per
+      1,000 s (p = 0.09), and the first 300 s after the warm-up average
+      32.1 customers against 32.8 over the rest of the window (paired
+      p = 0.42). The same criterion gives 895-1,030 s at every rate from
+      0.26 to 0.32/s. Welch's procedure and MSER-5, which set the
+      previous protocol's warm-up, did not give a stable answer on this
+      store's 16 replications: across those neighbouring rates Welch's
+      doubled settle time ranged 840-3,360 s and MSER-5's truncation
+      435-1,695 s, with no trend in the rate -- the replication-mean
+      curve's slow wander decided them, not the transient.
   --seconds 1860  The shortest whole-minute window in which every study
       replication completes at least 300 visits (agents that arrive after
-      the warm-up and leave inside the window; the fewest was 301 and the
-      mean 329) and that spans at least ten median visits (median 120 s).
-      Warm-up plus window ends at 2,760 s, inside the first trading hour,
+      the warm-up and leave inside the window; the fewest was 306 and the
+      mean 339) and that spans at least ten median visits (median 118 s).
+      Warm-up plus window ends at 2,880 s, inside the first trading hour,
       so the arrival rate is constant over the measured part of a run. The run then continues,
       arrivals included, only until the window's own arrivals have left.
       That adds the cohort's visits still under way at the window's end to
@@ -116,9 +131,9 @@ DRAIN_CHUNK_S = 60.0
 MAX_DRAIN_S = 3600.0
 
 # Default protocol; the module docstring records how each value was chosen.
-NOMINAL_SPAWN = 0.26
+NOMINAL_SPAWN = 0.27
 NOMINAL_CAP = 45
-WARMUP_S = 900.0
+WARMUP_S = 1020.0
 COLLECT_S = 1860.0
 
 

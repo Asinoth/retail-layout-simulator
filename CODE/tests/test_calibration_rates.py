@@ -118,14 +118,12 @@ def test_mc_horizon_reproduces_observed_volume():
         "purchases per calendar day")
 
 
-def test_seeded_calibration_feeds_visitor_rate_and_resets_basket_cache():
+def test_seeded_calibration_feeds_visitor_rate():
     params = calibrate_transactional(_poisson_invoices(6.0, 28, seed=5),
                                      assumed_conversion_rate=0.25)
     sim = SimpleNamespace(analytics={}, run_time=0.0, sim_time=0.0,
-                          simulation_speed=1.0, shop=None,
-                          _basket_struct_cache=('stale', None, None, None))
+                          simulation_speed=1.0, shop=None)
     params.seed_into(sim)
-    assert sim._basket_struct_cache is None
     cal = sim.analytics['calibration']
     assert np.isclose(cal['arrivals_per_hour'], params.arrivals_per_hour)
     assert np.isclose(cal['visitors_per_hour'], params.visitors_per_hour)
@@ -188,8 +186,7 @@ def test_hourly_profile_integrates_to_the_operating_day():
     stray['timestamp'] = pd.Timestamp('2010-01-06 06:00')
     params = calibrate_transactional(pd.concat([df, stray], ignore_index=True))
     sim = SimpleNamespace(analytics={}, run_time=0.0, sim_time=0.0,
-                          simulation_speed=1.0, shop=None,
-                          _basket_struct_cache=None)
+                          simulation_speed=1.0, shop=None)
     params.seed_into(sim)
     profile = np.asarray(sim.hourly_profile, dtype=np.float64)
     assert np.isclose(profile.sum(), DEFAULT_OP_HOURS_PER_DAY)

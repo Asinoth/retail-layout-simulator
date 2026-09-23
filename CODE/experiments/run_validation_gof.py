@@ -10,9 +10,11 @@ data with the tests in ``dataset_validation`` at alpha = 0.05:
 
   * basket size    -- distinct items per visit (KS, 2-sample)
   * per-visit revenue                            (KS, 2-sample)
-  * category purchase shares -- item purchases per category against the
-    dataset's product-invoice touches, both over the products placed in
-    the store                                    (chi-square)
+  * category purchase shares -- purchases per category of the products
+    placed in the store, whole simulated visits against whole invoices
+    (chi-square statistic; p from reassigning the visit / invoice labels
+    at random, which keeps each basket's purchases together, with the
+    item-level chi-square p beside it, labelled naive)
   * inter-arrival times                          (KS, informational: it
     asks whether the dataset's own arrivals are Poisson-like, which is the
     family the simulator assumes, and says nothing about the simulator's
@@ -48,9 +50,16 @@ same number of replications:
 ``summary.json`` holds the in-sample results at top level, the held-out
 results in a ``held_out`` block of the same structure, and a ``design``
 block with both periods' date ranges and invoice counts, and for each
-design the products its store placed and how many reference invoices hold
-at least one of them. ``results.csv`` has one row per design, replication
-and test.
+design the products its store placed, how many reference invoices hold
+at least one of them, ``year_shift``: the same basket, revenue and
+category tests between the two periods' own invoices on those products,
+and ``replica``: those tests on replicas that draw as many of the store
+period's invoices as the simulator produced visits -- what a model that
+transmitted its calibration period perfectly would score at the
+simulator's own sample size. The year shift compares two whole periods,
+and a chi-square grows with the sample, so only the replicas put the
+simulator's statistics against a yardstick on the same footing.
+``results.csv`` has one row per design, replication and test.
 
 Every replication is a fixed-step headless run
 (``CustomerFlowSimulation.run_headless``: the GUI loop's ``step`` with no
@@ -88,18 +97,25 @@ _HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.dirname(_HERE))
 
 from dataset_calibration import placed_invoice_sample  # noqa: E402
-from dataset_validation import (placed_product_ids,  # noqa: E402
-                                validate_against_simulation)
+from dataset_validation import (  # noqa: E402
+    cluster_permutation_chi2, invoice_category_clusters,
+    merge_unreferenced_categories, placed_product_categories,
+    placed_product_ids, validate_against_simulation)
 from experiments import _live_store as LS  # noqa: E402
 from experiments._common import make_run_dir, write_sidecar  # noqa: E402
 
 # Default protocol, shared with run_abm_diagnostics / measure_queueing.
-NOMINAL_SPAWN = 0.26
+NOMINAL_SPAWN = 0.27
 NOMINAL_CAP = 45
-WARMUP_S = 900.0
+WARMUP_S = 1020.0
 COLLECT_S = 1860.0
 
 ALPHA = 0.05
+
+# Size-matched replicas of each store's calibration period (``_replicas``):
+# how many, and the seed their invoice draws come from.
+N_REPLICAS = 200
+REPLICA_SEED = 20260925
 
 # Designs, in the order their replications are seeded. Each builds its store
 # from its own period and is tested against the reference period.
@@ -178,10 +194,13 @@ def _increments(now, before):
 def _window_analytics(sim, start):
     """The post-warm-up part of the samples the tests read.
 
-    Basket sizes and per-visit revenues are appended as agents leave, so the
-    window's samples are the tail past the boundary snapshot; zone visits
-    and item purchases are cumulative counts, so the window's are their
-    increments."""
+    Basket sizes, per-visit revenues and per-visit purchases are appended
+    as agents leave, so the window's samples are the tail past the boundary
+    snapshot; zone visits and item purchases are cumulative counts, so the
+    window's are their increments. The per-visit purchases are always
+    written, empty or not: the simulator records them for every paying
+    visit, and a missing list would tell the category test that the record
+    predates them."""
     A = sim.analytics
     bought, impulse = _item_purchases(A)
     visits = {str(z): int(n) for z, n in dict(A.get('area_visits', {})).items()}
@@ -191,6 +210,9 @@ def _window_analytics(sim, start):
         'customer_revenues': [
             float(v) for v in
             list(A.get('customer_revenues', []))[start['n_revenues']:]],
+        'visit_purchases': [
+            [str(item) for item in basket] for basket in
+            list(A.get('visit_purchases', []))[start['n_visit_purchases']:]],
         'item_conversion_rates': {
             item: {'purchases': n}
             for item, n in _increments(bought, start['purchases']).items()},
@@ -219,6 +241,7 @@ def run_once(params, spawn, cap, seconds, warmup=WARMUP_S, dt=0.04, seed=None):
         start['t'] = float(s.sim_time)
         start['n_baskets'] = len(A.get('basket_sizes', []))
         start['n_revenues'] = len(A.get('customer_revenues', []))
+        start['n_visit_purchases'] = len(A.get('visit_purchases', []))
         start['area_visits'] = {str(z): int(n) for z, n
                                 in dict(A.get('area_visits', {})).items()}
         start['purchases'], start['impulse_sales'] = _item_purchases(A)
@@ -321,21 +344,43 @@ def parse_args(argv=None):
     return args
 
 
+def _json_value(v):
+    """One value of a test's extra record as JSON: a non-finite float
+    becomes None, as the statistic and p-value do."""
+    if isinstance(v, (float, np.floating)):
+        return float(v) if np.isfinite(v) else None
+    if isinstance(v, np.integer):
+        return int(v)
+    return v
+
+
 def _test_rows(params, analytics, shop_items, alpha):
     """One dict per goodness-of-fit test of a window's analytics, and the
-    report's notes, which say why a test that could not run is missing."""
+    report's notes, which say why a test that could not run is missing.
+
+    A test's extra record -- for the category test the naive item-level p,
+    the permutation count and seed, the categories compared -- goes into
+    its row beside the common fields."""
     res = validate_against_simulation(
         params, WindowSim(analytics, ShopItems(shop_items)), alpha=alpha)
-    return [{'test': t.name,
-             'kind': t.test,
-             'statistic': (float(t.statistic)
-                           if np.isfinite(t.statistic) else None),
-             'p_value': float(t.p_value) if t.applicable() else None,
-             'n_observed': int(t.n_observed),
-             'n_simulated': int(t.n_simulated),
-             'decision': t.verdict(alpha),
-             'note': t.note}
-            for t in res.tests], list(res.summary_lines)
+    rows = []
+    for t in res.tests:
+        row = {'test': t.name,
+               'kind': t.test,
+               'statistic': (float(t.statistic)
+                             if np.isfinite(t.statistic) else None),
+               'p_value': float(t.p_value) if t.applicable() else None,
+               'n_observed': int(t.n_observed),
+               'n_simulated': int(t.n_simulated),
+               'decision': t.verdict(alpha),
+               'note': t.note}
+        clash = set(row) & set(t.extra)
+        if clash:
+            raise RuntimeError(f"{t.name}: extra fields {sorted(clash)} would "
+                               "overwrite the common ones")
+        row.update({k: _json_value(v) for k, v in t.extra.items()})
+        rows.append(row)
+    return rows, list(res.summary_lines)
 
 
 def _decision_counts(per_rep, name):
@@ -387,6 +432,7 @@ def _design_block(design, wins, params_ref, args):
     pooled_analytics = {
         'basket_sizes': [v for w in wins for v in w['basket_sizes']],
         'customer_revenues': [v for w in wins for v in w['customer_revenues']],
+        'visit_purchases': [v for w in wins for v in w['visit_purchases']],
         'item_conversion_rates': {item: {'purchases': n}
                                   for item, n in purchases.items()},
         'impulse_item_sales': _summed(w['impulse_item_sales'] for w in wins),
@@ -432,14 +478,17 @@ def _sample_stats(sizes):
             'mean': float(a.mean()), 'p90': float(np.percentile(a, 90))}
 
 
-def _year_shift(store_sample, ref_sample):
-    """Two-sample KS between the data the store was calibrated on and the
-    reference data it is tested against, on the same stocked products.
+def _year_shift(store_sample, ref_sample, store_clusters, ref_clusters):
+    """The basket, revenue and category tests between the data the store
+    was calibrated on and the reference data it is tested against, on the
+    same stocked products: two-sample KS on the stocked part of each
+    invoice, and the category row's own test (``cluster_permutation_chi2``)
+    with the store period's invoices in the simulated visits' place.
 
-    In the in-sample design the two samples are one and the distance is
-    zero. In the held-out design it is how far the two periods' own
-    invoices differ -- the yardstick for the simulator's held-out
-    distance: a simulator that transmitted its calibration period
+    In the in-sample design the two samples are one, so every distance is
+    zero and every p-value 1. In the held-out design it is how far the two
+    periods' own invoices differ -- the yardstick for the simulator's
+    held-out distance: a simulator that transmitted its calibration period
     perfectly would sit about this far from the reference."""
     out = {}
     for name, key in (('basket', 'sizes'), ('revenue', 'revenues')):
@@ -452,10 +501,100 @@ def _year_shift(store_sample, ref_sample):
                          'n_store': int(a.size), 'n_reference': int(b.size)}
         else:
             out[name] = None
+    r = cluster_permutation_chi2(store_clusters, ref_clusters)
+    out['category'] = ({
+        'statistic': float(r['statistic']),
+        'p_value': float(r['p_value']),
+        'naive_p_value': _json_value(r['naive_p_value']),
+        'n_store': int(r['n_sim_clusters']),
+        'n_reference': int(r['n_ref_clusters']),
+        'n_categories': int(r['n_categories']),
+        'n_permutations': int(r['n_permutations']),
+        'permutation_seed': int(r['permutation_seed'])}
+        if np.isfinite(r['p_value']) else None)
     return out
 
 
-def _store_facts(design, shop_items, params_ref, params_store):
+def _replica_summary(stats, pvals, sim_stat, alpha, n, seed):
+    stats = np.asarray(stats, dtype=float)
+    pvals = np.asarray(pvals, dtype=float)
+    out = {'n_replicas': int(stats.size), 'n_per_replica': int(n),
+           'seed': int(seed),
+           'median': float(np.median(stats)),
+           'lo': float(np.percentile(stats, 2.5)),
+           'hi': float(np.percentile(stats, 97.5)),
+           'reject_rate': float(np.mean(pvals < alpha)),
+           'simulator_statistic': None, 'simulator_percentile': None}
+    if sim_stat is not None and np.isfinite(sim_stat):
+        out['simulator_statistic'] = float(sim_stat)
+        out['simulator_percentile'] = float(np.mean(stats <= sim_stat))
+    return out
+
+
+def _replicas(store_sample, ref_sample, store_clusters, ref_clusters,
+              pooled, alpha, n_rep=N_REPLICAS, seed=REPLICA_SEED):
+    """What a model that transmitted its calibration period perfectly would
+    score, at the sample size the simulator actually produced.
+
+    The simulator's statistics come from its pooled visits; the year shift
+    compares two whole periods, so its statistics are not on the same
+    footing -- a chi-square grows with the sample, and a KS distance
+    carries less sampling noise at full size. Each replica draws as many
+    of the store period's invoices, with replacement, as the pooled test
+    had simulated visits -- the stocked part of each, which is exactly
+    what a shopper of this store draws its list from -- and scores them
+    against the reference with the row's own test. Recorded per row: the
+    replicas' median statistic and central 95% range, the share of them
+    the test rejects at ``alpha`` (the test's power against a perfect
+    transfer of the calibration period), and where the simulator's own
+    statistic falls among them.
+
+    In the in-sample design the store period is the reference, so the
+    replicas are the test's null and their rejection rate sits near
+    ``alpha``. In the held-out design they carry the year-to-year drift
+    and nothing else."""
+    sim = {}
+    for row in pooled:
+        name = str(row['test']).lower()
+        key = next((k for k in ('basket', 'revenue', 'categor') if k in name),
+                   None)
+        if key and row.get('statistic') is not None:
+            sim[key] = (float(row['statistic']), int(row['n_simulated']))
+    out = {}
+    for i, (name, key) in enumerate((('basket', 'sizes'),
+                                     ('revenue', 'revenues'))):
+        a = np.asarray(store_sample[key], dtype=float)
+        b = np.asarray(ref_sample[key], dtype=float)
+        if name not in sim or not (a.size and b.size):
+            out[name] = None
+            continue
+        stat, n = sim[name]
+        rng = np.random.default_rng([seed, i])
+        stats, pvals = [], []
+        for _ in range(n_rep):
+            r = ks_2samp(a[rng.integers(0, a.size, n)], b)
+            stats.append(r.statistic)
+            pvals.append(r.pvalue)
+        out[name] = _replica_summary(stats, pvals, stat, alpha, n, seed)
+    rows = np.asarray(store_clusters, dtype=float)
+    rows = rows[rows.sum(axis=1) > 0] if rows.size else rows
+    if 'categor' in sim and len(rows):
+        stat, n = sim['categor']
+        rng = np.random.default_rng([seed, 2])
+        stats, pvals = [], []
+        for _ in range(n_rep):
+            r = cluster_permutation_chi2(rows[rng.integers(0, len(rows), n)],
+                                         ref_clusters)
+            stats.append(r['statistic'])
+            pvals.append(r['p_value'])
+        out['category'] = _replica_summary(stats, pvals, stat, alpha, n, seed)
+    else:
+        out['category'] = None
+    return out
+
+
+def _store_facts(design, shop_items, params_ref, params_store, pooled=None,
+                 alpha=ALPHA):
     """How a design's store meets the reference period: the products it
     placed, how many of them the reference period sells at all, and how
     many reference invoices hold at least one of them -- the invoices the
@@ -465,21 +604,40 @@ def _store_facts(design, shop_items, params_ref, params_store):
     draw their shopping-list length from (the stocked part of each invoice
     of the period the store was calibrated on, as seed_into writes it) and
     the reference the basket test compares them against. In the in-sample
-    design the two are the same sample."""
-    pids = placed_product_ids(ShopItems(shop_items))
+    design the two are the same sample.
+
+    The category yardstick puts each product in the category the reference
+    calibration gives it and pools the categories no reference invoice
+    touches, exactly as the category row does for the simulated visits.
+
+    Given the design's pooled test rows, also ``replica``: the same tests
+    on size-matched replicas of the store period (``_replicas``)."""
+    shop = ShopItems(shop_items)
+    pids = placed_product_ids(shop)
     sold = {str(p) for p in (params_ref.item_visit_counts or {})}
     sample = placed_invoice_sample(params_ref, pids)
     agent_sample = placed_invoice_sample(params_store, pids)
-    return {'label': DESIGN_LABELS[design],
-            'store_period': STORE_PERIOD[design],
-            'reference_period': REFERENCE_PERIOD,
-            'n_placed_products': len(pids),
-            'n_placed_products_in_reference': len(pids & sold),
-            'n_reference_invoices': int(sample['n_invoices']),
-            'n_reference_invoices_with_placed': int(sample['n_with_placed']),
-            'list_length_agents': _sample_stats(agent_sample['sizes']),
-            'list_length_reference': _sample_stats(sample['sizes']),
-            'year_shift': _year_shift(agent_sample, sample)}
+    product_category = placed_product_categories(params_ref, shop)
+    categories = sorted(set(product_category.values()))
+    ref_clusters, store_clusters, _, _ = merge_unreferenced_categories(
+        invoice_category_clusters(params_ref, product_category, categories),
+        invoice_category_clusters(params_store, product_category, categories),
+        categories)
+    facts = {'label': DESIGN_LABELS[design],
+             'store_period': STORE_PERIOD[design],
+             'reference_period': REFERENCE_PERIOD,
+             'n_placed_products': len(pids),
+             'n_placed_products_in_reference': len(pids & sold),
+             'n_reference_invoices': int(sample['n_invoices']),
+             'n_reference_invoices_with_placed': int(sample['n_with_placed']),
+             'list_length_agents': _sample_stats(agent_sample['sizes']),
+             'list_length_reference': _sample_stats(sample['sizes']),
+             'year_shift': _year_shift(agent_sample, sample, store_clusters,
+                                       ref_clusters)}
+    if pooled is not None:
+        facts['replica'] = _replicas(agent_sample, sample, store_clusters,
+                                     ref_clusters, pooled, alpha)
+    return facts
 
 
 def _print_pooled(title, pooled, alpha, n_reps):
@@ -521,7 +679,7 @@ def main(argv=None):
     blocks = {d: _design_block(d, by_design[d], params_ref, args)
               for d in DESIGNS}
     design = {d: _store_facts(d, by_design[d][0]['shop_items'], params_ref,
-                              stores[d])
+                              stores[d], blocks[d]['pooled'], args.alpha)
               for d in DESIGNS}
     design['periods'] = periods
 
@@ -578,6 +736,20 @@ def main(argv=None):
           f"{ho['n_placed_products']} products "
           f"({ho['n_placed_products_in_reference']} of them sold in that "
           f"period).")
+    shift = ', '.join(
+        f"{k} stat={v['statistic']:.4f} p={v['p_value']:.4g}"
+        for k, v in ho['year_shift'].items() if v)
+    print(f"The two periods' own invoices on those products, against each "
+          f"other: {shift or 'n/a'}.")
+    for d in DESIGNS:
+        for k, v in design[d]['replica'].items():
+            if v:
+                print(f"[{d}] {k}: simulator {v['simulator_statistic']:.4f} "
+                      f"at replica percentile {v['simulator_percentile']:.2f}; "
+                      f"{v['n_replicas']} replicas of {v['n_per_replica']} "
+                      f"store-period invoices: median {v['median']:.4f} "
+                      f"(95% {v['lo']:.4f}-{v['hi']:.4f}), rejected "
+                      f"{100 * v['reject_rate']:.0f}% at alpha {args.alpha}")
     print(f"wall {wall:.0f}s; artifacts in: {out_dir}")
     return 0
 

@@ -37,14 +37,15 @@ Cross-platform driver: `make <target>` (Unix/macOS) or
 
 ```bash
 make deps        # pip install -r requirements.txt
-make test        # 212 pytest cases: MC engine vs closed form, Markov
+make test        # 233 pytest cases: MC engine vs closed form, Markov
                  #   properties, elasticity monotonicity, layout
                  #   feasibility and repair parity, GA determinism,
                  #   fixed-step determinism, fixture obstacles, the
                  #   arrival loop, calibrated rates, worker invariance,
-                 #   stocked-product baskets, common search starts,
-                 #   the weight sweep, dataset discovery and the
-                 #   search-seed replication
+                 #   invoice-drawn shopping lists, the basket-level
+                 #   category test and its replica yardstick, common
+                 #   search starts, the weight sweep, dataset discovery
+                 #   and the search-seed replication
 make verify      # architecture invariants (7 shop types x 5 sizes x 3
                  #   seeds, non-overlapping zones, aisle clearances,
                  #   keepouts, flood-fill reachability through item
@@ -121,8 +122,8 @@ one, otherwise from the start and end of the run:
 | Elasticity and weight sweeps | `run_elasticity_lhs` | 4 | 2 min |
 | Markov order and perimeter ratio (live) | `run_abm_diagnostics` | 4 | 3 min |
 | Structural sweep (live) | `run_structural_sensitivity` | 4 | 5 min |
-| Queueing (live) | `measure_queueing` | 4 | 4 min |
-| Goodness of fit, in-sample and held-out (live) | `run_validation_gof` | 4 | 2 min |
+| Queueing (live) | `measure_queueing` | 4 | 5 min |
+| Goodness of fit, in-sample and held-out (live) | `run_validation_gof` | 4 | 5 min |
 | Figure C across ten search seeds | `run_real_data_seeds` | 4 | 6 min |
 
 About three and a half hours in all. Times are machine-dependent; outputs
@@ -140,10 +141,11 @@ this is how they map onto the release:
 
 | Recorded commit | Runs | Code relative to this release |
 |---|---|---|
-| `4ac7843` | Figure C across search seeds | identical |
-| `f18e38f` | ABM diagnostics, structural sweep, MC ground truth | differs only in `run_real_data_example.py` (split into reusable steps; its outputs are byte-identical for the same arguments), `make_results_macros.py` and the added `run_real_data_seeds.py`, none of which those runs use |
-| `72c4b80` | goodness of fit | differs only in those files and in `run_abm_diagnostics.py`, `run_structural_sensitivity.py` and `run_mc_groundtruth.py`, none of which that run uses |
-| `1292e1e` | Figures A, B and C, the elasticity and weight sweeps, the GA sensitivity sweep, the paper figures, queueing | differs only in all of the above and `run_validation_gof.py`; of these, only Figure C's runner is used by those runs, and its refactor leaves its outputs byte-identical |
+| `df2317c` | goodness of fit | identical |
+| `cdff891` | ABM diagnostics, structural sweep, queueing | differs only in `run_validation_gof.py` (adds the size-matched replicas), `make_results_macros.py` and the added `tests/test_gof_replicas.py`, none of which those runs use |
+| `4ac7843` | Figure C across search seeds | differs in those files and in the live agents' shopping-list law and category test (`customer.py`, `dataset_calibration.py`, `dataset_validation.py`, `retail_literature.py`, `sim_analytics.py`, `viz_edit.py`, `experiments/_live_store.py`), in the four live runners and in three further test files. The run seeds its store's calibration through `dataset_calibration.py`, whose new entries only the live agents read; its Monte Carlo search runs no agents, and Figure C re-run from this release reproduces its `results.csv` byte for byte |
+| `f18e38f` | MC ground truth | differs in all of the above and in `run_real_data_example.py` (split into reusable steps; its outputs are byte-identical for the same arguments) and the added `run_real_data_seeds.py` and its test. The run reads `retail_literature.py` only for constants this release leaves unchanged (it removes the two old shopping-list constants) and uses none of the other files |
+| `1292e1e` | Figures A, B and C, the elasticity and weight sweeps, the GA sensitivity sweep, the paper figures | differs in all of the above and in `run_mc_groundtruth.py`. Figure C uses its runner and the calibration seeding, and re-running it from this release reproduces its `results.csv` byte for byte; the synthetic-scenario runs read `retail_literature.py` only for unchanged constants and use none of the other files |
 
 Re-running any runner from this release therefore reproduces its shipped
 artifact (see *Determinism* below).

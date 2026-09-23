@@ -197,29 +197,42 @@ def period_record(retail_path: Optional[str] = None,
     ``rows_adapted`` for the current period), the first and last date and
     timestamp, and ``n_invoices``. The prior period adds ``cut_before``,
     the invoices the cut removed and the invoices it shares with the
-    current period. Calibrates the period if this process has not yet."""
-    return dict(_load(retail_path, period).record)
+    current period. Also ``list_law``, how the store's shoppers form their
+    lists (``LIST_LAW``). Calibrates the period if this process has not
+    yet."""
+    record = dict(_load(retail_path, period).record)
+    record['list_law'] = LIST_LAW
+    return record
+
+
+# How the store's shoppers form their lists: each list is the stocked
+# part of one empirical invoice of the calibration period. Recorded in
+# every live run's period record so the macro validators can refuse runs
+# made under an earlier list law.
+LIST_LAW = 'stocked-invoice'
 
 
 def build_live_store(params: DC.CalibratedParams):
     """The store a live diagnostic measures, built from ``params``.
 
     ``build_headless_shop_from_calibration`` lays the store out and seeds
-    the calibration with the shop, which writes the agents' list-length
-    law (``list_length_sample``: distinct stocked products per invoice).
-    Only a seeding that knows the assortment can form it, so when the
-    params carry per-invoice product sets and the seeded calibration has
-    no such sample, the store is refused rather than measured with the
-    agents drawing their lists from a different law."""
+    the calibration with the shop, which writes the invoices the agents
+    draw their shopping lists from (``list_invoice_ptr`` and friends: the
+    stocked part of each invoice holding a regular placed product). Only
+    a seeding that knows the assortment can form them, so when the params
+    carry per-invoice product sets and the seeded calibration has none,
+    the store is refused rather than measured with the agents falling back
+    to the uncalibrated list law."""
     shop = build_headless_shop_from_calibration(
         params, max_items_per_category=MAX_ITEMS_PER_CATEGORY,
         naive=NAIVE_LAYOUT)
     cal = shop.customer_simulation.analytics.get('calibration') or {}
+    ptr = cal.get('list_invoice_ptr')
     if (getattr(params, 'has_invoice_structure', False)
-            and not cal.get('list_length_sample')):
+            and (ptr is None or len(ptr) < 2)):
         raise RuntimeError(
-            "the live store's seeded calibration has no list_length_sample, "
-            "so its agents would not draw their list lengths from the "
-            "stocked part of each invoice; the calibration must be seeded "
-            "with the shop")
+            "the live store's seeded calibration has no stocked invoices "
+            "(list_invoice_ptr), so its agents would not draw their lists "
+            "from the invoices; the calibration must be seeded with the "
+            "shop")
     return shop
