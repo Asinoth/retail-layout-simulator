@@ -387,13 +387,12 @@ def test_a_dataset_built_store_is_walkable(dataset_shop):
 # --- the store the live diagnostics use --------------------------------------
 
 def _uci_workbook():
-    """The UCI Online Retail II workbook under DATASETS/, or None."""
-    code = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    for root in (code, os.path.dirname(code)):
-        path = os.path.join(root, 'DATASETS', 'UCI Online Retail II .xlsx.xlsx')
-        if os.path.exists(path):
-            return path
-    return None
+    """The UCI Online Retail II workbook ``dataset_paths`` finds, or None."""
+    import dataset_paths
+    try:
+        return dataset_paths.uci_workbook()
+    except FileNotFoundError:
+        return None
 
 
 @pytest.fixture(scope='module')

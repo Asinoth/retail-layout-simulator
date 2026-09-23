@@ -1,4 +1,4 @@
-"""Layout feasibility regression tests (audit R5.3).
+"""Layout feasibility regression tests.
 
 Guards the constraint machinery every optimizer relies on: baselines and
 the equal-budget metaheuristics must return layouts that place every item
@@ -27,6 +27,11 @@ def _shop(seed=1, n_items=8):
                                    n_items=n_items, width=12.0, height=10.0)
 
 
+def _as_built(shop, names):
+    """The as-built layout every search in the comparison starts from."""
+    return {n: tuple(shop.floors[1]['items'][n]['position']) for n in names}
+
+
 def test_constructive_baselines_feasible():
     ss = _shop()
     names = {it.name for it in ss.items}
@@ -41,9 +46,10 @@ def test_metaheuristics_feasible_and_complete():
     shop = build_headless_shop(ss)
     names = [it.name for it in ss.items]
     bp = base_params_for(ss)
+    init = _as_built(shop, names)
     for fn in (random_search, simulated_annealing):
         lay = fn(shop, ss, names, bp, seed=0, budget=12, block=4,
-                 mc_iters=60, mc_days=10)
+                 mc_iters=60, mc_days=10, init_layout=init)
         assert set(lay.keys()) == set(names), fn.__name__
         assert_layout_valid(ss, lay)
         assert_no_strict_overlap(ss, lay)
@@ -59,6 +65,7 @@ def test_equal_evaluation_budgets():
     shop = build_headless_shop(ss)
     names = [it.name for it in ss.items]
     bp = base_params_for(ss)
+    init = _as_built(shop, names)
     pop, gens = 4, 3
 
     calls = []
@@ -79,7 +86,7 @@ def test_equal_evaluation_budgets():
         del calls[:]
         stats = {}
         fn(shop, ss, names, bp, seed=0, budget=pop * gens, block=pop,
-           mc_iters=40, mc_days=5, stats=stats)
+           mc_iters=40, mc_days=5, stats=stats, init_layout=init)
         assert stats['n_evals'] == len(calls), fn.__name__
         assert stats['n_search_evals'] == pop * gens, fn.__name__
         counts[fn.__name__] = stats['n_evals']
@@ -95,15 +102,16 @@ def test_sa_temperature_is_scaled_to_move_differences():
     shop = build_headless_shop(ss)
     names = [it.name for it in ss.items]
     bp = base_params_for(ss)
-    mc = dict(mc_iters=60, mc_days=10)
+    init = _as_built(shop, names)
+    mc = dict(mc_iters=60, mc_days=10, init_layout=init)
 
     stats = {}
     simulated_annealing(shop, ss, names, bp, seed=0, budget=24, block=6,
                         n_final_seeds=2, stats=stats, **mc)
-    level = paired_mc_revenue(shop, names,
-                              feasible_layout(shop, names,
-                                              popularity_rank(ss, seed=0)),
-                              bp, seed=0, **mc)
+    # The revenue level at the start the annealer ran from.
+    level = paired_mc_revenue(shop, names, feasible_layout(shop, names, init),
+                              bp, seed=0, mc_iters=mc['mc_iters'],
+                              mc_days=mc['mc_days'])
     assert stats['sa_initial_accept'] == 0.8
     assert stats['sa_T0'] is not None
     assert 0.0 < stats['sa_T0'] < 0.01 * abs(level)

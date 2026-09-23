@@ -12,6 +12,9 @@ appear in the capture.
 
 Usage (from CODE/, on a machine with a display):
     python make_gui_figures.py
+
+The workbook is found by ``dataset_paths`` (``DATASETS/``, or the path in
+``UCI_RETAIL_XLSX``).
 """
 
 from __future__ import annotations
@@ -34,15 +37,8 @@ import matplotlib.pyplot as plt                             # noqa: E402
 from visualizer import ShopVisualizer                       # noqa: E402
 import dataset_adapters as DA                               # noqa: E402
 import dataset_calibration as DC                            # noqa: E402
+import dataset_paths                                        # noqa: E402
 from dataset_layout import build_layout_from_calibration    # noqa: E402
-
-
-def _uci_path():
-    for c in (os.path.join(ROOT, 'DATASETS', 'UCI Online Retail II .xlsx.xlsx'),
-              os.path.join(HERE, 'DATASETS', 'UCI Online Retail II .xlsx.xlsx')):
-        if os.path.exists(c):
-            return c
-    raise FileNotFoundError('UCI Online Retail II .xlsx.xlsx not found under DATASETS/')
 
 
 def _save_canvas(root, v, path):
@@ -59,7 +55,7 @@ def main():
         root.geometry('1500x950+30+30')
         root.update()
 
-        uci = _uci_path()
+        uci = dataset_paths.uci_workbook()
         sheets = DA.list_excel_sheets(uci)
         df, _ = DA.read_excel_sheets(uci, [sheets[-1][0]])
         df = df.sample(n=60000, random_state=0).reset_index(drop=True)

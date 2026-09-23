@@ -13,7 +13,7 @@ from retail_literature import (
     IMPULSE_LONG_DWELL_BONUS, IMPULSE_LONG_DWELL_SECS,
     CHECKOUT_BASE_SECS, CHECKOUT_PER_ITEM_SECS,
     CHECKOUT_LOGNORM_SIGMA, CHECKOUT_MIN_SECS,
-    BASKET_AFFINITY_PROB, BASKET_POP_SMOOTHING,
+    BASKET_AFFINITY_PROB, BASKET_POP_SMOOTHING, LIST_LENGTH_BY_TYPE,
     STUCK_PROGRESS_M, STUCK_WINDOW_MOVING_S, STUCK_WINDOW_EXITING_S,
 )
 class Customer(PathfindingMixin):
@@ -157,6 +157,21 @@ class Customer(PathfindingMixin):
         secs = expected * float(np.random.lognormal(0.0, CHECKOUT_LOGNORM_SIGMA))
         return max(secs, CHECKOUT_MIN_SECS)
 
+   def _calibration(self):
+        """The simulation's calibration namespace, or an empty dict.
+
+        This is the one way an agent reads dataset-derived inputs. Only
+        ``analytics['calibration']`` is read: the same keys at top level
+        are live counters filled from this simulator's own exits, and
+        drawing baskets from them would let earlier agents' visits make
+        already-popular items more popular.
+        """
+        sim_ref = getattr(self, '_simulation_ref', None)
+        if sim_ref is None:
+            return {}
+        A = getattr(sim_ref, 'analytics', {}) or {}
+        return A.get('calibration') or {}
+
    def _calibrated_basket_structure(self, regular_items):
         """(names, popularity weights, affinity map), or None.
 
@@ -172,12 +187,7 @@ class Customer(PathfindingMixin):
         if sim_ref is None:
             return None
 
-        A = getattr(sim_ref, 'analytics', {}) or {}
-        # Only the calibration namespace is read. The same keys at top
-        # level are live counters filled from this simulator's own exits;
-        # drawing baskets from them would let earlier agents' visits make
-        # already-popular items more popular.
-        cal = A.get('calibration') or {}
+        cal = self._calibration()
         popular_src = cal.get('popular_items')
         pairs_src = cal.get('cross_merchandising')
 
@@ -291,7 +301,31 @@ class Customer(PathfindingMixin):
         return chosen
 
    def _generate_shopping_list(self, shop_items):
-        """Generate random shopping list. Skip impulse/checkout/wc"""
+        """Draw this agent's shopping list over the regular items (impulse
+        displays, checkout and WC excluded).
+
+        List LENGTH: when the calibration namespace holds a
+        ``list_length_sample`` -- distinct stocked products per invoice,
+        written by a transactional calibration seeded onto its own shop --
+        the length is one value drawn uniformly from that sample, clipped
+        to [1, number of regular items]. Otherwise it follows the
+        type-conditional ``LIST_LENGTH_BY_TYPE`` law, an operational
+        assumption kept for generated and synthetic shops. Either way it
+        is one call on the global stream, in the place the type law's
+        ``randint`` always had, so the spawn makes the same sequence of
+        calls with or without a calibration (the basket draw that follows
+        still depends on the length drawn).
+
+        Under a calibration the length therefore no longer depends on
+        customer type: the data give invoice sizes, not shopper types, and
+        conditioning a measured size distribution on an unobserved label
+        would reintroduce the assumption the sample replaces. Type still
+        sets the impulse propensity (set below, plus the browser bonus at
+        the checkout) and the washroom probability.
+
+        List CONTENT is ``_draw_basket``'s: popularity-weighted with
+        co-purchase pulls under a calibration, uniform without one.
+        """
         # Per-type propensities are set before any early return: an agent
         # with an empty list still checks out, and the checkout and WC
         # logic read these every tick.
@@ -316,16 +350,14 @@ class Customer(PathfindingMixin):
         if len(regular_items) == 0:
             return
         
-        # FIXME: hardcoded patterns - should be config
-        patterns = {
-                'quick': (2, 4, 15.0, 25.0),
-                'browser': (4,7,35.0, 60.0),
-                'thorough': (6,12,60.0,120.0)
-        }
-        
-        min_items, max_items, min_val, max_val = patterns[cust_type]
-        
-        num = min(np.random.randint(min_items,max_items + 1), len(regular_items))
+        sample = self._calibration().get('list_length_sample')
+        if sample is not None and len(sample) > 0:
+            drawn = int(sample[np.random.randint(len(sample))])
+            num = min(max(drawn, 1), len(regular_items))
+        else:
+            min_items, max_items = LIST_LENGTH_BY_TYPE[cust_type]
+            num = min(np.random.randint(min_items, max_items + 1),
+                      len(regular_items))
         self.shopping_list = self._draw_basket(regular_items, num)
         
         # calc basket value

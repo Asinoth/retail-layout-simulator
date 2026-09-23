@@ -1,0 +1,99 @@
+{
+  "git_sha": "1292e1eb95b09102121c5894798bb216a8f71935",
+  "git_dirty": false,
+  "git_diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "git_modified": [],
+  "git_untracked_py": [],
+  "git_state_changed_during_run": false,
+  "python": "3.13.2",
+  "platform": "Windows-11-10.0.26200-SP0",
+  "packages": {
+    "numpy": "2.2.4",
+    "scipy": "1.15.3",
+    "pandas": "2.2.3",
+    "matplotlib": "3.10.1",
+    "openpyxl": "3.1.5"
+  },
+  "iso_time": "2026-09-23T11:42:28",
+  "elasticities": {
+    "GA_weights": {
+      "traffic": 0.16,
+      "cross_merch": 0.16,
+      "impulse": 0.16,
+      "flow": 0.16,
+      "revenue_placement": 0.16,
+      "section_compliance": 0.16,
+      "accessibility": 0.04,
+      "overlap_penalty": 0.8,
+      "bottleneck_penalty": 0.2
+    },
+    "ELASTICITY_CONV_BASE": 0.2,
+    "ELASTICITY_CONV_GAIN_MAX": 0.3,
+    "ELASTICITY_IMP_BASE": 0.3,
+    "ELASTICITY_IMP_GAIN_MAX": 0.4,
+    "ELASTICITY_BSK_BASE": 0.1,
+    "ELASTICITY_BSK_GAIN_MAX": 0.2
+  },
+  "experiment": "ga_sensitivity",
+  "args": {
+    "n_scenarios": 3,
+    "n_seeds": 2,
+    "n_items": 10,
+    "n_gens": 25,
+    "mc_iters": 800,
+    "mc_days": 30,
+    "n_heldout_seeds": 10,
+    "figs_dir": "figs",
+    "out_root": "CODE/experiments/results"
+  },
+  "figs_dir": "figs",
+  "wall_seconds": 743.7968352999997,
+  "summary": {
+    "hyper_spread_median_pct": 0.18416835640929122,
+    "hyper_spread_max_pct": 0.20569661515808715,
+    "default_gap_median_pct": 0.11108329416189933,
+    "diversity_start": 0.015804843507012094,
+    "diversity_end": 0.005579145902785898,
+    "diversity_retained_pct": 35.300228694517685,
+    "n_settings": 9,
+    "mut_rates": [
+      0.1,
+      0.18,
+      0.3
+    ],
+    "pop_sizes": [
+      20,
+      30,
+      40
+    ],
+    "fitness_statistic": "heldout_mean",
+    "heldout_seeds": 10,
+    "heldout_seed_rule": "100000000 + 1000*scenario + k",
+    "config": {
+      "n_scenarios": 3,
+      "n_seeds": 2,
+      "n_items": 10,
+      "n_gens": 25,
+      "mc_iters": 800,
+      "mc_days": 30,
+      "n_heldout_seeds": 10,
+      "figs_dir": "figs",
+      "out_root": "CODE/experiments/results"
+    },
+    "provenance": {
+      "git_sha": "1292e1eb95b09102121c5894798bb216a8f71935",
+      "git_dirty": false,
+      "git_diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "git_modified": [],
+      "git_untracked_py": [],
+      "python": "3.13.2",
+      "packages": {
+        "numpy": "2.2.4",
+        "scipy": "1.15.3",
+        "pandas": "2.2.3",
+        "matplotlib": "3.10.1",
+        "openpyxl": "3.1.5"
+      }
+    }
+  }
+}

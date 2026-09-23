@@ -1,13 +1,18 @@
 """Headless end-to-end smoke for the dataset ingestion pipeline.
 
-Drives every real dataset under ``DATASETS/`` through the full pipeline
-(adapter -> calibration -> layout -> seed) without Tk, asserting that each
-stage produces sane, non-empty output. Run:
+Drives every real dataset through the full pipeline (adapter ->
+calibration -> layout -> seed) without Tk, asserting that each stage
+produces sane, non-empty output. The files are found by ``dataset_paths``
+-- under ``DATASETS/``, or wherever ``UCI_RETAIL_XLSX``,
+``OMNICHANNEL_DIR``, ``OPENTRAJ_ETH_OBSMAT`` or ``RETAIL_DATASETS_DIR``
+point -- the same search the GUI chooser and the runners use. Run:
 
     python dataset_smoke.py
 
-Exits 0 if all datasets pass, 1 otherwise. This is the project's idiomatic
-``__main__`` smoke (cf. oracle.py / baselines.py) -- there is no pytest suite.
+Exits 0 if all datasets pass, 1 otherwise; a missing dataset fails its
+check with the list of paths tried. This is the project's idiomatic
+``__main__`` smoke (cf. oracle.py / baselines.py), a standalone script
+rather than part of the pytest suite.
 
 What it guards:
   * OpenTraj ETH obsmat -> OpenTrajAdapter -> calibrate_trajectory -> seed
@@ -28,28 +33,11 @@ import numpy as np
 
 import dataset_adapters as DA
 import dataset_calibration as DC
+import dataset_paths
 from dataset_layout import build_layout_from_calibration
 
-HERE = os.path.dirname(os.path.abspath(__file__))
-
-
-def _resolve_datasets_dir():
-    """DATASETS/ is a sibling of CODE/ after the reorg; fall back to a
-    co-located or cwd DATASETS/ for older layouts."""
-    for c in (os.path.join(os.path.dirname(HERE), "DATASETS"),
-              os.path.join(HERE, "DATASETS"),
-              os.path.join(os.getcwd(), "DATASETS")):
-        if os.path.isdir(c):
-            return c
-    return os.path.join(os.path.dirname(HERE), "DATASETS")
-
-
-DATASETS = _resolve_datasets_dir()
-
-ETH_OBSMAT = os.path.join(DATASETS, "OpenTraj-master", "datasets",
-                          "ETH", "seq_eth", "obsmat.txt")
-OMNI_DIR = os.path.join(DATASETS, "Omnichannel-Retail-Datasets-main")
-UCI_XLSX = os.path.join(DATASETS, "UCI Online Retail II .xlsx.xlsx")
+# Each check resolves its files when it runs, so one missing dataset fails
+# that check -- with the paths tried -- rather than the whole script.
 
 
 class StubSim:
@@ -121,11 +109,11 @@ def _check_cosmetics(shop, expect_alphabetical=False):
 
 def smoke_opentraj():
     print("\n[OpenTraj / ETH]")
-    _assert(os.path.exists(ETH_OBSMAT), f"missing {ETH_OBSMAT}")
-    df, notes = DA.read_any(ETH_OBSMAT)
-    kind = DA.detect_schema_kind(df, ETH_OBSMAT)
+    eth_obsmat = dataset_paths.opentraj_eth_obsmat()
+    df, notes = DA.read_any(eth_obsmat)
+    kind = DA.detect_schema_kind(df, eth_obsmat)
     _assert(kind == "trajectory", f"detected {kind}, expected trajectory")
-    adapter = DA.best_trajectory_adapter(df, ETH_OBSMAT)
+    adapter = DA.best_trajectory_adapter(df, eth_obsmat)
     _assert(adapter.name == "opentraj", f"chose {adapter.name}, expected opentraj")
     out, report = adapter.adapt(df)
     _assert(len(out) > 0 and not report.is_blocking(), "empty/blocking adapt")
@@ -143,13 +131,13 @@ def smoke_opentraj():
 
 def smoke_omnichannel():
     print("\n[Omnichannel]")
-    _assert(os.path.isdir(OMNI_DIR), f"missing {OMNI_DIR}")
+    omni_dir = dataset_paths.omnichannel_dir()
     # Detection should fire on the demand CSV (by name and by columns).
-    demand_csv = os.path.join(OMNI_DIR, "Demand and Shopping Behavior.csv")
+    demand_csv = os.path.join(omni_dir, "Demand and Shopping Behavior.csv")
     ddf, _ = DA.read_any(demand_csv)
     _assert(DA.looks_like_omnichannel(ddf, demand_csv),
             "looks_like_omnichannel did not detect the demand CSV")
-    families, arrivals, notes = DA.load_omnichannel_bundle(OMNI_DIR)
+    families, arrivals, notes = DA.load_omnichannel_bundle(omni_dir)
     _assert(len(families) > 0, "empty families frame")
     params = DC.calibrate_omnichannel(families, arrivals)
     _assert(params.n_unique_products > 0 and params.n_unique_categories > 0,
@@ -177,14 +165,14 @@ def smoke_omnichannel():
 
 def smoke_uci(sample_rows=60000):
     print("\n[UCI Online Retail II]")
-    _assert(os.path.exists(UCI_XLSX), f"missing {UCI_XLSX}")
-    sheets = DA.list_excel_sheets(UCI_XLSX)
+    uci_xlsx = dataset_paths.uci_workbook()
+    sheets = DA.list_excel_sheets(uci_xlsx)
     sheet = sheets[-1][0]            # 'Year 2010-2011'
-    df, notes = DA.read_excel_sheets(UCI_XLSX, [sheet])
+    df, notes = DA.read_excel_sheets(uci_xlsx, [sheet])
     if sample_rows and len(df) > sample_rows:
         df = df.sample(n=sample_rows, random_state=0).reset_index(drop=True)
         print(f"  (smoke sample of {sample_rows:,} rows from '{sheet}')")
-    adapter = DA.best_transactional_adapter(df, UCI_XLSX)
+    adapter = DA.best_transactional_adapter(df, uci_xlsx)
     _assert(adapter.name == "uci_online_retail_ii",
             f"chose {adapter.name}, expected uci_online_retail_ii")
     normalized, report = adapter.adapt(df)
@@ -231,9 +219,13 @@ def smoke_live_sim(sample_rows=60000):
     from dataset_provenance import stamp
     from experiments._common import build_headless_shop_from_calibration
 
+    uci_xlsx = dataset_paths.uci_workbook()
+    omni_dir = dataset_paths.omnichannel_dir()
+    eth_obsmat = dataset_paths.opentraj_eth_obsmat()
+
     # -- Build the UCI shop with a REAL CustomerFlowSimulation --
-    sheets = DA.list_excel_sheets(UCI_XLSX)
-    df, _ = DA.read_excel_sheets(UCI_XLSX, [sheets[-1][0]])
+    sheets = DA.list_excel_sheets(uci_xlsx)
+    df, _ = DA.read_excel_sheets(uci_xlsx, [sheets[-1][0]])
     df = df.sample(n=sample_rows, random_state=0).reset_index(drop=True)
     normalized, report = DA.OnlineRetailIIAdapter().adapt(df)
     params = DC.calibrate_transactional(normalized, currency="GBP")
@@ -269,7 +261,7 @@ def smoke_live_sim(sample_rows=60000):
     print(f"  live spawn OK: {n_cust} customers in 4s, movement={moved}")
 
     # 3) Directory provenance (the Omnichannel bundle crash).
-    prov = stamp(source_path=OMNI_DIR,
+    prov = stamp(source_path=omni_dir,
                  adapter_name=DA.OmnichannelRetailAdapter.name,
                  adapter_version=DA.OmnichannelRetailAdapter.version,
                  rows_in=134, rows_kept=134)
@@ -279,7 +271,7 @@ def smoke_live_sim(sample_rows=60000):
           f"bytes={prov.source_bytes:,}")
 
     # 4) Trajectory speed seeding shapes AGENTS (not just validation).
-    tdf, _ = DA.read_any(ETH_OBSMAT)
+    tdf, _ = DA.read_any(eth_obsmat)
     out, _ = DA.OpenTrajAdapter().adapt(tdf)
     sp = DC.calibrate_trajectory(out, target_width_m=shop.width,
                                  target_height_m=shop.height)

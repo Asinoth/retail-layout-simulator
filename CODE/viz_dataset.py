@@ -40,29 +40,24 @@ from dataset_calibration import (
     CalibratedParams, SpatialParams,
 )
 from dataset_layout import build_layout_from_calibration
+import dataset_paths
 from dataset_provenance import stamp
 
 
 # --- 3-button quick-load registry -----------------------------------------
-# The Dataset button presents these three options and auto-resolves each
-# path under ``DATASETS/`` next to the simulator's source. The transactional
-# adapter's validation report dialog still appears as a confirm step.
+# The Dataset button presents these three options and resolves each one
+# through ``dataset_paths`` -- the search every other entry point uses, so
+# the chooser finds a dataset exactly when the smoke and the runners do.
+# Paths are resolved when a button is pressed, not at import, so a file
+# added (or an override set) while the application is open is picked up.
+# The transactional adapter's validation report dialog still appears as a
+# confirm step.
 
 def _resolve_datasets_dir():
-    """Locate the DATASETS/ folder regardless of repo layout. After the
-    CODE/ + DATASETS/ reorg the datasets sit one level ABOVE this module
-    (sibling of CODE/); we also accept a co-located DATASETS/ and the
-    current working directory as fallbacks."""
-    here = os.path.dirname(os.path.abspath(__file__))
-    candidates = [
-        os.path.join(os.path.dirname(here), 'DATASETS'),  # sibling of CODE/ (new layout)
-        os.path.join(here, 'DATASETS'),                   # co-located (legacy flat)
-        os.path.join(os.getcwd(), 'DATASETS'),
-    ]
-    for c in candidates:
-        if os.path.isdir(c):
-            return c
-    return candidates[0]
+    """Locate the DATASETS/ folder: ``dataset_paths.datasets_dir()``, or
+    the repository-layout default (beside CODE/) when none exists yet."""
+    return (dataset_paths.datasets_dir()
+            or os.path.join(dataset_paths.REPO_ROOT, 'DATASETS'))
 
 
 DATASETS_DIR = _resolve_datasets_dir()
@@ -71,22 +66,21 @@ DATASET_REGISTRY = {
     'uci': {
         'label': 'UCI Online Retail II',
         'desc':  'Transactional retail — UK e-commerce 2009-2011, two sheets auto-loaded',
-        'path':  os.path.join(DATASETS_DIR, 'UCI Online Retail II .xlsx.xlsx'),
+        'find':  dataset_paths.uci_workbook,
         'kind':  'uci_xlsx',
     },
     'omnichannel': {
         'label': 'Omnichannel Retail',
         'desc':  'Aggregated in-store behavioral data — 134 product families, '
                  'demand / dwell / impulse / hour×day arrivals',
-        'path':  os.path.join(DATASETS_DIR, 'Omnichannel-Retail-Datasets-main'),
+        'find':  dataset_paths.omnichannel_dir,
         'kind':  'omnichannel_folder',
     },
     'opentraj': {
         'label': 'OpenTraj ETH (trajectories)',
         'desc':  'Pedestrian trajectories — calibrates walking-speed / dwell / '
                  'heat-map onto the current shop',
-        'path':  os.path.join(DATASETS_DIR, 'OpenTraj-master', 'datasets',
-                              'ETH', 'seq_eth', 'obsmat.txt'),
+        'find':  dataset_paths.opentraj_eth_obsmat,
         'kind':  'trajectory_file',
     },
 }
@@ -107,14 +101,13 @@ class DatasetMixin:
         info = DATASET_REGISTRY.get(choice)
         if not info:
             return
-        path = info['path']
-        if not os.path.exists(path):
-            messagebox.showerror(
-                "Dataset not found",
-                f"Could not find:\n  {path}\n\n"
-                f"Make sure the DATASETS/ folder sits next to the "
-                f"simulator's Python files.",
-                parent=self.tk_root)
+        try:
+            path = info['find']()
+        except FileNotFoundError as e:
+            # The message lists every location tried and where to
+            # download the data from.
+            messagebox.showerror("Dataset not found", str(e),
+                                 parent=self.tk_root)
             return
 
         # The run is not touched here: the validation dialog ahead is still

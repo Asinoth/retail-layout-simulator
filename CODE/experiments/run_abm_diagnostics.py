@@ -23,6 +23,23 @@ Two ABM-reviewer questions, answered from one calibrated live simulation:
         dominant supermarket traffic. We measure the emergent
         perimeter-to-interior foot-traffic ratio from the accumulated
         heat map -- a quantitative face-validation number, not a picture.
+        The ratio averages each band over ALL of its cells, including the
+        cells under fixtures, where no one walks, so on its own it mixes
+        where people walk with how much of each band is walkable. Every
+        replication therefore also reports a geometric null: the value
+        the same function returns for a heat map uniform over the walkable
+        cells (floor 1's pathfinding grid after the run, obstacles
+        inflated by the agent radius), i.e. the ratio the floor plan
+        produces with no routing at all. Observed / null is the part of
+        the ratio the agents' routes add; both are reported per
+        perimeter band width too.
+
+The store is ``experiments._live_store``'s: the UCI workbook's current
+period (its last sheet, every row), laid out naively and seeded with the
+shop so the agents draw their list lengths from the invoices cut to the
+stocked products. ``--retail-path`` names the workbook; without it
+``dataset_paths.uci_workbook()`` finds it. The summary records the period,
+its date range and the workbook.
 
 Every replication is a fixed-step headless run: the agent model advances
 through ``CustomerFlowSimulation.run_headless`` (the same ``step`` the GUI
@@ -32,26 +49,29 @@ replication is therefore reproducible, and ``--workers`` only decides how
 many run at once: results are put back in replication order before
 anything is aggregated, so the summary is the same for any worker count.
 
-The defaults were set by a transient study on the calibrated store this
-script builds (3,600 s runs from 09:00 on seeds disjoint from the runners'
-own), each by a fixed rule:
+The defaults were set by a transient study on this store (3,600 s runs
+from 09:00 on seeds disjoint from the runners' own), each value by a fixed
+rule:
 
-  --spawn 0.22 --cap 45  The highest arrival rate on a 0.01/s grid at which
+  --spawn 0.26 --cap 45  The highest arrival rate on a 0.01/s grid at which
       occupancy stays below the cap at least 99% of the time after the
-      warm-up. The cap binds 0.31% of the time at 0.22/s and 1.04% at
-      0.23/s (16 replications each). The calibrated hour-of-day profile
-      scales the rate by 0.706 in the 09:00-10:00 hour a run falls in.
-  --warmup 600  Welch's procedure on the replication-mean occupancy at the
-      nominal rate: the smoothed curve settles within 5% of its plateau
-      (31.8 customers in store) between 240 s and 300 s (half-window
-      30 s), doubled and rounded up to the next 60 s.
-  --seconds 2280  The shortest whole-minute window in which every study
+      warm-up. The cap binds 0.66% of the time at 0.26/s and 1.49% at
+      0.27/s (16 replications each). The calibrated hour-of-day profile
+      scales the rate by 0.744 in the 09:00-10:00 hour a run falls in.
+  --warmup 900  Welch's procedure on the replication-mean occupancy at the
+      nominal rate. The moving average is taken only where its window is
+      complete, with the smallest half-window (from 30, 60, 120, 240 and
+      480 s) whose plateau noise is under a third of the 5% band: 240 s.
+      The smoothed curve then stays within 5% of its plateau (32.4
+      customers in store) from 435 s on; doubled and rounded up to the
+      next 60 s that is 900 s. MSER-5 on the same curve truncates at
+      600 s, so it asks for no more.
+  --seconds 1860  The shortest whole-minute window in which every study
       replication completes at least 300 visits (agents that arrive after
-      the warm-up and leave inside the window; the fewest was exactly 300
-      and the mean 331) and that spans at least ten median visits (median
-      185 s). Warm-up plus window
-      ends at 2,880 s, inside the first trading hour, so the arrival rate
-      is constant over the measured part of a run. The run then continues,
+      the warm-up and leave inside the window; the fewest was 301 and the
+      mean 329) and that spans at least ten median visits (median 120 s).
+      Warm-up plus window ends at 2,760 s, inside the first trading hour,
+      so the arrival rate is constant over the measured part of a run. The run then continues,
       arrivals included, only until the window's own arrivals have left.
       That adds the cohort's visits still under way at the window's end to
       the ones the rule counted and removes none, so the analysed cohort is
@@ -76,10 +96,9 @@ import numpy as np
 _HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.dirname(_HERE))
 
-import dataset_adapters as DA          # noqa: E402
-import dataset_calibration as DC       # noqa: E402
-from experiments._common import (build_headless_shop_from_calibration,  # noqa: E402
-                                 make_run_dir)
+from experiments import _live_store as LS  # noqa: E402
+from experiments._common import (make_run_dir, provenance_snapshot,  # noqa: E402
+                                 write_sidecar)
 
 TRANSIENT = ('entering', 'moving', 'shopping', 'checking_out', 'exiting')
 ABSORB = ('purchased', 'abandoned')
@@ -97,20 +116,10 @@ DRAIN_CHUNK_S = 60.0
 MAX_DRAIN_S = 3600.0
 
 # Default protocol; the module docstring records how each value was chosen.
-NOMINAL_SPAWN = 0.22
+NOMINAL_SPAWN = 0.26
 NOMINAL_CAP = 45
-WARMUP_S = 600.0
-COLLECT_S = 2280.0
-
-
-def _uci_path():
-    root = os.path.dirname(_HERE)
-    for c in (os.path.join(root, 'DATASETS', 'UCI Online Retail II .xlsx.xlsx'),
-              os.path.join(os.path.dirname(root), 'DATASETS',
-                           'UCI Online Retail II .xlsx.xlsx')):
-        if os.path.exists(c):
-            return c
-    raise FileNotFoundError('UCI dataset not found under DATASETS/')
+WARMUP_S = 900.0
+COLLECT_S = 1860.0
 
 
 def _entropy(counts):
@@ -137,14 +146,6 @@ def _entropy_mm(row):
     k_obs = int(np.count_nonzero(row))
     h = _entropy({i: float(v) for i, v in enumerate(row)})
     return h + (k_obs - 1) / (2.0 * n * math.log(2))
-
-
-def _calibrate_once():
-    df, _ = DA.read_excel_sheets(_uci_path(),
-                                 [DA.list_excel_sheets(_uci_path())[-1][0]])
-    df = df.sample(n=60000, random_state=0).reset_index(drop=True)
-    norm, _ = DA.OnlineRetailIIAdapter().adapt(df)
-    return DC.calibrate_transactional(norm, currency='GBP')
 
 
 def window_sequences(records, t_warm, t_end):
@@ -205,11 +206,11 @@ def collect_sequences(params, seconds, spawn, cap, warmup=WARMUP_S, dt=0.04,
     heat map are read before the drain begins.
 
     Also returns the post-warm-up arrival load (admitted and balked), so
-    a summary shows whether the customer cap bound during collection, and
-    the simulated seconds the drain took."""
-    shop = build_headless_shop_from_calibration(params,
-                                                max_items_per_category=8,
-                                                naive=True)
+    a summary shows whether the customer cap bound during collection, the
+    simulated seconds the drain took, and which heat-map cells an agent
+    can stand in (``walkable_heat_cells`` on floor 1's pathfinding grid),
+    which the perimeter ratio's geometric null is computed from."""
+    shop = LS.build_live_store(params)
     sim = shop.customer_simulation
     sim.max_customers = cap
     sim.spawn_rate = spawn
@@ -234,6 +235,7 @@ def collect_sequences(params, seconds, spawn, cap, warmup=WARMUP_S, dt=0.04,
     t_end = float(sim.sim_time)
     # Read over the window only: everything below happens after it closed.
     heat = np.array(sim.heat_raw, dtype=float) - boundary['heat']
+    walkable = _floor1_walkable(sim, heat.shape)
     admitted, balked = _arrival_counts(sim)
     load = {'arrivals': (admitted + balked) - sum(boundary['arrivals']),
             'balked': balked - boundary['arrivals'][1]}
@@ -271,7 +273,7 @@ def collect_sequences(params, seconds, spawn, cap, warmup=WARMUP_S, dt=0.04,
             f"live loop suppressed exceptions during measurement: {errs}")
 
     sequences = window_sequences(sim.completed_state_histories, t_warm, t_end)
-    return (sequences, n_censored, drained, heat,
+    return (sequences, n_censored, drained, heat, walkable,
             shop.width, shop.height, load)
 
 
@@ -359,8 +361,9 @@ def markov_order_analysis(sequences, n_perm=N_PERM, seed=PERM_SEED):
     }
 
 
-def perimeter_ratio(heat, W, H, band_m=2.5):
-    """Emergent perimeter-to-interior mean foot-traffic ratio (R6.4)."""
+def _band_means(heat, W, H, band_m):
+    """Mean of ``heat`` over the cells within ``band_m`` of a wall and over
+    the rest, every cell counted whether or not anyone can stand in it."""
     wcells, hcells = heat.shape
     xs = np.linspace(0, W, wcells)
     ys = np.linspace(0, H, hcells)
@@ -369,12 +372,103 @@ def perimeter_ratio(heat, W, H, band_m=2.5):
     interior = ~perim
     mp = float(heat[perim].mean()) if perim.any() else 0.0
     mi = float(heat[interior].mean()) if interior.any() else 0.0
+    return mp, mi
+
+
+def _ratio(mp, mi):
+    return mp / mi if mi > 1e-9 else None
+
+
+def _rounded(x, nd):
+    return None if x is None else round(float(x), nd)
+
+
+def perimeter_ratio(heat, W, H, band_m=2.5):
+    """Emergent perimeter-to-interior mean foot-traffic ratio (R6.4)."""
+    mp, mi = _band_means(heat, W, H, band_m)
     return {
         'perimeter_mean_intensity': round(mp, 4),
         'interior_mean_intensity': round(mi, 4),
-        'perimeter_interior_ratio': round(mp / mi, 3) if mi > 1e-9 else None,
+        'perimeter_interior_ratio': _rounded(_ratio(mp, mi), 3),
         'band_m': band_m,
     }
+
+
+def walkable_heat_cells(blocked, grid_res, heat_shape, heat_res):
+    """Heat-map cells an agent can stand in, from a floor's blocked grid.
+
+    ``blocked[gx, gy]`` is ``sim_geometry``'s pathfinding grid: True when an
+    agent standing at ``(gx * grid_res, gy * grid_res)`` metres would collide
+    with a wall or fixture (every obstacle inflated by the agent radius).
+    Heat-map cell ``(i, j)`` collects the agents with
+    ``int(x * heat_res) == i`` and ``int(y * heat_res) == j``, so it spans
+    ``1 / heat_res`` metres from ``i / heat_res``; each cell takes the state
+    of the grid point nearest its centre. The heat map is the finer grid
+    (20 cells per metre against a 0.25 m pathfinding step), so this reads
+    the floor plan at the resolution the planner itself sees it."""
+    blocked = np.asarray(blocked, dtype=bool)
+    nx, ny = heat_shape
+
+    def _nearest(n_cells, n_points):
+        centre = (np.arange(n_cells) + 0.5) / float(heat_res)
+        idx = np.floor(centre / float(grid_res) + 0.5).astype(np.int64)
+        return np.clip(idx, 0, n_points - 1)
+
+    gx = _nearest(nx, blocked.shape[0])
+    gy = _nearest(ny, blocked.shape[1])
+    return ~blocked[np.ix_(gx, gy)]
+
+
+def perimeter_ratio_geometric_null(walkable, W, H, band_m=2.5):
+    """The ratio ``perimeter_ratio`` returns for a heat map uniform over the
+    ``walkable`` cells, unrounded, or None when the interior holds none.
+
+    ``perimeter_ratio`` averages each band over all of its cells, and cells
+    under a fixture carry no traffic, so a floor whose interior is mostly
+    shelving scores above 1 even if shoppers spread evenly over every spot
+    they can stand on. This is that geometric baseline: the walkable share
+    of the perimeter band over the walkable share of the interior. With
+    nothing blocked it is exactly 1."""
+    mp, mi = _band_means(np.asarray(walkable, dtype=float), W, H, band_m)
+    return _ratio(mp, mi)
+
+
+def _floor1_walkable(sim, heat_shape):
+    """``walkable_heat_cells`` for floor 1 from the simulation's geometry
+    caches, the grid the agents planned on; built first if no tick has."""
+    grids = getattr(sim, 'path_blocked_grid_by_floor', None) or {}
+    if 1 not in grids:
+        sim._rebuild_geometry_caches()
+        grids = sim.path_blocked_grid_by_floor
+    return walkable_heat_cells(grids[1], sim.path_grid_resolution, heat_shape,
+                               sim.heat_map_resolution)
+
+
+def emergence_stats(heat, walkable, W, H, band_m=2.5):
+    """The perimeter ratio of one window's heat map next to its geometric
+    null and their quotient, for the headline band and every band of the
+    sweep."""
+    def _triple(b):
+        obs = _ratio(*_band_means(heat, W, H, b))
+        null = perimeter_ratio_geometric_null(walkable, W, H, b)
+        to_null = obs / null if obs is not None and null else None
+        return obs, null, to_null
+
+    pr = perimeter_ratio(heat, W, H, band_m)
+    _, null, to_null = _triple(band_m)
+    pr['perimeter_interior_ratio_geometric_null'] = _rounded(null, 3)
+    pr['ratio_to_geometric_null'] = _rounded(to_null, 3)
+    # The perimeter ratio depends on how wide a band counts as
+    # "perimeter", so archive the sweep alongside the headline value
+    # rather than leaving that analysis choice unrecorded; the null moves
+    # with the band too, so it is swept with it.
+    sweep = {f"{b:.1f}": _triple(b) for b in BAND_SWEEP_M}
+    pr['band_sweep'] = {k: _rounded(v[0], 3) for k, v in sweep.items()}
+    pr['band_sweep_geometric_null'] = {k: _rounded(v[1], 3)
+                                       for k, v in sweep.items()}
+    pr['band_sweep_ratio_to_geometric_null'] = {k: _rounded(v[2], 3)
+                                                for k, v in sweep.items()}
+    return pr
 
 
 def _replication(r, params, args):
@@ -385,21 +479,13 @@ def _replication(r, params, args):
     to different generators (the global Mersenne Twister and a PCG64
     arrival stream), so no stream is shared."""
     seed = args.seed + r
-    seqs, n_cens, drained, heat, W, H, load = collect_sequences(
+    seqs, n_cens, drained, heat, walkable, W, H, load = collect_sequences(
         params, args.seconds, args.spawn, args.cap, warmup=args.warmup,
         dt=args.dt, seed=seed, max_drain_s=args.max_drain)
     mk = markov_order_analysis(seqs)
     mk['n_censored_final'] = int(n_cens)
     mk['drain_seconds'] = float(drained)
-    pr = perimeter_ratio(heat, W, H)
-    # The perimeter ratio depends on how wide a band counts as
-    # "perimeter", so archive the sweep alongside the headline value
-    # rather than leaving that analysis choice unrecorded.
-    pr['band_sweep'] = {
-        f"{b:.1f}": perimeter_ratio(heat, W, H, band_m=b)
-                    ['perimeter_interior_ratio']
-        for b in BAND_SWEEP_M
-    }
+    pr = emergence_stats(heat, walkable, W, H)
     return {'rep': r, 'seed': seed, 'load': load, 'markov_order': mk,
             'emergence': pr, 'sequences': seqs}
 
@@ -454,6 +540,10 @@ def parse_args(argv=None):
                         "simulated s, while the window's cohort leaves")
     p.add_argument('--workers', type=int, default=1,
                    help="Processes running replications in parallel")
+    p.add_argument('--retail-path', type=str, default=None,
+                   help="Path to the UCI Online Retail II workbook. Default: "
+                        "found by dataset_paths.uci_workbook() "
+                        "($UCI_RETAIL_XLSX, then DATASETS/)")
     p.add_argument('--out-root', type=str,
                    default=os.path.join(_HERE, 'results'))
     args = p.parse_args(argv)
@@ -483,8 +573,13 @@ def _mean_ci(xs):
 def main(argv=None):
     args = parse_args(argv)
     out_dir = make_run_dir(args.out_root, 'abm_diagnostics')
-    print('[abm] calibrating UCI shop once...', flush=True)
-    params = _calibrate_once()
+    # The git state at the start of the run, so the sidecar can say which
+    # committed code produced the summary and whether it changed mid-run.
+    prov = provenance_snapshot()
+    print('[abm] calibrating the live store (current period) once...',
+          flush=True)
+    params = LS.calibrate_live_store(args.retail_path, 'current')
+    data = LS.period_record(args.retail_path, 'current')
 
     print(f"[abm] {args.reps} reps of warm-up {args.warmup:.0f}s + collect "
           f"{args.seconds:.0f}s simulated (dt {args.dt}s, seeds "
@@ -506,7 +601,10 @@ def main(argv=None):
               f"p={mk['info_gain_perm_p']:.3f})  "
               f"TV={mk['mean_tv_first_vs_second']:.3f} "
               f"(null {mk['tv_null_mean']:.3f})  "
-              f"perim_ratio={pr['perimeter_interior_ratio']}  "
+              f"perim_ratio={pr['perimeter_interior_ratio']} "
+              f"(geometric null "
+              f"{pr['perimeter_interior_ratio_geometric_null']}, "
+              f"ratio to null {pr['ratio_to_geometric_null']})  "
               f"arrivals={rep['load']['arrivals']} "
               f"balked={rep['load']['balked']}", flush=True)
 
@@ -523,6 +621,14 @@ def main(argv=None):
     pr_m, pr_hw = _mean_ci([r['emergence']['perimeter_interior_ratio']
                             for r in reps if
                             r['emergence']['perimeter_interior_ratio']])
+
+    def _emergence_values(key):
+        return [r['emergence'][key] for r in reps
+                if r['emergence'][key] is not None]
+
+    nl_m, nl_hw = _mean_ci(_emergence_values(
+        'perimeter_interior_ratio_geometric_null'))
+    rn_m, rn_hw = _mean_ci(_emergence_values('ratio_to_geometric_null'))
     n_seq = int(sum(r['markov_order']['n_sequences'] for r in reps))
     n_tr = int(sum(r['markov_order']['n_transitions'] for r in reps))
     n_cens = int(sum(r['markov_order']['n_censored_final'] for r in reps))
@@ -568,6 +674,13 @@ def main(argv=None):
         'emergence': {
             'perimeter_interior_ratio': round(pr_m, 3),
             'perimeter_ratio_ci95': round(pr_hw, 3),
+            # What the floor plan alone gives: the same ratio for traffic
+            # spread evenly over the walkable cells. The quotient is the
+            # part the agents' routes add, averaged over replications.
+            'perimeter_interior_ratio_geometric_null': round(nl_m, 3),
+            'geometric_null_ci95': round(nl_hw, 3),
+            'ratio_to_geometric_null': round(rn_m, 3),
+            'ratio_to_geometric_null_ci95': round(rn_hw, 3),
             'band_m': reps[0]['emergence']['band_m'],
         },
         # Post-warm-up arrivals over all replications; balks are arrivals
@@ -581,8 +694,15 @@ def main(argv=None):
                      'collect_s': args.seconds, 'spawn': args.spawn,
                      'cap': args.cap, 'workers': args.workers,
                      'framing': 'terminating'},
+        # The data the store was calibrated from.
+        'data': data,
         'per_rep': reps,
     }
+    # The sidecar goes first: summary.json is the file that marks a run as
+    # finished, so it is written last.
+    write_sidecar(out_dir, {'experiment': 'abm_diagnostics',
+                            'args': vars(args), 'wall_seconds': wall},
+                  provenance=prov)
     with open(os.path.join(out_dir, 'summary.json'), 'w') as f:
         json.dump(summary, f, indent=2)
 
@@ -599,7 +719,9 @@ def main(argv=None):
           f"(null {tvn_m:.3f}, excess {tvx_m:.3f} +/- {tvx_hw:.3f}, "
           f"pooled permutation p={pooled['tv_perm_p']:.3f})")
     print("\n== R6.4 emergent perimeter dominance ==")
-    print(f"  perimeter/interior ratio = {pr_m:.2f} +/- {pr_hw:.2f}")
+    print(f"  perimeter/interior ratio = {pr_m:.2f} +/- {pr_hw:.2f}  "
+          f"(geometric null {nl_m:.2f} +/- {nl_hw:.2f}, "
+          f"observed/null {rn_m:.2f} +/- {rn_hw:.2f})")
     print(f"\npost-warm-up arrivals={n_arr}, balked at the cap={n_balk}")
     print(f"wall {wall:.0f}s; artifacts in: {out_dir}")
     return 0

@@ -223,6 +223,27 @@ BASKET_AFFINITY_PROB = 0.35   # chance the next item comes from an affinity pair
 BASKET_POP_SMOOTHING = 1.0    # additive smoothing on popularity counts
 
 
+# --- shopping-list length (uncalibrated shops only) ---
+# How many regular items an agent sets out for, by customer type: an
+# inclusive (min, max) range, drawn uniformly. This is an OPERATIONAL
+# ASSUMPTION carried over from the original simulator, not a literature
+# value -- nothing cited in this module measures list length per shopper
+# type, and a transaction log cannot label its buyers 'quick' or
+# 'thorough' either.
+#
+# It applies only while no calibration supplies a list-length sample. A
+# transactional calibration seeded onto its own shop replaces it with the
+# distribution of distinct STOCKED products per invoice
+# (``analytics['calibration']['list_length_sample']``), which the data do
+# observe, so a calibrated shop's list length no longer depends on type.
+
+LIST_LENGTH_BY_TYPE = {
+    'quick':    (2, 4),
+    'browser':  (4, 7),
+    'thorough': (6, 12),
+}
+
+
 # --- checkout service time ---
 # Service was a flat U(3,8) s draw, independent of what the agent was
 # carrying. Two things were wrong with that. Real checkout service is

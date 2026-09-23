@@ -17,11 +17,18 @@ Provides:
   * ``feasible_layout(shop, item_names, layout)`` -- the GA's repair
     chain as a layout -> layout map; every method's layouts go through
     it before MC scoring.
+  * ``zone_sampler(shop, item_names)`` / ``zone_neighbor(shop,
+    item_names)`` -- random layouts and one-item moves inside the zones
+    the GA constrains each item to, for the ``sampler`` / ``neighbor``
+    hooks of ``experiments.metaheuristics`` on a shop that has no
+    SyntheticShop behind it (the calibrated store).
   * ``bootstrap_ci(samples, alpha, n_boot)`` -- percentile bootstrap CI.
   * ``write_sidecar(out_dir, payload)`` -- JSON sidecar with seed +
     git SHA + elasticity snapshot for reproducibility. The git state
     comes from a ``provenance_snapshot()`` taken when the run started,
     not from the tree as it stands hours later when the file is written.
+    Paths in the payload are written relative to the repository root
+    (``portable_paths``).
 
 Anti-Tk guarantee: ``build_headless_shop`` constructs an instance of
 ``HeadlessShop`` (defined here) which inherits the GA / projection /
@@ -37,6 +44,7 @@ import json
 import math
 import os
 import platform
+import re
 import subprocess
 import sys
 import time
@@ -56,6 +64,7 @@ from simulation import CustomerFlowSimulation
 
 from synthetic_shops import SyntheticShop, SyntheticItem
 from dataset_calibration import CalibratedParams
+from dataset_paths import repo_relative
 from dataset_layout import build_layout_from_calibration
 from retail_literature import (
     GaWeights,
@@ -73,6 +82,11 @@ from retail_literature import (
 #: stream.
 _INIT_POP_STREAM_TAG = 0x1A17
 _OPERATOR_STREAM_TAG = 0x06A0
+
+#: Seeds the GA's surviving population is re-evaluated under before the
+#: winner is picked (``run_ga_headless``). The equal-budget comparators are
+#: given the same number so their final selection matches the GA's.
+GA_N_FINAL_SEEDS = 5
 
 
 # --- Headless shop class -------------------------------------------------
@@ -313,7 +327,7 @@ def base_params_for(synthetic: SyntheticShop) -> Dict[str, Any]:
     return {
         'customers_per_hour': synthetic.daily_customers / 10.0,  # 10h day
         'conversion_rate': 0.30,
-        # NET of the expected impulse spend (audit #3) so mc_engine's
+        # NET of the expected impulse spend so mc_engine's
         # additive impulse term doesn't double-count the baseline.
         'rev_per_converting_customer': net_base_revenue(mean_rev, 0.20, imp_val),
         'rev_per_customer_gross': mean_rev,
@@ -341,8 +355,12 @@ def build_headless_shop_from_calibration(
     Reuses the existing dataset pipeline:
       * ``dataset_layout.build_layout_from_calibration`` lays out the
         sections + items based on the calibrated category mix.
-      * ``CalibratedParams.seed_into`` populates analytics with the
-        empirical basket / co-purchase / hourly-profile / dwell data,
+      * ``CalibratedParams.seed_into(sim, shop=shop)`` populates
+        analytics with the empirical basket / co-purchase /
+        hourly-profile / dwell data, re-keys the per-item dicts from
+        product id to the shop's item keys (which is how the GA score
+        looks items up), and writes the shopping-list length sample
+        -- the stocked part of each invoice -- that agents draw from,
         sets ``sim.run_time`` and ``sim.sim_time`` so
         ``extract_simulation_parameters`` reports the right
         ``customers_per_hour``, and stamps the calibration provenance
@@ -372,59 +390,7 @@ def build_headless_shop_from_calibration(
 
     # Analytics: empirical distributions seeded into sim.analytics so
     # the GA / MC pipelines see real values from t=0.
-    params.seed_into(shop.customer_simulation)
-
-    # -- Key remapping fix --------------------------------------------
-    # ``seed_into`` writes the calibration-namespace dicts keyed by
-    # ``product_id`` (StockCode), but ``build_layout_from_calibration``
-    # keys shop items by the human-readable display name (with a
-    # disambiguating "(stockcode)" suffix on collision). Without a
-    # remap, the GA's ``_ga_compute_layout_score`` lookups for
-    # cross_merchandising / popular_items / item_conversion_rates all
-    # miss -- traffic / cross / revenue_placement components stay locked
-    # at zero and the GA only responds to overlap_penalty /
-    # section_compliance. The remap rewrites the per-item structures
-    # inside ``analytics['calibration']`` to use the SHOP's display
-    # keys, so the calibration-preferring readers see real per-item
-    # signal.
-    A = shop.customer_simulation.analytics
-    cal = A.setdefault('calibration', {})
-    f1_items = shop.floors[1]['items']
-    pid_to_key: Dict[str, str] = {}
-    for key, idata in f1_items.items():
-        pid = idata.get('product_id')
-        if pid is not None and pid not in pid_to_key:
-            pid_to_key[str(pid)] = key
-
-    def _remap_dict_by_pid(d: Dict[str, Any]) -> Dict[str, Any]:
-        out = {}
-        for k, v in d.items():
-            new_k = pid_to_key.get(str(k))
-            if new_k is not None:
-                out[new_k] = v
-        return out
-
-    if 'popular_items' in cal:
-        cal['popular_items'] = _remap_dict_by_pid(dict(cal['popular_items']))
-    if 'item_conversion_rates' in cal:
-        cal['item_conversion_rates'] = _remap_dict_by_pid(
-            dict(cal['item_conversion_rates'])
-        )
-    # cross_merchandising is keyed "pid_a|pid_b" -> translate to
-    # "key_a|key_b" (skip pairs whose items didn't make it into the
-    # placed-items cap).
-    if 'cross_merchandising' in cal:
-        remapped = {}
-        for pair_str, count in dict(cal['cross_merchandising']).items():
-            if not isinstance(pair_str, str) or '|' not in pair_str:
-                continue
-            pa, pb = pair_str.split('|', 1)
-            ka = pid_to_key.get(pa)
-            kb = pid_to_key.get(pb)
-            if ka is None or kb is None:
-                continue
-            remapped[f"{ka}|{kb}"] = count
-        cal['cross_merchandising'] = remapped
+    params.seed_into(shop.customer_simulation, shop=shop)
 
     # Heat map: paint a literature-inspired bias (perimeter + entrance
     # + checkout proximity) so the traffic / revenue_placement
@@ -515,7 +481,7 @@ def base_params_for_calibration(params: CalibratedParams) -> Dict[str, Any]:
     return {
         'customers_per_hour': float(params.visitors_per_hour),
         'conversion_rate': float(params.assumed_conversion_rate),
-        # NET of the expected impulse spend (audit #3).
+        # NET of the expected impulse spend, as above.
         'rev_per_converting_customer': net_base_revenue(gross, 0.20, imp_val),
         'rev_per_customer_gross': gross,
         'rev_std': float(revs.std(ddof=1)) if revs.size > 1 else 1.0,
@@ -715,6 +681,101 @@ def feasible_layout(shop: "HeadlessShop",
     return chromosome_to_layout(chrom, item_names)
 
 
+# --- Search moves inside each item's zone --------------------------------
+
+def _zone_position_bounds(shop: "HeadlessShop",
+                          item_names: List[str]
+                          ) -> Tuple[np.ndarray, np.ndarray]:
+    """``(lo, hi)``, each of shape (N, 2): the range of each item's (x, y)
+    position that keeps the whole fixture inside its zone.
+
+    The zone is the one the GA clips the item to: ``_ga_get_section_bounds``,
+    which resolves it through ``viz_ga_run.item_zone_name`` (the stamped
+    zone while it still belongs to the item's category, else
+    ``Section_<category>``). An item that resolves to no zone gets the box
+    ``_ga_repair`` clips such an item to, the floor less 0.1 m on each
+    side, so the search space stays the GA's on every item. A position is
+    the fixture's lower-left corner, so this range is the zone inset by the
+    item's size, which is the same as keeping the item's centre inside the
+    zone inset by its half-size. An item larger than its zone on an axis
+    has a single position there, the zone's lower edge; ``feasible_layout``
+    then pins it where ``_ga_repair`` pins such an item, 0.05 m inside."""
+    lo = np.empty((len(item_names), 2), dtype=np.float64)
+    hi = np.empty_like(lo)
+    for i, n in enumerate(item_names):
+        w, h = shop._ga_get_item_data(n).get('size', (1.0, 1.0))
+        bounds = shop._ga_get_section_bounds(n)
+        if bounds:
+            sx, sy, sw, sh = bounds
+        else:
+            sx, sy, sw, sh = 0.1, 0.1, shop.width - 0.2, shop.height - 0.2
+        lo[i] = (sx, sy)
+        hi[i] = (max(sx, sx + sw - w), max(sy, sy + sh - h))
+    return lo, hi
+
+
+def zone_sampler(shop: "HeadlessShop", item_names: List[str]):
+    """Random-layout sampler for ``random_search``'s ``sampler`` hook on a
+    shop whose items carry zones -- the calibrated store, which has no
+    SyntheticShop for ``baselines.random_valid`` to draw from.
+
+    ``sample(rng)`` draws every item's centre uniformly inside its zone
+    inset by the item's half-size (``_zone_position_bounds``), independently
+    per item and axis, and returns ``{name: (x, y)}`` for ``item_names``.
+    Items may overlap; callers map the layout through ``feasible_layout``,
+    as ``random_search`` does with every draw, so the search runs over the
+    GA's feasible set. Only ``rng`` is drawn from, never the global numpy
+    RNG, so a draw cannot disturb the seeded Monte Carlo evaluation stream
+    and the same generator state gives the same layout. The zones are read
+    once, when the sampler is made."""
+    names = list(item_names)
+    if not names:
+        raise ValueError("zone_sampler needs at least one item")
+    lo, hi = _zone_position_bounds(shop, names)
+
+    def sample(rng: np.random.Generator) -> Dict[str, Tuple[float, float]]:
+        pos = rng.uniform(lo, hi)
+        return {n: (float(pos[i, 0]), float(pos[i, 1]))
+                for i, n in enumerate(names)}
+
+    return sample
+
+
+def zone_neighbor(shop: "HeadlessShop", item_names: List[str],
+                  step_frac: float = 0.25):
+    """One-item move for ``simulated_annealing``'s ``neighbor`` hook on a
+    shop whose items carry zones, the zone-based counterpart of
+    ``metaheuristics._neighbor``.
+
+    ``neighbor(layout, rng)`` picks one item uniformly, moves it by a step
+    drawn uniformly from +/- ``step_frac`` of the room its zone gives it on
+    each axis (the zone extent less the item's size, as ``_neighbor``
+    scales its step by the section's inner bounds), and clips it back
+    inside the zone. Every other item keeps its position. No overlap repair
+    happens here: callers map the result through ``feasible_layout``, as
+    ``simulated_annealing`` does with every proposal. Only ``rng`` is drawn
+    from, never the global numpy RNG."""
+    if not step_frac > 0.0:
+        raise ValueError("step_frac must be positive")
+    names = list(item_names)
+    if not names:
+        raise ValueError("zone_neighbor needs at least one item")
+    lo, hi = _zone_position_bounds(shop, names)
+    reach = step_frac * np.maximum(hi - lo, 1e-3)
+
+    def neighbor(layout: Dict[str, Tuple[float, float]],
+                 rng: np.random.Generator) -> Dict[str, Tuple[float, float]]:
+        lay = dict(layout)
+        i = int(rng.integers(0, len(names)))
+        step = rng.uniform(-reach[i], reach[i])
+        x, y = lay[names[i]]
+        lay[names[i]] = (float(np.clip(x + step[0], lo[i, 0], hi[i, 0])),
+                         float(np.clip(y + step[1], lo[i, 1], hi[i, 1])))
+        return lay
+
+    return neighbor
+
+
 def run_ga_headless(shop: HeadlessShop,
                     item_names: List[str],
                     base_params: Dict[str, Any],
@@ -751,7 +812,7 @@ def run_ga_headless(shop: HeadlessShop,
     for s in [0, n_final_seeds). ``experiments.metaheuristics`` uses the
     same namespaces and budget.
 
-    Determinism / threading contract (audit R5.4): reproducibility from
+    Determinism / threading contract: reproducibility from
     ``rng_seed`` relies on the GLOBAL numpy RNG (``np.random.seed`` inside
     ``_paired_fitness`` and the GA operators). It is therefore guaranteed
     only in a SINGLE-THREADED process with no other concurrent consumer of
@@ -848,7 +909,7 @@ def run_ga_headless(shop: HeadlessShop,
 
         history_best.append(float(fitness[0]))
         history_avg.append(float(fitness.mean()))
-        # Population diversity (audit R4.5): mean per-coordinate spread of
+        # Population diversity: mean per-coordinate spread of
         # the population, normalized by the shop diagonal. A collapse to ~0
         # would signal premature convergence; a nonzero plateau shows the
         # search retains exploratory spread through the run.
@@ -897,7 +958,7 @@ def run_ga_headless(shop: HeadlessShop,
     # (grid) chromosome since it's always feasible. Averaging across
     # ``n_final_seeds`` seeds reduces SE by sqrt(n) and lets the GA's
     # genuine improvements show through.
-    n_final_seeds = 5
+    n_final_seeds = GA_N_FINAL_SEEDS
     n_search_evals = n_evals[0]
     final_fits_stack = np.zeros((n_final_seeds, len(population)), dtype=np.float64)
     for s_idx in range(n_final_seeds):
@@ -961,7 +1022,8 @@ def git_worktree_state() -> Dict[str, Any]:
     the code that produced its numbers. Tracked edits are captured by
     hashing ``git diff HEAD`` over the executable files only (``*.py`` plus
     the build entry points), so that two runs of the same code hash the
-    same even when the manuscript or the notes have moved in between.
+    same even when the manuscript or the notes have moved in between;
+    the recorded list of modified paths is scoped the same way.
     Untracked ``.py`` files are hashed as well, since a new module can
     change results without appearing in that diff. Other untracked paths
     (result directories, including this run's own) are ignored so that a
@@ -975,8 +1037,10 @@ def git_worktree_state() -> Dict[str, Any]:
 
     try:
         top = _git('rev-parse', '--show-toplevel').decode().strip()
-        modified = _git('status', '--porcelain',
-                        '--untracked-files=no').decode().splitlines()
+        modified = _git('status', '--porcelain', '--untracked-files=no',
+                        '--', ':(top)*.py', ':(top)Makefile',
+                        ':(top)reproduce.ps1',
+                        ':(top)requirements.txt').decode().splitlines()
         untracked = [p for p in _git('ls-files', '--others',
                                      '--exclude-standard', '--full-name',
                                      '-z', '--', ':(top)*.py')
@@ -1012,7 +1076,7 @@ def elasticity_snapshot() -> Dict[str, Any]:
 
 
 def package_versions() -> Dict[str, str]:
-    """Resolved versions of the numerics stack (audit R5.1): the paper's
+    """Resolved versions of the numerics stack: the paper's
     numbers depend on these, so we stamp them alongside the seed and git
     SHA. Uses importlib.metadata so no heavy import is forced."""
     from importlib.metadata import version, PackageNotFoundError
@@ -1041,6 +1105,70 @@ def provenance_snapshot() -> Dict[str, Any]:
 _PROVENANCE_AT_IMPORT: Dict[str, Any] = provenance_snapshot()
 
 
+#: Keys whose string values are file-system paths (``out_root``,
+#: ``retail_path``, ``figs_dir``, ``source_path``, ...).
+_PATH_KEY_RE = re.compile(r'(?:^|_)(?:path|paths|dir|dirs|root|file|files)$')
+
+#: Path keys that name a folder (``out_root``, ``figs_dir``, ...). No runner
+#: records a folder relative to its run directory -- only its own output
+#: files, under ``*_path`` keys -- so a relative folder was given relative to
+#: the working directory, wherever in the payload it sits.
+_DIR_KEY_RE = re.compile(r'(?:^|_)(?:dir|dirs|root)$')
+
+#: Mappings that hold a run's argparse namespace. A relative path in them
+#: was typed relative to the working directory the run started in.
+_ARGS_KEYS = frozenset({'args', 'config'})
+
+
+def _portable_str(s: str, path_key: bool, cwd_relative: bool) -> str:
+    if not s or '\n' in s:
+        return s
+    if os.path.isabs(s):
+        rel = repo_relative(s)
+        # Outside the repository: kept exactly as recorded.
+        return s if os.path.isabs(rel) else rel
+    if path_key and cwd_relative:
+        return repo_relative(s)
+    return s
+
+
+def _portable(obj: Any, key: Any, cwd_relative: bool) -> Any:
+    if isinstance(obj, dict):
+        return {k: (v if isinstance(k, str) and k.startswith('git_')
+                    else _portable(v, k, cwd_relative or k in _ARGS_KEYS))
+                for k, v in obj.items()}
+    if isinstance(obj, (list, tuple)):
+        return [_portable(v, key, cwd_relative) for v in obj]
+    if isinstance(obj, os.PathLike):
+        obj, path_key = os.fspath(obj), True
+    else:
+        path_key = isinstance(key, str) and bool(_PATH_KEY_RE.search(key))
+    if isinstance(obj, str):
+        dir_key = isinstance(key, str) and bool(_DIR_KEY_RE.search(key))
+        return _portable_str(obj, path_key,
+                             cwd_relative or dir_key or key == 'source_path')
+    return obj
+
+
+def portable_paths(payload: Dict[str, Any]) -> Dict[str, Any]:
+    """Copy of ``payload`` with the paths it records made portable.
+
+    Every absolute path inside the repository, at any depth, becomes
+    relative to the repository root with forward slashes
+    (``dataset_paths.repo_relative``); an absolute path outside it is left
+    as it is. A relative path under a path-valued key
+    (``*_path``, ``*_dir``, ``*_root``, ...) is resolved against the working
+    directory first when it is known to be relative to it -- inside a run's
+    ``args`` / ``config`` namespace, under a folder key (``*_dir``,
+    ``*_root``) anywhere, and a dataset ``source_path``, which
+    ``dataset_provenance.stamp`` records as it was handed. Any other
+    relative path is left alone: the runners record their own outputs
+    (``csv_path``, ``figure_path``) relative to the run directory.
+    ``provenance_snapshot``'s ``git_*`` fields are copied unchanged. The
+    input is not modified."""
+    return _portable(payload, None, False)
+
+
 def write_sidecar(out_dir: str, payload: Dict[str, Any],
                   provenance: Optional[Dict[str, Any]] = None) -> str:
     """Write a JSON sidecar with the merged payload + provenance fields.
@@ -1049,7 +1177,12 @@ def write_sidecar(out_dir: str, payload: Dict[str, Any],
     ``provenance`` is a ``provenance_snapshot()`` taken when the run
     started; without it the import-time snapshot is used. The checkout is
     read again here, and ``git_state_changed_during_run`` records whether
-    it moved while the run was in flight."""
+    it moved while the run was in flight.
+
+    Paths in ``payload`` (``out_root``, ``retail_path``, ``figs_dir``, a
+    dataset's ``source_path``, ...) are written by ``portable_paths``:
+    relative to the repository root when they lie inside it, so an artifact
+    shipped with the code does not carry the folder it was produced in."""
     os.makedirs(out_dir, exist_ok=True)
     prov = dict(provenance if provenance is not None else _PROVENANCE_AT_IMPORT)
     at_write = provenance_snapshot()
@@ -1063,7 +1196,7 @@ def write_sidecar(out_dir: str, payload: Dict[str, Any],
         'packages':          package_versions(),
         'iso_time':          time.strftime('%Y-%m-%dT%H:%M:%S', time.localtime()),
         'elasticities':      elasticity_snapshot(),
-        **payload,
+        **portable_paths(payload),
     }
     path = os.path.join(out_dir, 'sidecar.json')
     with open(path, 'w', encoding='utf-8') as f:

@@ -1,11 +1,12 @@
-"""Goodness-of-fit between the live model and the data it was calibrated on.
+"""Goodness-of-fit between the live model and the UCI invoices, in-sample
+and on a held-out period.
 
 The Validation tab runs these tests interactively on whatever simulation
 the user has just watched. This runner does the same thing headlessly and
-reproducibly: it calibrates the UCI store the other live diagnostics use,
-runs the agent model under the shared live protocol, and then puts the
-window's output distributions against the calibration with the tests in
-``dataset_validation`` at alpha = 0.05:
+reproducibly: it builds the store the other live diagnostics use
+(``experiments._live_store``), runs the agent model under the shared live
+protocol, and then puts the window's output distributions against the
+data with the tests in ``dataset_validation`` at alpha = 0.05:
 
   * basket size    -- distinct items per visit (KS, 2-sample)
   * per-visit revenue                            (KS, 2-sample)
@@ -17,26 +18,54 @@ window's output distributions against the calibration with the tests in
     family the simulator assumes, and says nothing about the simulator's
     output)
 
-What this is NOT: predictive validation. The simulator's basket, revenue
-and category parameters were estimated FROM these same distributions, and
-nothing is held out, so agreement shows that the calibrated inputs survive
-the pipeline -- adapter, calibration, layout, agent model -- and come back
-out in the agents' behaviour. It cannot show the model predicts data it
-has not seen. These rows are a transfer check on the pipeline, not
-evidence of predictive power.
+Two designs run in the same invocation, under the same protocol and the
+same number of replications:
+
+  in_sample  The store is calibrated on the CURRENT period (the workbook's
+      last sheet, Year 2010-2011, every row) and tested against that same
+      period. The basket, revenue and category parameters were estimated
+      FROM the distributions under test and nothing is held out, so
+      agreement shows that the calibrated inputs survive the pipeline --
+      adapter, calibration, layout, agent model -- and come back out in the
+      agents' behaviour. It cannot show the model predicts data it has not
+      seen: these rows are a transfer check on the pipeline. Every
+      top-level field of ``summary.json`` keeps this design's meaning.
+
+  held_out   The store is calibrated on the PRIOR period (the first sheet,
+      Year 2009-2010, cut to the invoices dated before the current period
+      starts, so no invoice or calendar day is shared) -- its layout,
+      assortment, prices, basket law and hour-of-day profile all come from
+      that year -- and tested against the CURRENT period:
+      ``validate_against_simulation(params_current, sim)``. The references
+      are therefore the current period's invoices cut to the products the
+      held-out store stocks, which the model never saw. What the store
+      charges is the prior period's price for each product while the
+      revenue reference prices the current invoices at the current
+      period's, so the revenue row also carries a year of price drift. The
+      inter-arrival row describes the current period's own arrivals and is
+      the same in both designs.
+
+``summary.json`` holds the in-sample results at top level, the held-out
+results in a ``held_out`` block of the same structure, and a ``design``
+block with both periods' date ranges and invoice counts, and for each
+design the products its store placed and how many reference invoices hold
+at least one of them. ``results.csv`` has one row per design, replication
+and test.
 
 Every replication is a fixed-step headless run
 (``CustomerFlowSimulation.run_headless``: the GUI loop's ``step`` with no
 sleeping) for ``--warmup`` + ``--seconds`` simulated seconds under its own
-seed, replication r using ``--seed`` + r. The store starts empty, so the
-warm-up is deleted: only samples recorded after the warm-up boundary enter
-a test. ``--workers`` only decides how many replications run at once;
-results are put back in replication order before anything is pooled, so
-the summary is the same for any worker count.
+seed: in-sample replication r under ``--seed`` + r, held-out replication r
+under ``--seed`` + ``--reps`` + r, so every run has its own seed. The store
+starts empty, so the warm-up is deleted: only samples recorded after the
+warm-up boundary enter a test. ``--workers`` only decides how many
+replications run at once; results are put back in design order before
+anything is pooled, so the summary is the same for any worker count.
 
 The protocol defaults are the nominal load, warm-up and window the other
 live diagnostics use; ``run_abm_diagnostics`` records how each value was
-chosen.
+chosen. Both designs run at them; the held-out store's own hour-of-day
+profile sets the multiplier its arrivals run at.
 
     python -m experiments.run_validation_gof
     python -m experiments.run_validation_gof --reps 10 --workers 10
@@ -53,41 +82,32 @@ import time
 from concurrent.futures import ProcessPoolExecutor, as_completed
 
 import numpy as np
+from scipy.stats import ks_2samp
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.dirname(_HERE))
 
-import dataset_adapters as DA          # noqa: E402
-import dataset_calibration as DC       # noqa: E402
-from dataset_validation import validate_against_simulation  # noqa: E402
-from experiments._common import (build_headless_shop_from_calibration,  # noqa: E402
-                                 make_run_dir, write_sidecar)
+from dataset_calibration import placed_invoice_sample  # noqa: E402
+from dataset_validation import (placed_product_ids,  # noqa: E402
+                                validate_against_simulation)
+from experiments import _live_store as LS  # noqa: E402
+from experiments._common import make_run_dir, write_sidecar  # noqa: E402
 
 # Default protocol, shared with run_abm_diagnostics / measure_queueing.
-NOMINAL_SPAWN = 0.22
+NOMINAL_SPAWN = 0.26
 NOMINAL_CAP = 45
-WARMUP_S = 600.0
-COLLECT_S = 2280.0
+WARMUP_S = 900.0
+COLLECT_S = 1860.0
 
 ALPHA = 0.05
 
-
-def _uci_path():
-    root = os.path.dirname(_HERE)
-    for c in (os.path.join(root, 'DATASETS', 'UCI Online Retail II .xlsx.xlsx'),
-              os.path.join(os.path.dirname(root), 'DATASETS',
-                           'UCI Online Retail II .xlsx.xlsx')):
-        if os.path.exists(c):
-            return c
-    raise FileNotFoundError('UCI dataset not found under DATASETS/')
-
-
-def _calibrate():
-    df, _ = DA.read_excel_sheets(_uci_path(),
-                                 [DA.list_excel_sheets(_uci_path())[-1][0]])
-    df = df.sample(n=60000, random_state=0).reset_index(drop=True)
-    norm, _ = DA.OnlineRetailIIAdapter().adapt(df)
-    return DC.calibrate_transactional(norm, currency='GBP')
+# Designs, in the order their replications are seeded. Each builds its store
+# from its own period and is tested against the reference period.
+DESIGNS = ('in_sample', 'held_out')
+STORE_PERIOD = {'in_sample': 'current', 'held_out': 'prior'}
+REFERENCE_PERIOD = 'current'
+DESIGN_LABELS = {'in_sample': 'in_sample_pipeline_transfer',
+                 'held_out': 'held_out_prior_period_store'}
 
 
 class ShopItems:
@@ -183,9 +203,7 @@ def run_once(params, spawn, cap, seconds, warmup=WARMUP_S, dt=0.04, seed=None):
     """One replication, fixed-step headless for ``warmup + seconds``
     simulated seconds, returning the window's output samples, its arrival
     load and the store's items."""
-    shop = build_headless_shop_from_calibration(params,
-                                                max_items_per_category=8,
-                                                naive=True)
+    shop = LS.build_live_store(params)
     sim = shop.customer_simulation
     sim.max_customers = cap
     sim.spawn_rate = spawn
@@ -223,14 +241,16 @@ def run_once(params, spawn, cap, seconds, warmup=WARMUP_S, dt=0.04, seed=None):
     return win
 
 
-def _replication(r, params, args):
-    """Replication ``r`` under seed ``args.seed + r``. Top-level so a worker
-    process can run it; it returns the window's samples and the parent does
-    every test, so pooling and per-replication testing see the same data."""
-    seed = args.seed + r
-    win = run_once(params, args.spawn, args.cap, args.seconds,
+def _design_run(j, plan, stores, args):
+    """Run ``j`` of the plan: one replication of one design, on the store
+    calibrated for that design, under the seed the plan gives it. Top-level
+    so a worker process can run it; it returns the window's samples and the
+    parent does every test, so pooling and per-replication testing see the
+    same data."""
+    design, r, seed = plan[j]
+    win = run_once(stores[design], args.spawn, args.cap, args.seconds,
                    warmup=args.warmup, dt=args.dt, seed=seed)
-    win['rep'], win['seed'] = r, seed
+    win['design'], win['rep'], win['seed'] = design, r, seed
     return win
 
 
@@ -276,11 +296,17 @@ def parse_args(argv=None):
     p.add_argument('--dt', type=float, default=0.04,
                    help="Fixed tick, simulated s")
     p.add_argument('--seed', type=int, default=4000,
-                   help="Base seed; replication r runs under seed + r")
+                   help="Base seed; in-sample replication r runs under "
+                        "seed + r, held-out replication r under "
+                        "seed + reps + r")
     p.add_argument('--alpha', type=float, default=ALPHA,
                    help="Significance level of every test")
     p.add_argument('--workers', type=int, default=1,
                    help="Processes running replications in parallel")
+    p.add_argument('--retail-path', type=str, default=None,
+                   help="Path to the UCI Online Retail II workbook. Default: "
+                        "found by dataset_paths.uci_workbook() "
+                        "($UCI_RETAIL_XLSX, then DATASETS/)")
     p.add_argument('--out-root', type=str,
                    default=os.path.join(_HERE, 'results'))
     args = p.parse_args(argv)
@@ -321,28 +347,28 @@ def _decision_counts(per_rep, name):
     return counts
 
 
-def main(argv=None):
-    args = parse_args(argv)
-    out_dir = make_run_dir(args.out_root, 'validation_gof')
-    print('[gof] calibrating UCI shop once...', flush=True)
-    params = _calibrate()
+def _summed(counts):
+    out = {}
+    for c in counts:
+        for k, n in c.items():
+            out[k] = out.get(k, 0) + int(n)
+    return out
 
-    print(f"[gof] {args.reps} reps of warm-up {args.warmup:.0f}s + collect "
-          f"{args.seconds:.0f}s simulated (dt {args.dt}s, seeds "
-          f"{args.seed}..{args.seed + args.reps - 1}) on {args.workers} "
-          f"worker(s)...", flush=True)
-    t0 = time.perf_counter()
-    reps = _map_runs(_replication, args.reps, args.workers, params, args)
-    wall = time.perf_counter() - t0
 
+def _design_block(design, wins, params_ref, args):
+    """Everything one design reports: per-replication and pooled tests of
+    its windows against ``params_ref``, the decision split, the arrival
+    load and the protocol with this design's seeds, in the shape the
+    summary's top level has always had."""
     # Per replication first: independent windows, so the spread of the
     # decisions says how much one window's sample size is doing.
     per_rep = []
-    for win in reps:
-        rows, _ = _test_rows(params, win, win['shop_items'], args.alpha)
+    for win in wins:
+        rows, _ = _test_rows(params_ref, win, win['shop_items'], args.alpha)
         per_rep.append({'rep': win['rep'], 'seed': win['seed'],
                         'load': win['load'], 'tests': rows})
-        print(f"  rep {win['rep'] + 1}/{args.reps} (seed {win['seed']}): "
+        print(f"  [{design}] rep {win['rep'] + 1}/{args.reps} "
+              f"(seed {win['seed']}): "
               + ', '.join(f"{r['test']}={r['decision']}" for r in rows),
               flush=True)
 
@@ -351,51 +377,26 @@ def main(argv=None):
     # distribution and can be tested together. The store is built from the
     # calibration alone, so every replication must have laid out the same
     # items; per-item counts are only summed under that condition.
-    shop_items = reps[0]['shop_items']
-    if any(w['shop_items'] != shop_items for w in reps[1:]):
-        raise RuntimeError("replications laid out different stores; their "
-                           "item purchases cannot be pooled")
-
-    def _summed(counts):
-        out = {}
-        for c in counts:
-            for k, n in c.items():
-                out[k] = out.get(k, 0) + int(n)
-        return out
+    shop_items = wins[0]['shop_items']
+    if any(w['shop_items'] != shop_items for w in wins[1:]):
+        raise RuntimeError(f"{design} replications laid out different "
+                           "stores; their item purchases cannot be pooled")
 
     purchases = _summed({item: d['purchases'] for item, d
-                         in w['item_conversion_rates'].items()} for w in reps)
+                         in w['item_conversion_rates'].items()} for w in wins)
     pooled_analytics = {
-        'basket_sizes': [v for w in reps for v in w['basket_sizes']],
-        'customer_revenues': [v for w in reps for v in w['customer_revenues']],
+        'basket_sizes': [v for w in wins for v in w['basket_sizes']],
+        'customer_revenues': [v for w in wins for v in w['customer_revenues']],
         'item_conversion_rates': {item: {'purchases': n}
                                   for item, n in purchases.items()},
-        'impulse_item_sales': _summed(w['impulse_item_sales'] for w in reps),
-        'area_visits': _summed(w['area_visits'] for w in reps),
+        'impulse_item_sales': _summed(w['impulse_item_sales'] for w in wins),
+        'area_visits': _summed(w['area_visits'] for w in wins),
     }
-    pooled, pooled_notes = _test_rows(params, pooled_analytics, shop_items,
+    pooled, pooled_notes = _test_rows(params_ref, pooled_analytics, shop_items,
                                       args.alpha)
-
-    csv_path = os.path.join(out_dir, 'results.csv')
-    with open(csv_path, 'w', newline='', encoding='utf-8') as f:
-        w = csv.writer(f)
-        w.writerow(['rep', 'seed', 'test', 'kind', 'statistic', 'p_value',
-                    'n_observed', 'n_simulated', 'decision'])
-        for rep in per_rep:
-            for r in rep['tests']:
-                w.writerow([rep['rep'], rep['seed'], r['test'], r['kind'],
-                            '' if r['statistic'] is None
-                            else f"{r['statistic']:.6f}",
-                            '' if r['p_value'] is None
-                            else f"{r['p_value']:.6g}",
-                            r['n_observed'], r['n_simulated'], r['decision']])
-
     names = [r['test'] for r in pooled]
-    summary = {
+    return {
         'alpha': args.alpha,
-        # These tests compare the simulator against the distributions its
-        # own parameters were estimated from; nothing is held out.
-        'design': 'in_sample_pipeline_transfer',
         'pooled': pooled,
         # The report's notes on the pooled window: why a test that could not
         # run is absent above, and the zone traffic shown beside the tests.
@@ -408,36 +409,175 @@ def main(argv=None):
         # counts always add up to the number of replications.
         'per_test_decisions': {name: _decision_counts(per_rep, name)
                                for name in names},
-        'n_reps': int(args.reps),
-        'load': {'arrivals': int(sum(w['load']['arrivals'] for w in reps)),
-                 'balked': int(sum(w['load']['balked'] for w in reps))},
+        'n_reps': int(len(wins)),
+        'load': {'arrivals': int(sum(w['load']['arrivals'] for w in wins)),
+                 'balked': int(sum(w['load']['balked'] for w in wins))},
         'protocol': {'mode': 'fixed_step', 'dt': args.dt,
                      'seed_base': args.seed,
-                     'seeds': [w['seed'] for w in reps],
+                     'seeds': [w['seed'] for w in wins],
                      'reps': args.reps, 'warmup_s': args.warmup,
                      'collect_s': args.seconds, 'spawn': args.spawn,
                      'cap': args.cap, 'workers': args.workers,
                      'framing': 'terminating'},
         'per_rep': per_rep,
     }
-    with open(os.path.join(out_dir, 'summary.json'), 'w') as f:
-        json.dump(summary, f, indent=2)
-    write_sidecar(out_dir, {'experiment': 'validation_gof',
-                            'args': vars(args), 'wall_seconds': wall,
-                            'csv_path': os.path.relpath(csv_path, out_dir),
-                            'summary': {k: v for k, v in summary.items()
-                                        if k != 'per_rep'}})
 
-    print(f"\n== goodness of fit, {args.reps} replications pooled "
-          f"(alpha = {args.alpha}) ==")
+
+def _sample_stats(sizes):
+    """n, median, mean and 90th percentile of a per-invoice size sample."""
+    a = np.asarray(sizes, dtype=float)
+    if not a.size:
+        return {'n': 0, 'median': None, 'mean': None, 'p90': None}
+    return {'n': int(a.size), 'median': float(np.median(a)),
+            'mean': float(a.mean()), 'p90': float(np.percentile(a, 90))}
+
+
+def _year_shift(store_sample, ref_sample):
+    """Two-sample KS between the data the store was calibrated on and the
+    reference data it is tested against, on the same stocked products.
+
+    In the in-sample design the two samples are one and the distance is
+    zero. In the held-out design it is how far the two periods' own
+    invoices differ -- the yardstick for the simulator's held-out
+    distance: a simulator that transmitted its calibration period
+    perfectly would sit about this far from the reference."""
+    out = {}
+    for name, key in (('basket', 'sizes'), ('revenue', 'revenues')):
+        a = np.asarray(store_sample[key], dtype=float)
+        b = np.asarray(ref_sample[key], dtype=float)
+        if a.size and b.size:
+            r = ks_2samp(a, b)
+            out[name] = {'statistic': float(r.statistic),
+                         'p_value': float(r.pvalue),
+                         'n_store': int(a.size), 'n_reference': int(b.size)}
+        else:
+            out[name] = None
+    return out
+
+
+def _store_facts(design, shop_items, params_ref, params_store):
+    """How a design's store meets the reference period: the products it
+    placed, how many of them the reference period sells at all, and how
+    many reference invoices hold at least one of them -- the invoices the
+    basket and revenue references are cut from.
+
+    Also the two list-length samples involved: the one the store's agents
+    draw their shopping-list length from (the stocked part of each invoice
+    of the period the store was calibrated on, as seed_into writes it) and
+    the reference the basket test compares them against. In the in-sample
+    design the two are the same sample."""
+    pids = placed_product_ids(ShopItems(shop_items))
+    sold = {str(p) for p in (params_ref.item_visit_counts or {})}
+    sample = placed_invoice_sample(params_ref, pids)
+    agent_sample = placed_invoice_sample(params_store, pids)
+    return {'label': DESIGN_LABELS[design],
+            'store_period': STORE_PERIOD[design],
+            'reference_period': REFERENCE_PERIOD,
+            'n_placed_products': len(pids),
+            'n_placed_products_in_reference': len(pids & sold),
+            'n_reference_invoices': int(sample['n_invoices']),
+            'n_reference_invoices_with_placed': int(sample['n_with_placed']),
+            'list_length_agents': _sample_stats(agent_sample['sizes']),
+            'list_length_reference': _sample_stats(sample['sizes']),
+            'year_shift': _year_shift(agent_sample, sample)}
+
+
+def _print_pooled(title, pooled, alpha, n_reps):
+    print(f"\n== {title}, {n_reps} replications pooled (alpha = {alpha}) ==")
     for r in pooled:
         stat = 'n/a' if r['statistic'] is None else f"{r['statistic']:.4f}"
         pval = 'n/a' if r['p_value'] is None else f"{r['p_value']:.4g}"
         print(f"  {r['test']:34s} {r['kind']:12s} stat={stat:>10s} "
               f"p={pval:>10s}  n_obs={r['n_observed']:>7d} "
               f"n_sim={r['n_simulated']:>6d}  {r['decision']}")
+
+
+def main(argv=None):
+    args = parse_args(argv)
+    out_dir = make_run_dir(args.out_root, 'validation_gof')
+    print('[gof] calibrating the live store on the current and prior '
+          'periods once...', flush=True)
+    params = {period: LS.calibrate_live_store(args.retail_path, period)
+              for period in ('current', 'prior')}
+    periods = {period: LS.period_record(args.retail_path, period)
+               for period in ('current', 'prior')}
+    params_ref = params[REFERENCE_PERIOD]
+    stores = {d: params[STORE_PERIOD[d]] for d in DESIGNS}
+
+    # The held-out replications continue the seed sequence after the
+    # in-sample ones, so every run of the invocation has a seed of its own.
+    plan = [(d, r, args.seed + k * args.reps + r)
+            for k, d in enumerate(DESIGNS) for r in range(args.reps)]
+    print(f"[gof] {args.reps} reps per design ({', '.join(DESIGNS)}) of "
+          f"warm-up {args.warmup:.0f}s + collect {args.seconds:.0f}s "
+          f"simulated (dt {args.dt}s, seeds {plan[0][2]}..{plan[-1][2]}) on "
+          f"{args.workers} worker(s)...", flush=True)
+    t0 = time.perf_counter()
+    runs = _map_runs(_design_run, len(plan), args.workers, plan, stores, args)
+    wall = time.perf_counter() - t0
+    by_design = {d: runs[k * args.reps:(k + 1) * args.reps]
+                 for k, d in enumerate(DESIGNS)}
+
+    blocks = {d: _design_block(d, by_design[d], params_ref, args)
+              for d in DESIGNS}
+    design = {d: _store_facts(d, by_design[d][0]['shop_items'], params_ref,
+                              stores[d])
+              for d in DESIGNS}
+    design['periods'] = periods
+
+    csv_path = os.path.join(out_dir, 'results.csv')
+    with open(csv_path, 'w', newline='', encoding='utf-8') as f:
+        w = csv.writer(f)
+        w.writerow(['design', 'rep', 'seed', 'test', 'kind', 'statistic',
+                    'p_value', 'n_observed', 'n_simulated', 'decision'])
+        for d in DESIGNS:
+            for rep in blocks[d]['per_rep']:
+                for r in rep['tests']:
+                    w.writerow([d, rep['rep'], rep['seed'], r['test'],
+                                r['kind'],
+                                '' if r['statistic'] is None
+                                else f"{r['statistic']:.6f}",
+                                '' if r['p_value'] is None
+                                else f"{r['p_value']:.6g}",
+                                r['n_observed'], r['n_simulated'],
+                                r['decision']])
+
+    # Top level: the in-sample design, field for field as before. The
+    # held-out design sits in a block of the same shape, and 'design' says
+    # what each store was built from and tested against.
+    ins = blocks['in_sample']
+    summary = {'alpha': ins['alpha'], 'design': design}
+    summary.update({k: v for k, v in ins.items() if k != 'alpha'})
+    per_rep = summary.pop('per_rep')
+    summary['held_out'] = blocks['held_out']
+    summary['per_rep'] = per_rep
+    with open(os.path.join(out_dir, 'summary.json'), 'w') as f:
+        json.dump(summary, f, indent=2)
+    write_sidecar(out_dir, {
+        'experiment': 'validation_gof',
+        'args': vars(args), 'wall_seconds': wall,
+        'csv_path': os.path.relpath(csv_path, out_dir),
+        'summary': {k: ({kk: vv for kk, vv in v.items() if kk != 'per_rep'}
+                        if k == 'held_out' else v)
+                    for k, v in summary.items() if k != 'per_rep'}})
+
+    _print_pooled('in-sample goodness of fit', ins['pooled'], args.alpha,
+                  args.reps)
     print("These are in-sample transfer checks: the parameters under test "
           "were calibrated from the same distributions.")
+    ho = design['held_out']
+    _print_pooled('held-out goodness of fit', blocks['held_out']['pooled'],
+                  args.alpha, args.reps)
+    print(f"Store calibrated on {periods['prior']['first_date']} .. "
+          f"{periods['prior']['last_date']} "
+          f"({periods['prior']['n_invoices']:,} invoices), tested against "
+          f"{periods['current']['first_date']} .. "
+          f"{periods['current']['last_date']}: "
+          f"{ho['n_reference_invoices_with_placed']:,} of "
+          f"{ho['n_reference_invoices']:,} invoices hold one of its "
+          f"{ho['n_placed_products']} products "
+          f"({ho['n_placed_products_in_reference']} of them sold in that "
+          f"period).")
     print(f"wall {wall:.0f}s; artifacts in: {out_dir}")
     return 0
 

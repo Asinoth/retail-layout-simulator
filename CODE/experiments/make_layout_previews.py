@@ -10,9 +10,10 @@ Both figures are drawn from the engine at fixed seeds, so what the paper
 shows is what the shipped code produces, and every panel title reports
 the counts the engine actually placed rather than a remembered number.
 
-The dataset panels need the files under ``DATASETS/``. They are skipped,
-with a message, when those are absent, so this still runs on a checkout
-without the data.
+The dataset panels need the UCI workbook and the Omnichannel bundle, found
+by ``dataset_paths`` (under ``DATASETS/``, or where ``UCI_RETAIL_XLSX`` /
+``OMNICHANNEL_DIR`` point). They are skipped, with a message, when those
+are absent, so this still runs on a checkout without the data.
 
     python -m experiments.make_layout_previews
     python -m experiments.make_layout_previews --figs-dir /tmp/figs
@@ -37,6 +38,7 @@ import figstyle                                      # noqa: E402
 
 import dataset_adapters as DA                        # noqa: E402
 import dataset_calibration as DC                     # noqa: E402
+import dataset_paths                                 # noqa: E402
 from dataset_layout import build_layout_from_calibration  # noqa: E402
 from shop_architecture import (generate_architecture,     # noqa: E402
                                scale_catalog)
@@ -73,18 +75,6 @@ def _figs_dir():
     d = os.path.join(root, 'figs')
     os.makedirs(d, exist_ok=True)
     return d
-
-
-def _datasets_dir():
-    """DATASETS/ is a sibling of CODE/; fall back to a co-located or cwd
-    one for older layouts."""
-    code = os.path.dirname(_HERE)
-    for c in (os.path.join(os.path.dirname(code), 'DATASETS'),
-              os.path.join(code, 'DATASETS'),
-              os.path.join(os.getcwd(), 'DATASETS')):
-        if os.path.isdir(c):
-            return c
-    return os.path.join(os.path.dirname(code), 'DATASETS')
 
 
 def _draw_plan(ax, walls, items, door_position, width, height, title):
@@ -163,8 +153,9 @@ def archetype_previews(figs):
 
 
 def _uci_params(sample_rows):
-    path = os.path.join(_datasets_dir(), 'UCI Online Retail II .xlsx.xlsx')
-    if not os.path.exists(path):
+    try:
+        path = dataset_paths.uci_workbook()
+    except FileNotFoundError:
         return None
     sheet = DA.list_excel_sheets(path)[-1][0]
     df, _ = DA.read_excel_sheets(path, [sheet])
@@ -177,8 +168,9 @@ def _uci_params(sample_rows):
 
 
 def _omnichannel_params():
-    path = os.path.join(_datasets_dir(), 'Omnichannel-Retail-Datasets-main')
-    if not os.path.isdir(path):
+    try:
+        path = dataset_paths.omnichannel_dir()
+    except FileNotFoundError:
         return None
     families, arrivals, _ = DA.load_omnichannel_bundle(path)
     return DC.calibrate_omnichannel(families, arrivals)
@@ -190,8 +182,8 @@ def dataset_previews(figs, sample_rows=UCI_SAMPLE_ROWS):
     for label, params in (('UCI Online Retail II', _uci_params(sample_rows)),
                           ('Omnichannel Retail', _omnichannel_params())):
         if params is None:
-            print(f'  [previews] {label} data not found under DATASETS/ '
-                  '- panel skipped', flush=True)
+            print(f'  [previews] {label} data not found (DATASETS/ or its '
+                  'environment override) - panel skipped', flush=True)
             continue
         shop = HeadlessShop(width=20.0, height=15.0)
         stats = build_layout_from_calibration(shop, params)

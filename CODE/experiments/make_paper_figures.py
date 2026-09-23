@@ -38,11 +38,12 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
 
-import figstyle  # noqa: E402  (shared color-blind-safe style, audit R9)
+import figstyle  # noqa: E402  (shared color-blind-safe style)
 figstyle.apply()
 
 from synthetic_shops import generate_synthetic_shop        # noqa: E402
 from baselines import popularity_rank                       # noqa: E402
+from dataset_paths import repo_relative                     # noqa: E402
 from experiments._common import (build_headless_shop,       # noqa: E402
                                  base_params_for, package_versions,
                                  provenance_snapshot, run_ga_headless)
@@ -158,7 +159,7 @@ def main():
     figstyle.save(fig, 'score_components', out_dir=figs)
     plt.close(fig)
 
-    # -- Realized elasticities at realized scores (audit R2.3) --------
+    # -- Realized elasticities at realized scores ---------------------
     # Report the effect actually APPLIED at the realized composite scores,
     # not the score=1 band endpoint (which no layout reaches).
     from retail_literature import (
@@ -176,8 +177,11 @@ def main():
         'basket_lift_pct': round(((1 + s_ga * be) / (1 + s_bl * be) - 1) * 100, 1),
         'elasticity_midpoints': {'conv': ce, 'impulse': ie, 'basket': be},
         # The design behind these numbers, so a reader (and the macro
-        # builder) can tell a paper-grade run from a quick check.
-        'config': vars(args),
+        # builder) can tell a paper-grade run from a quick check. The
+        # figures directory is the one actually written to, named
+        # relative to the repository when it lies inside it, so the
+        # shipped file does not carry this checkout's absolute path.
+        'config': {**vars(args), 'figs_dir': repo_relative(figs)},
         'provenance': {**prov,
                        'python': sys.version.split()[0],
                        'packages': package_versions()},
@@ -185,7 +189,7 @@ def main():
     with open(os.path.join(figs, 'realized_scores.json'), 'w') as f:
         json.dump(realized, f, indent=2)
 
-    # -- Figure: Monte Carlo convergence trace (audit R3.8) -----------
+    # -- Figure: Monte Carlo convergence trace ------------------------
     # Running mean of the per-iteration revenue totals with a +/-1.96 SE
     # band, showing the estimate has stabilized well before the iteration
     # count the experiments use.

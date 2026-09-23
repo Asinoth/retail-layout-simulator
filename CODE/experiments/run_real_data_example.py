@@ -7,21 +7,38 @@ reports the paired-MC projected revenue lift over the as-calibrated
 baseline layout (mapped onto the GA's feasible set, like every GA
 candidate), evaluated on seeds the GA never searched under.
 
-This is the script a TOMACS reviewer should be able to run to reproduce
-the paper's real-data application figure. Output sidecar.json records dataset
-SHA-256, git SHA, elasticity snapshot, and the conversion-rate
-assumption marker -- everything needed for end-to-end reproducibility.
+The as-built layout is not the GA's only comparator. Random search and
+simulated annealing (``experiments.metaheuristics``) run on the same store
+at the GA's search budget -- ``pop_size * n_gens`` evaluations with one
+shared seed per ``pop_size`` block, then the GA's final selection over
+``GA_N_FINAL_SEEDS`` seeds -- both starting from the naive as-built layout
+the GA's population is seeded from, and seeded from ``--ga-seed`` as the
+GA is. The calibrated store has no SyntheticShop to draw layouts from, so
+their draws and moves come from ``zone_sampler`` / ``zone_neighbor``,
+inside the zone the GA constrains each item to, and every candidate goes
+through ``feasible_layout`` like the GA's. Their layouts are scored under
+the same held-out paired replicates as the GA and the baseline, which says
+whether the lift over the as-built store needs the GA or only needs
+search.
 
-Smoke (small dataset slice + small GA budget; <5 min):
+This is the script that reproduces the paper's real-data application
+figure. Output sidecar.json records dataset SHA-256, git SHA, elasticity
+snapshot, and the conversion-rate assumption marker -- everything needed
+for end-to-end reproducibility.
+
+``--retail-path`` is optional: without it the workbook is found by
+``dataset_paths.uci_workbook()`` (``$UCI_RETAIL_XLSX``, then the workbook
+under ``DATASETS/``).
+
+Smoke (one sheet + small GA budget; a few minutes):
     python -m experiments.run_real_data_example ^
-        --retail-path C:\\path\\to\\online_retail_II.xlsx ^
         --sheets "Year 2010-2011" ^
         --max-items-per-category 8 ^
         --mc-iters 200 --n-gens 5 --pop-size 10 --n-mc-replicates 5
 
-Paper-grade (both sheets + Tier-1 GA budget; ~15-30 min):
+Paper-grade (both sheets + Tier-1 GA budget; the two comparators each
+spend the GA's budget, so about three times the GA's own wall time):
     python -m experiments.run_real_data_example ^
-        --retail-path C:\\path\\to\\online_retail_II.xlsx ^
         --sheets "Year 2009-2010,Year 2010-2011" ^
         --max-items-per-category 12 ^
         --mc-iters 2000 --mc-days 30 ^
@@ -38,11 +55,12 @@ from __future__ import annotations
 
 import argparse
 import csv
+import json
 import os
 import re
 import sys
 import time
-from typing import Dict, List
+from typing import Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
 
@@ -56,9 +74,11 @@ from dataset_adapters import (
     read_excel_sheets,
 )
 from dataset_calibration import calibrate_transactional, CalibratedParams
+from dataset_paths import uci_workbook
 from dataset_provenance import stamp as stamp_provenance
 
 from experiments._common import (
+    GA_N_FINAL_SEEDS,
     build_headless_shop_from_calibration,
     base_params_for_calibration,
     run_ga_headless,
@@ -68,21 +88,56 @@ from experiments._common import (
     layout_to_chromosome,
     chromosome_to_layout,
     feasible_layout,
+    zone_sampler,
+    zone_neighbor,
     make_run_dir,
     write_sidecar,
 )
+from experiments.metaheuristics import (
+    DEFAULT_INITIAL_ACCEPT,
+    random_search,
+    simulated_annealing,
+)
 
 
-# Paired-evaluation seeds are EVAL_SEED_BASE + replicate. The GA searches
-# under ga_seed*1000 + [0, n_gens + 6) (generation seeds, a gap, then 5
-# final-selection seeds); ``parse_args`` keeps that range below the base.
+# Paired-evaluation seeds are EVAL_SEED_BASE + replicate. Every search --
+# the GA, random search and simulated annealing -- scores and selects under
+# ga_seed*1000 + [0, n_gens + 1 + GA_N_FINAL_SEEDS) (generation or block
+# seeds, a gap, then the final-selection seeds; ``search_seed_ranges``);
+# ``parse_args`` keeps that range below the base.
 EVAL_SEED_BASE = 1_000_000
+
+#: Step of the annealer's one-item move, as a fraction of the room the
+#: item's zone gives it on each axis (``zone_neighbor``). The same fraction
+#: ``metaheuristics._neighbor`` scales its moves by on the synthetic shops.
+SA_STEP_FRAC = 0.25
+
+
+def search_seed_ranges(ga_seed: int, n_gens: int,
+                       pop_size: int) -> Dict[str, List[int]]:
+    """Half-open range ``[lo, hi)`` of the Monte Carlo seeds each search
+    scores or selects under.
+
+    The GA evaluates generation ``g`` under ``ga_seed*1000 + g`` and runs
+    its final selection under ``ga_seed*1000 + n_gens + 1 + s``. Random
+    search and SA, given ``budget = pop_size * n_gens`` and ``block =
+    pop_size``, use one seed per block, ``ga_seed*1000 + [0, n_blocks)``,
+    and the same final-selection rule with ``n_blocks`` in place of
+    ``n_gens``; the two counts coincide."""
+    base = ga_seed * 1000
+    n_blocks = -(-(pop_size * n_gens) // pop_size)
+    meta = [base, base + n_blocks + 1 + GA_N_FINAL_SEEDS]
+    return {'GA': [base, base + n_gens + 1 + GA_N_FINAL_SEEDS],
+            'random_search': list(meta),
+            'simulated_annealing': list(meta)}
 
 
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser()
-    p.add_argument('--retail-path', type=str, required=True,
-                   help="Path to online_retail_II.xlsx (the UCI dataset)")
+    p.add_argument('--retail-path', type=str, default=None,
+                   help="Path to the UCI Online Retail II workbook. Default: "
+                        "found by dataset_paths.uci_workbook() "
+                        "($UCI_RETAIL_XLSX, then DATASETS/)")
     p.add_argument('--sheets', type=str,
                    default="Year 2009-2010,Year 2010-2011",
                    help="Comma-separated Excel sheet names to concatenate")
@@ -97,14 +152,35 @@ def parse_args() -> argparse.Namespace:
     p.add_argument('--n-mc-replicates', type=int, default=30,
                    help="Number of paired-MC replicate seeds used to estimate the lift CI")
     p.add_argument('--ga-seed', type=int, default=0,
-                   help="RNG seed for the GA initialization")
+                   help="RNG seed for the GA initialization; random search "
+                        "and simulated annealing are seeded from it too")
+    p.add_argument('--sa-initial-accept', type=float,
+                   default=DEFAULT_INITIAL_ACCEPT,
+                   help="Acceptance probability of a median worsening move "
+                        "at the annealer's starting temperature")
     p.add_argument('--out-root', type=str,
                    default=os.path.join(_HERE, 'results'))
     args = p.parse_args()
-    if (args.ga_seed < 0 or args.n_gens + 6 > 1000
-            or (args.ga_seed + 1) * 1000 > EVAL_SEED_BASE):
-        p.error("--ga-seed must be in [0, 999] and --n-gens + 6 <= 1000 so "
-                "the GA's search seeds stay below the evaluation seeds")
+    if args.pop_size < 2 or args.n_gens < 1:
+        p.error("--pop-size must be >= 2 (simulated annealing re-scores its "
+                "incumbent at the start of every pop_size block) and "
+                "--n-gens >= 1")
+    if not 0.0 < args.sa_initial_accept < 1.0:
+        p.error("--sa-initial-accept must lie strictly between 0 and 1")
+    # Each search's seeds must stay inside the run seed's own block of 1000
+    # and below the held-out evaluation seeds, so no method is finally
+    # compared under a noise draw it searched or selected under.
+    ceiling = min((args.ga_seed + 1) * 1000, EVAL_SEED_BASE)
+    ranges = search_seed_ranges(args.ga_seed, args.n_gens, args.pop_size)
+    if args.ga_seed < 0 or any(hi > ceiling for _, hi in ranges.values()):
+        p.error(f"--ga-seed must be in [0, 999] and --n-gens + "
+                f"{1 + GA_N_FINAL_SEEDS} <= 1000 so the search seeds of the "
+                f"GA, random search and simulated annealing stay below the "
+                f"evaluation seeds")
+    try:
+        args.retail_path = uci_workbook(args.retail_path)
+    except FileNotFoundError as exc:
+        p.error(str(exc))
     return args
 
 
@@ -182,6 +258,42 @@ def calibrate_from_file(args: argparse.Namespace) -> tuple:
     return params, report, reader
 
 
+def comparator_summary(optimized: np.ndarray, other: np.ndarray,
+                       baseline: np.ndarray) -> Dict:
+    """The GA against one comparator over the held-out paired replicates.
+
+    ``paired_mean_diff_GA_minus_X`` and its interval use the bootstrap the
+    lift over the as-built layout uses (percentile, 2000 resamples, 95%);
+    the percentage is taken of the comparator's mean revenue, as the lift's
+    is taken of the baseline's. ``lift_over_baseline`` is the comparator's
+    own paired lift over the as-built layout, on the lift's conventions, so
+    the headroom each search recovered can be read beside the GA's."""
+    diff = optimized - other
+    mean_d, lo, hi = bootstrap_ci(diff, alpha=0.05, n_boot=2000)
+    denom = max(float(other.mean()), 1e-6)
+    lift = other - baseline
+    mean_l, lo_l, hi_l = bootstrap_ci(lift, alpha=0.05, n_boot=2000)
+    denom_b = max(float(baseline.mean()), 1e-6)
+    return {
+        'mean':                        float(other.mean()),
+        'paired_mean_diff_GA_minus_X': mean_d,
+        'ci_lo':                       lo,
+        'ci_hi':                       hi,
+        'pct_diff':                    mean_d / denom * 100.0,
+        'pct_diff_ci':                 [lo / denom * 100.0,
+                                        hi / denom * 100.0],
+        'pct_of':                      'comparator_mean',
+        'lift_over_baseline': {
+            'paired_mean_diff': mean_l,
+            'ci_lo':            lo_l,
+            'ci_hi':            hi_l,
+            'pct_lift':         mean_l / denom_b * 100.0,
+            'pct_lift_ci':      [lo_l / denom_b * 100.0,
+                                 hi_l / denom_b * 100.0],
+        },
+    }
+
+
 def main() -> int:
     args = parse_args()
     out_dir = make_run_dir(args.out_root, 'real_data_uci')
@@ -247,31 +359,101 @@ def main() -> int:
           flush=True)
     optimized_layout = chromosome_to_layout(ga_out['best_chrom'], item_names)
 
-    # -- 4. Paired-MC: baseline vs. optimized across replicate seeds --
+    # -- 4. Equal-budget comparators on the same store ---------------
+    # Random search and simulated annealing search the SAME MC objective
+    # under the GA's search budget and seeds, starting from the as-built
+    # layout the GA's population is seeded from. Their draws and moves stay
+    # inside the zone the GA constrains each item to, and every candidate
+    # is mapped through feasible_layout before it is scored.
+    budget = args.pop_size * args.n_gens
+    print(f"[real] running random search and simulated annealing "
+          f"(budget={budget} search evaluations, block={args.pop_size}, "
+          f"{GA_N_FINAL_SEEDS} final-selection seeds)…", flush=True)
+    rs_stats: Dict = {}
+    rs_t0 = time.perf_counter()
+    rs_layout = random_search(
+        shop, None, item_names, base_params,
+        seed=args.ga_seed, budget=budget, block=args.pop_size,
+        n_final_seeds=GA_N_FINAL_SEEDS,
+        mc_iters=args.mc_iters, mc_days=args.mc_days, stats=rs_stats,
+        init_layout=init_layout,
+        sampler=zone_sampler(shop, item_names))
+    rs_wall = time.perf_counter() - rs_t0
+    sa_stats: Dict = {}
+    sa_t0 = time.perf_counter()
+    sa_layout = simulated_annealing(
+        shop, None, item_names, base_params,
+        seed=args.ga_seed, budget=budget, block=args.pop_size,
+        n_final_seeds=GA_N_FINAL_SEEDS,
+        mc_iters=args.mc_iters, mc_days=args.mc_days,
+        initial_accept=args.sa_initial_accept, stats=sa_stats,
+        init_layout=init_layout, start='asbuilt',
+        neighbor=zone_neighbor(shop, item_names, step_frac=SA_STEP_FRAC))
+    sa_wall = time.perf_counter() - sa_t0
+    print(f"[real] random search done in {rs_wall:.1f}s; simulated "
+          f"annealing done in {sa_wall:.1f}s (T0={sa_stats.get('sa_T0')})",
+          flush=True)
+
+    # The equal-budget check is on the SEARCH evaluations, which is what
+    # the budget buys; the final-selection counts are recorded beside them
+    # (SA hands its final stage distinct archived states only, so it can
+    # spend fewer there than the GA's full population).
+    eval_counts = {'GA': ga_out['n_search_evals'],
+                   'random_search': rs_stats['n_search_evals'],
+                   'simulated_annealing': sa_stats['n_search_evals']}
+    if len(set(eval_counts.values())) != 1:
+        raise AssertionError(f"search methods spent unequal "
+                             f"search-evaluation budgets {eval_counts}")
+    final_eval_counts = {'GA': ga_out['n_final_evals'],
+                         'random_search': rs_stats['n_final_evals'],
+                         'simulated_annealing': sa_stats['n_final_evals']}
+    starts = {'GA': 'asbuilt',
+              'random_search': rs_stats['rs_start'],
+              'simulated_annealing': sa_stats['sa_start']}
+    if set(starts.values()) != {'asbuilt'}:
+        raise AssertionError(f"searches did not share the as-built start: "
+                             f"{starts}")
+    # Both searchers only evaluate repaired candidates, so these are fixed
+    # points of the repair; mapping them keeps the rule uniform.
+    rs_layout = feasible_layout(shop, item_names, rs_layout)
+    sa_layout = feasible_layout(shop, item_names, sa_layout)
+
+    # -- 5. Paired-MC: every layout under the same replicate seeds ----
     print(f"[real] paired-MC over {args.n_mc_replicates} replicates "
           f"(same RNG seed per pair)…", flush=True)
     baseline_revs: List[float] = []
     optimized_revs: List[float] = []
+    rs_revs: List[float] = []
+    sa_revs: List[float] = []
     diffs: List[float] = []
     for r in range(args.n_mc_replicates):
         mc_seed = EVAL_SEED_BASE + r
-        rev_base = paired_mc_revenue(
-            shop, item_names, baseline_layout, base_params,
-            seed=mc_seed, mc_iters=args.mc_iters, mc_days=args.mc_days,
-        )
-        rev_opt = paired_mc_revenue(
-            shop, item_names, optimized_layout, base_params,
-            seed=mc_seed, mc_iters=args.mc_iters, mc_days=args.mc_days,
-        )
-        baseline_revs.append(rev_base)
-        optimized_revs.append(rev_opt)
-        diffs.append(rev_opt - rev_base)
-        print(f"  rep {r:>3d}: baseline={rev_base:>12.2f}  "
-              f"optimized={rev_opt:>12.2f}  diff={rev_opt - rev_base:+10.2f}",
+        rev = {
+            name: paired_mc_revenue(
+                shop, item_names, lay, base_params,
+                seed=mc_seed, mc_iters=args.mc_iters, mc_days=args.mc_days,
+            )
+            for name, lay in (('baseline', baseline_layout),
+                              ('optimized', optimized_layout),
+                              ('rs', rs_layout),
+                              ('sa', sa_layout))
+        }
+        baseline_revs.append(rev['baseline'])
+        optimized_revs.append(rev['optimized'])
+        rs_revs.append(rev['rs'])
+        sa_revs.append(rev['sa'])
+        diffs.append(rev['optimized'] - rev['baseline'])
+        print(f"  rep {r:>3d}: baseline={rev['baseline']:>12.2f}  "
+              f"optimized={rev['optimized']:>12.2f}  "
+              f"diff={rev['optimized'] - rev['baseline']:+10.2f}  "
+              f"GA-RS={rev['optimized'] - rev['rs']:+10.2f}  "
+              f"GA-SA={rev['optimized'] - rev['sa']:+10.2f}",
               flush=True)
 
     baseline_revs_arr = np.asarray(baseline_revs)
     optimized_revs_arr = np.asarray(optimized_revs)
+    rs_revs_arr = np.asarray(rs_revs)
+    sa_revs_arr = np.asarray(sa_revs)
     diffs_arr = np.asarray(diffs)
     mean_diff, ci_lo, ci_hi = bootstrap_ci(diffs_arr, alpha=0.05, n_boot=2000)
     mean_base = float(baseline_revs_arr.mean())
@@ -279,6 +461,27 @@ def main() -> int:
     pct_lift = mean_diff / max(mean_base, 1e-6) * 100.0
     pct_lift_lo = ci_lo / max(mean_base, 1e-6) * 100.0
     pct_lift_hi = ci_hi / max(mean_base, 1e-6) * 100.0
+
+    comparators = {
+        'random_search': {
+            **comparator_summary(optimized_revs_arr, rs_revs_arr,
+                                 baseline_revs_arr),
+            'n_search_evals': rs_stats['n_search_evals'],
+            'n_final_evals':  rs_stats['n_final_evals'],
+            'start':          rs_stats['rs_start'],
+            'wall_seconds':   rs_wall,
+        },
+        'simulated_annealing': {
+            **comparator_summary(optimized_revs_arr, sa_revs_arr,
+                                 baseline_revs_arr),
+            'n_search_evals':    sa_stats['n_search_evals'],
+            'n_final_evals':     sa_stats['n_final_evals'],
+            'start':             sa_stats['sa_start'],
+            'sa_T0':             sa_stats.get('sa_T0'),
+            'sa_initial_accept': sa_stats.get('sa_initial_accept'),
+            'wall_seconds':      sa_wall,
+        },
+    }
 
     print()
     print(f"[real] PAPER FIGURE C HEADLINE:")
@@ -288,8 +491,21 @@ def main() -> int:
           f"({pct_lift:+.2f}%)")
     print(f"       95% CI on lift:            [{ci_lo:+.2f}, {ci_hi:+.2f}]  "
           f"([{pct_lift_lo:+.2f}%, {pct_lift_hi:+.2f}%])")
+    for label, key in (('random search', 'random_search'),
+                       ('sim. annealing', 'simulated_annealing')):
+        c = comparators[key]
+        print(f"       GA - {label + ':':<22s}"
+              f"{c['paired_mean_diff_GA_minus_X']:>+14.2f}  "
+              f"({c['pct_diff']:+.2f}%)  95% CI "
+              f"[{c['ci_lo']:+.2f}, {c['ci_hi']:+.2f}]")
+    print(f"       search evaluations (GA / RS / SA): "
+          f"{eval_counts['GA']} / {eval_counts['random_search']} / "
+          f"{eval_counts['simulated_annealing']}  "
+          f"(final: {final_eval_counts['GA']} / "
+          f"{final_eval_counts['random_search']} / "
+          f"{final_eval_counts['simulated_annealing']})")
 
-    # -- 5. Stamp provenance ---------------------------------------
+    # -- 6. Stamp provenance ---------------------------------------
     prov = stamp_provenance(
         source_path=args.retail_path,
         adapter_name=OnlineRetailIIAdapter.name,
@@ -317,26 +533,77 @@ def main() -> int:
         },
     )
 
-    # -- 6. Write CSV + sidecar + figure ---------------------------
+    # -- 7. Write CSV + figure + sidecar + summary ---------------------
     csv_path = os.path.join(out_dir, 'results.csv')
     with open(csv_path, 'w', newline='', encoding='utf-8') as f:
         w = csv.writer(f)
         w.writerow(['replicate', 'mc_seed', 'baseline_revenue',
-                    'optimized_revenue', 'diff'])
-        for r, (b, o, d) in enumerate(zip(baseline_revs, optimized_revs, diffs)):
+                    'optimized_revenue', 'diff',
+                    'rs_revenue', 'sa_revenue', 'diff_rs', 'diff_sa'])
+        for r, (b, o, d, rs, sa) in enumerate(zip(
+                baseline_revs, optimized_revs, diffs, rs_revs, sa_revs)):
             w.writerow([r, EVAL_SEED_BASE + r,
-                        f"{b:.4f}", f"{o:.4f}", f"{d:.4f}"])
+                        f"{b:.4f}", f"{o:.4f}", f"{d:.4f}",
+                        f"{rs:.4f}", f"{sa:.4f}",
+                        f"{o - rs:.4f}", f"{o - sa:.4f}"])
 
     png_path = make_figure_c(
         out_dir, baseline_revs_arr, optimized_revs_arr,
         diffs_arr, ci_lo, ci_hi, params,
+        comparators=[
+            (label,
+             comparators[key]['paired_mean_diff_GA_minus_X'],
+             comparators[key]['ci_lo'],
+             comparators[key]['ci_hi'])
+            for label, key in (('random\nsearch', 'random_search'),
+                               ('simulated\nannealing',
+                                'simulated_annealing'))
+        ],
     )
+
+    results = {
+        'baseline_mean':   mean_base,
+        'optimized_mean':  mean_opt,
+        'paired_mean_diff': mean_diff,
+        'ci_lo':           ci_lo,
+        'ci_hi':           ci_hi,
+        'pct_lift':        pct_lift,
+        'pct_lift_ci':     [pct_lift_lo, pct_lift_hi],
+        'n_replicates':    args.n_mc_replicates,
+        # The GA against each equal-budget search, paired on the same
+        # held-out replicates as the lift above (GA minus X).
+        'comparators':     comparators,
+    }
+    # How the three searches were held level: one budget, one block, one
+    # number of final-selection seeds, one start, one seed family.
+    search_design = {
+        'budget_search_evals':  budget,
+        'block':                args.pop_size,
+        'n_final_seeds':        GA_N_FINAL_SEEDS,
+        'seed':                 args.ga_seed,
+        'starts':               starts,
+        'search_seed_ranges':   search_seed_ranges(args.ga_seed, args.n_gens,
+                                                   args.pop_size),
+        'paired_eval_seeds':    [EVAL_SEED_BASE,
+                                 EVAL_SEED_BASE + args.n_mc_replicates],
+        'rs_sampler':           'zone_sampler',
+        'sa_neighbor':          f'zone_neighbor(step_frac={SA_STEP_FRAC})',
+        'ci':                   'percentile bootstrap, 2000 resamples, 95%, '
+                                'per comparison (uncorrected)',
+    }
+    sa_schedule = {
+        'sa_initial_accept': sa_stats.get('sa_initial_accept'),
+        'sa_T0':             sa_stats.get('sa_T0'),
+        'sa_start':          sa_stats.get('sa_start'),
+    }
 
     write_sidecar(out_dir, {
         'experiment':        'real_data_uci_figure_c',
         'args':              vars(args),
         'wall_seconds':      time.perf_counter() - wall_t0,
         'ga_wall_seconds':   ga_wall,
+        'rs_wall_seconds':   rs_wall,
+        'sa_wall_seconds':   sa_wall,
         'csv_path':          os.path.relpath(csv_path, out_dir),
         'figure_path':       os.path.relpath(png_path, out_dir),
         'provenance':        prov.to_dict(),
@@ -353,7 +620,7 @@ def main() -> int:
             'conversion_rate_source':  'assumption',  # explicit marker
             'return_customer_rate':    params.return_customer_rate,
             'currency':                params.currency,
-            # Data-quality descriptors (audit R7.3/R7.5).
+            # Data-quality descriptors.
             'basket_units_median':     params.basket_units_median,
             'basket_distinct_median':  params.basket_distinct_median,
             'category_fallback_frac':  params.category_fallback_frac,
@@ -365,17 +632,26 @@ def main() -> int:
                                      if w.startswith('Section_')),
             'items_placed':      len(item_names),
         },
-        'results': {
-            'baseline_mean':   mean_base,
-            'optimized_mean':  mean_opt,
-            'paired_mean_diff': mean_diff,
-            'ci_lo':           ci_lo,
-            'ci_hi':           ci_hi,
-            'pct_lift':        pct_lift,
-            'pct_lift_ci':     [pct_lift_lo, pct_lift_hi],
-            'n_replicates':    args.n_mc_replicates,
-        },
+        'results': results,
+        # Search-evaluation totals (checked equal) and the final-selection
+        # evaluations each search spent on top of them.
+        'evaluation_counts':       eval_counts,
+        'final_evaluation_counts': final_eval_counts,
+        'sa_schedule':             sa_schedule,
+        'search_design':           search_design,
     })
+
+    # Written last: its presence marks a finished run.
+    with open(os.path.join(out_dir, 'summary.json'), 'w',
+              encoding='utf-8') as f:
+        json.dump({
+            'experiment':              'real_data_uci_figure_c',
+            'results':                 results,
+            'evaluation_counts':       eval_counts,
+            'final_evaluation_counts': final_eval_counts,
+            'sa_schedule':             sa_schedule,
+            'search_design':           search_design,
+        }, f, indent=2)
 
     print(f"\nArtifacts in: {out_dir}")
     return 0
@@ -387,13 +663,26 @@ def make_figure_c(out_dir: str,
                   diffs: np.ndarray,
                   ci_lo: float,
                   ci_hi: float,
-                  params: CalibratedParams) -> str:
+                  params: CalibratedParams,
+                  comparators: Optional[Sequence[Tuple[str, float, float,
+                                                       float]]] = None
+                  ) -> str:
+    """Three panels: per-replicate revenue of the as-built and GA layouts,
+    their paired scatter, and the paired differences with bootstrap CIs.
+
+    ``comparators`` adds a bar per ``(label, GA-minus-X mean, ci_lo,
+    ci_hi)`` to the right panel beside the lift over the as-built layout,
+    so every bar reads the same way: above zero, the GA's layout earns
+    more."""
     import matplotlib
     matplotlib.use('Agg')
     import matplotlib.pyplot as plt
+    from matplotlib.ticker import MaxNLocator
 
-    fig = plt.figure(figsize=(11, 4.5))
-    gs = fig.add_gridspec(1, 3, width_ratios=[3, 3, 2], wspace=0.35)
+    fig = plt.figure(figsize=(13, 4.8))
+    # No explicit wspace: tight_layout gives up on a gridspec that fixes its
+    # own spacing, and the panel titles then run into the suptitle.
+    gs = fig.add_gridspec(1, 3, width_ratios=[3, 3, 3])
 
     # Left: overlapping histograms of MC revenue
     ax_h = fig.add_subplot(gs[0, 0])
@@ -409,6 +698,9 @@ def make_figure_c(out_dir: str,
     ax_h.set_ylabel('Replicate count')
     ax_h.set_title(f'Per-replicate revenue\n({len(baseline)} paired MC seeds)')
     ax_h.legend(fontsize=8, framealpha=0.9)
+    # Revenue levels are large and close together; fewer ticks keep their
+    # labels from running into each other.
+    ax_h.xaxis.set_major_locator(MaxNLocator(nbins=4))
 
     # Middle: scatter of paired (baseline, optimized) with y=x reference
     ax_s = fig.add_subplot(gs[0, 1])
@@ -422,24 +714,43 @@ def make_figure_c(out_dir: str,
     ax_s.set_ylabel(f'Optimized revenue ({params.currency})')
     ax_s.set_title('Paired-MC: optimized vs. baseline\n(points above diagonal = GA wins)')
     ax_s.legend(fontsize=8, loc='upper left')
+    ax_s.xaxis.set_major_locator(MaxNLocator(nbins=4))
 
-    # Right: lift bar with bootstrap CI
+    # Right: GA minus each layout, paired, with bootstrap CIs. The first
+    # bar is the lift over the as-built store; the rest are the
+    # equal-budget searches.
     ax_b = fig.add_subplot(gs[0, 2])
-    mean_diff = float(diffs.mean())
-    err = [[mean_diff - ci_lo], [ci_hi - mean_diff]]
-    ax_b.bar(['GA lift'], [mean_diff], yerr=err,
-             color='#FF6B6B', alpha=0.85, capsize=8, edgecolor='black')
+    bars = [('as-built\n(lift)', float(diffs.mean()), float(ci_lo),
+             float(ci_hi), '#FF6B6B')]
+    bars += [(label, float(m), float(c_lo), float(c_hi), '#B8C4CE')
+             for label, m, c_lo, c_hi in (comparators or [])]
+    xs = np.arange(len(bars))
+    means = [b[1] for b in bars]
+    err = [[b[1] - b[2] for b in bars], [b[3] - b[1] for b in bars]]
+    ax_b.bar(xs, means, yerr=err, width=0.6, color=[b[4] for b in bars],
+             alpha=0.85, capsize=8, edgecolor='black')
     ax_b.axhline(0, color='black', linewidth=0.6)
-    ax_b.set_ylabel(f'Paired mean lift ({params.currency})')
-    sign = '+' if ci_lo > 0 else ('-' if ci_hi < 0 else '~')
-    ax_b.set_title(f'95% bootstrap CI\n[{ci_lo:+.0f}, {ci_hi:+.0f}]  ({sign} significant)')
+    ax_b.set_xticks(xs)
+    ax_b.set_xticklabels([b[0] for b in bars], fontsize=8)
+    ax_b.set_ylabel(f'GA minus layout, paired mean ({params.currency})')
+    for x, (_, m, c_lo, c_hi, _) in zip(xs, bars):
+        sign = '+' if c_lo > 0 else ('-' if c_hi < 0 else '~')
+        above = m >= 0
+        ax_b.annotate(f'[{c_lo:+.0f}, {c_hi:+.0f}]\n({sign})',
+                      xy=(x, c_hi if above else c_lo),
+                      xytext=(0, 4 if above else -4),
+                      textcoords='offset points', ha='center',
+                      va='bottom' if above else 'top', fontsize=7)
+    ax_b.margins(y=0.25)
+    ax_b.set_title('Paired difference, 95% bootstrap CI\n'
+                   '(+ / -: CI excludes 0; ~: it does not)')
 
     fig.suptitle(
         f"Figure C: UCI Online Retail II "
         f"({params.n_invoices:,} invoices, {params.n_unique_categories} categories)",
         fontsize=11, fontweight='bold'
     )
-    fig.tight_layout(rect=[0, 0, 1, 0.95])
+    fig.tight_layout(rect=[0, 0, 1, 0.95], w_pad=2.0)
     png_path = os.path.join(out_dir, 'figure_c.png')
     fig.savefig(png_path, dpi=150)
     pdf_path = os.path.join(out_dir, 'figure_c.pdf')

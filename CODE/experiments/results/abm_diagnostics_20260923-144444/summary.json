@@ -1,0 +1,675 @@
+{
+  "markov_order": {
+    "n_sequences": 3571,
+    "n_transitions": 48475,
+    "n_censored_final": 0,
+    "mean_drain_seconds": 768.0,
+    "H_next_given_cur_bits": 0.331,
+    "info_gain_second_order_bits": 0.0331,
+    "info_gain_ci95": 0.0064,
+    "info_gain_null_mean_bits": 0.0001,
+    "info_gain_excess_bits": 0.0329,
+    "info_gain_excess_ci95": 0.0064,
+    "info_gain_perm_p": 0.005,
+    "mean_tv_first_vs_second": 0.0297,
+    "tv_ci95": 0.0025,
+    "tv_null_mean": 0.0024,
+    "tv_excess": 0.0273,
+    "tv_excess_ci95": 0.0023,
+    "tv_perm_p": 0.005,
+    "n_permutations": 200,
+    "perm_seed": 0,
+    "min_cell": 8,
+    "entropy_estimator": "miller_madow",
+    "sequence_source": "completed_state_histories",
+    "pooled": {
+      "n_sequences": 3571,
+      "n_transitions": 48475,
+      "mean_seq_len": 14.574628955474656,
+      "dense_second_order_mass": 44897,
+      "H_next_given_cur_bits": 0.3351,
+      "info_gain_second_order_bits": 0.0373,
+      "info_gain_null_mean_bits": 0.0,
+      "info_gain_excess_bits": 0.0373,
+      "info_gain_perm_p": 0.005,
+      "mean_tv_first_vs_second": 0.0308,
+      "tv_null_mean": 0.0007,
+      "tv_excess": 0.0301,
+      "tv_perm_p": 0.005,
+      "n_permutations": 200
+    }
+  },
+  "emergence": {
+    "perimeter_interior_ratio": 1.811,
+    "perimeter_ratio_ci95": 0.051,
+    "perimeter_interior_ratio_geometric_null": 0.923,
+    "geometric_null_ci95": 0.0,
+    "ratio_to_geometric_null": 1.962,
+    "ratio_to_geometric_null_ci95": 0.056,
+    "band_m": 2.5
+  },
+  "load": {
+    "arrivals": 3583,
+    "balked": 12,
+    "balked_frac": 0.0033
+  },
+  "protocol": {
+    "mode": "fixed_step",
+    "dt": 0.04,
+    "seed_base": 1000,
+    "seeds": [
+      1000,
+      1001,
+      1002,
+      1003,
+      1004,
+      1005,
+      1006,
+      1007,
+      1008,
+      1009
+    ],
+    "reps": 10,
+    "warmup_s": 900.0,
+    "collect_s": 1860.0,
+    "spawn": 0.26,
+    "cap": 45,
+    "workers": 4,
+    "framing": "terminating"
+  },
+  "data": {
+    "period": "current",
+    "workbook": "DATASETS/UCI Online Retail II .xlsx.xlsx",
+    "sheet": "Year 2010-2011",
+    "rows_in": 541910,
+    "rows_adapted": 527664,
+    "rows_calibrated": 527664,
+    "first_date": "2010-12-01",
+    "last_date": "2011-12-09",
+    "first_timestamp": "2010-12-01T08:26:00",
+    "last_timestamp": "2011-12-09T12:50:00",
+    "n_invoices": 19773
+  },
+  "per_rep": [
+    {
+      "rep": 0,
+      "seed": 1000,
+      "load": {
+        "arrivals": 330,
+        "balked": 0
+      },
+      "markov_order": {
+        "n_sequences": 330,
+        "n_transitions": 4596,
+        "mean_seq_len": 14.927272727272728,
+        "dense_second_order_mass": 4264,
+        "H_next_given_cur_bits": 0.3386,
+        "info_gain_second_order_bits": 0.0383,
+        "info_gain_null_mean_bits": 0.0002,
+        "info_gain_excess_bits": 0.0381,
+        "info_gain_perm_p": 0.005,
+        "mean_tv_first_vs_second": 0.0301,
+        "tv_null_mean": 0.0024,
+        "tv_excess": 0.0277,
+        "tv_perm_p": 0.005,
+        "n_permutations": 200,
+        "n_censored_final": 0,
+        "drain_seconds": 720.0
+      },
+      "emergence": {
+        "perimeter_mean_intensity": 0.2662,
+        "interior_mean_intensity": 0.1577,
+        "perimeter_interior_ratio": 1.688,
+        "band_m": 2.5,
+        "perimeter_interior_ratio_geometric_null": 0.923,
+        "ratio_to_geometric_null": 1.829,
+        "band_sweep": {
+          "1.0": 0.601,
+          "1.5": 2.041,
+          "2.0": 1.641,
+          "2.5": 1.688,
+          "3.0": 1.456,
+          "4.0": 1.626
+        },
+        "band_sweep_geometric_null": {
+          "1.0": 0.32,
+          "1.5": 0.615,
+          "2.0": 0.796,
+          "2.5": 0.923,
+          "3.0": 0.997,
+          "4.0": 1.071
+        },
+        "band_sweep_ratio_to_geometric_null": {
+          "1.0": 1.876,
+          "1.5": 3.318,
+          "2.0": 2.061,
+          "2.5": 1.829,
+          "3.0": 1.46,
+          "4.0": 1.518
+        }
+      }
+    },
+    {
+      "rep": 1,
+      "seed": 1001,
+      "load": {
+        "arrivals": 393,
+        "balked": 3
+      },
+      "markov_order": {
+        "n_sequences": 390,
+        "n_transitions": 5254,
+        "mean_seq_len": 14.471794871794872,
+        "dense_second_order_mass": 4864,
+        "H_next_given_cur_bits": 0.3306,
+        "info_gain_second_order_bits": 0.0358,
+        "info_gain_null_mean_bits": 0.0001,
+        "info_gain_excess_bits": 0.0357,
+        "info_gain_perm_p": 0.005,
+        "mean_tv_first_vs_second": 0.0306,
+        "tv_null_mean": 0.0022,
+        "tv_excess": 0.0284,
+        "tv_perm_p": 0.005,
+        "n_permutations": 200,
+        "n_censored_final": 0,
+        "drain_seconds": 900.0
+      },
+      "emergence": {
+        "perimeter_mean_intensity": 0.2908,
+        "interior_mean_intensity": 0.162,
+        "perimeter_interior_ratio": 1.796,
+        "band_m": 2.5,
+        "perimeter_interior_ratio_geometric_null": 0.923,
+        "ratio_to_geometric_null": 1.946,
+        "band_sweep": {
+          "1.0": 0.639,
+          "1.5": 2.166,
+          "2.0": 1.716,
+          "2.5": 1.796,
+          "3.0": 1.526,
+          "4.0": 1.638
+        },
+        "band_sweep_geometric_null": {
+          "1.0": 0.32,
+          "1.5": 0.615,
+          "2.0": 0.796,
+          "2.5": 0.923,
+          "3.0": 0.997,
+          "4.0": 1.071
+        },
+        "band_sweep_ratio_to_geometric_null": {
+          "1.0": 1.996,
+          "1.5": 3.521,
+          "2.0": 2.155,
+          "2.5": 1.946,
+          "3.0": 1.531,
+          "4.0": 1.529
+        }
+      }
+    },
+    {
+      "rep": 2,
+      "seed": 1002,
+      "load": {
+        "arrivals": 361,
+        "balked": 0
+      },
+      "markov_order": {
+        "n_sequences": 361,
+        "n_transitions": 4871,
+        "mean_seq_len": 14.493074792243767,
+        "dense_second_order_mass": 4509,
+        "H_next_given_cur_bits": 0.3411,
+        "info_gain_second_order_bits": 0.0396,
+        "info_gain_null_mean_bits": 0.0003,
+        "info_gain_excess_bits": 0.0393,
+        "info_gain_perm_p": 0.005,
+        "mean_tv_first_vs_second": 0.0317,
+        "tv_null_mean": 0.0027,
+        "tv_excess": 0.0291,
+        "tv_perm_p": 0.005,
+        "n_permutations": 200,
+        "n_censored_final": 0,
+        "drain_seconds": 1080.0
+      },
+      "emergence": {
+        "perimeter_mean_intensity": 0.2777,
+        "interior_mean_intensity": 0.151,
+        "perimeter_interior_ratio": 1.839,
+        "band_m": 2.5,
+        "perimeter_interior_ratio_geometric_null": 0.923,
+        "ratio_to_geometric_null": 1.993,
+        "band_sweep": {
+          "1.0": 0.628,
+          "1.5": 2.138,
+          "2.0": 1.716,
+          "2.5": 1.839,
+          "3.0": 1.576,
+          "4.0": 1.749
+        },
+        "band_sweep_geometric_null": {
+          "1.0": 0.32,
+          "1.5": 0.615,
+          "2.0": 0.796,
+          "2.5": 0.923,
+          "3.0": 0.997,
+          "4.0": 1.071
+        },
+        "band_sweep_ratio_to_geometric_null": {
+          "1.0": 1.961,
+          "1.5": 3.476,
+          "2.0": 2.156,
+          "2.5": 1.993,
+          "3.0": 1.581,
+          "4.0": 1.634
+        }
+      }
+    },
+    {
+      "rep": 3,
+      "seed": 1003,
+      "load": {
+        "arrivals": 362,
+        "balked": 0
+      },
+      "markov_order": {
+        "n_sequences": 362,
+        "n_transitions": 4611,
+        "mean_seq_len": 13.737569060773481,
+        "dense_second_order_mass": 4241,
+        "H_next_given_cur_bits": 0.3325,
+        "info_gain_second_order_bits": 0.0278,
+        "info_gain_null_mean_bits": 0.0002,
+        "info_gain_excess_bits": 0.0276,
+        "info_gain_perm_p": 0.005,
+        "mean_tv_first_vs_second": 0.0312,
+        "tv_null_mean": 0.0025,
+        "tv_excess": 0.0286,
+        "tv_perm_p": 0.005,
+        "n_permutations": 200,
+        "n_censored_final": 0,
+        "drain_seconds": 840.0
+      },
+      "emergence": {
+        "perimeter_mean_intensity": 0.2682,
+        "interior_mean_intensity": 0.1439,
+        "perimeter_interior_ratio": 1.863,
+        "band_m": 2.5,
+        "perimeter_interior_ratio_geometric_null": 0.923,
+        "ratio_to_geometric_null": 2.019,
+        "band_sweep": {
+          "1.0": 0.669,
+          "1.5": 2.247,
+          "2.0": 1.772,
+          "2.5": 1.863,
+          "3.0": 1.578,
+          "4.0": 1.666
+        },
+        "band_sweep_geometric_null": {
+          "1.0": 0.32,
+          "1.5": 0.615,
+          "2.0": 0.796,
+          "2.5": 0.923,
+          "3.0": 0.997,
+          "4.0": 1.071
+        },
+        "band_sweep_ratio_to_geometric_null": {
+          "1.0": 2.089,
+          "1.5": 3.652,
+          "2.0": 2.225,
+          "2.5": 2.019,
+          "3.0": 1.583,
+          "4.0": 1.556
+        }
+      }
+    },
+    {
+      "rep": 4,
+      "seed": 1004,
+      "load": {
+        "arrivals": 338,
+        "balked": 0
+      },
+      "markov_order": {
+        "n_sequences": 338,
+        "n_transitions": 4577,
+        "mean_seq_len": 14.541420118343195,
+        "dense_second_order_mass": 4238,
+        "H_next_given_cur_bits": 0.3374,
+        "info_gain_second_order_bits": 0.0379,
+        "info_gain_null_mean_bits": 0.0002,
+        "info_gain_excess_bits": 0.0376,
+        "info_gain_perm_p": 0.005,
+        "mean_tv_first_vs_second": 0.031,
+        "tv_null_mean": 0.0025,
+        "tv_excess": 0.0286,
+        "tv_perm_p": 0.005,
+        "n_permutations": 200,
+        "n_censored_final": 0,
+        "drain_seconds": 1080.0
+      },
+      "emergence": {
+        "perimeter_mean_intensity": 0.2802,
+        "interior_mean_intensity": 0.1449,
+        "perimeter_interior_ratio": 1.934,
+        "band_m": 2.5,
+        "perimeter_interior_ratio_geometric_null": 0.923,
+        "ratio_to_geometric_null": 2.095,
+        "band_sweep": {
+          "1.0": 0.612,
+          "1.5": 2.211,
+          "2.0": 1.789,
+          "2.5": 1.934,
+          "3.0": 1.644,
+          "4.0": 1.742
+        },
+        "band_sweep_geometric_null": {
+          "1.0": 0.32,
+          "1.5": 0.615,
+          "2.0": 0.796,
+          "2.5": 0.923,
+          "3.0": 0.997,
+          "4.0": 1.071
+        },
+        "band_sweep_ratio_to_geometric_null": {
+          "1.0": 1.911,
+          "1.5": 3.594,
+          "2.0": 2.247,
+          "2.5": 2.095,
+          "3.0": 1.649,
+          "4.0": 1.627
+        }
+      }
+    },
+    {
+      "rep": 5,
+      "seed": 1005,
+      "load": {
+        "arrivals": 346,
+        "balked": 1
+      },
+      "markov_order": {
+        "n_sequences": 345,
+        "n_transitions": 4762,
+        "mean_seq_len": 14.802898550724638,
+        "dense_second_order_mass": 4410,
+        "H_next_given_cur_bits": 0.3146,
+        "info_gain_second_order_bits": 0.0227,
+        "info_gain_null_mean_bits": 0.0,
+        "info_gain_excess_bits": 0.0227,
+        "info_gain_perm_p": 0.005,
+        "mean_tv_first_vs_second": 0.026,
+        "tv_null_mean": 0.0023,
+        "tv_excess": 0.0237,
+        "tv_perm_p": 0.005,
+        "n_permutations": 200,
+        "n_censored_final": 0,
+        "drain_seconds": 480.0
+      },
+      "emergence": {
+        "perimeter_mean_intensity": 0.2758,
+        "interior_mean_intensity": 0.1575,
+        "perimeter_interior_ratio": 1.752,
+        "band_m": 2.5,
+        "perimeter_interior_ratio_geometric_null": 0.923,
+        "ratio_to_geometric_null": 1.898,
+        "band_sweep": {
+          "1.0": 0.571,
+          "1.5": 2.01,
+          "2.0": 1.637,
+          "2.5": 1.752,
+          "3.0": 1.515,
+          "4.0": 1.661
+        },
+        "band_sweep_geometric_null": {
+          "1.0": 0.32,
+          "1.5": 0.615,
+          "2.0": 0.796,
+          "2.5": 0.923,
+          "3.0": 0.997,
+          "4.0": 1.071
+        },
+        "band_sweep_ratio_to_geometric_null": {
+          "1.0": 1.782,
+          "1.5": 3.267,
+          "2.0": 2.056,
+          "2.5": 1.898,
+          "3.0": 1.52,
+          "4.0": 1.551
+        }
+      }
+    },
+    {
+      "rep": 6,
+      "seed": 1006,
+      "load": {
+        "arrivals": 352,
+        "balked": 0
+      },
+      "markov_order": {
+        "n_sequences": 352,
+        "n_transitions": 4865,
+        "mean_seq_len": 14.821022727272727,
+        "dense_second_order_mass": 4505,
+        "H_next_given_cur_bits": 0.3166,
+        "info_gain_second_order_bits": 0.0226,
+        "info_gain_null_mean_bits": 0.0001,
+        "info_gain_excess_bits": 0.0225,
+        "info_gain_perm_p": 0.005,
+        "mean_tv_first_vs_second": 0.0259,
+        "tv_null_mean": 0.0021,
+        "tv_excess": 0.0238,
+        "tv_perm_p": 0.005,
+        "n_permutations": 200,
+        "n_censored_final": 0,
+        "drain_seconds": 840.0
+      },
+      "emergence": {
+        "perimeter_mean_intensity": 0.2842,
+        "interior_mean_intensity": 0.1591,
+        "perimeter_interior_ratio": 1.786,
+        "band_m": 2.5,
+        "perimeter_interior_ratio_geometric_null": 0.923,
+        "ratio_to_geometric_null": 1.936,
+        "band_sweep": {
+          "1.0": 0.6,
+          "1.5": 2.102,
+          "2.0": 1.686,
+          "2.5": 1.786,
+          "3.0": 1.526,
+          "4.0": 1.664
+        },
+        "band_sweep_geometric_null": {
+          "1.0": 0.32,
+          "1.5": 0.615,
+          "2.0": 0.796,
+          "2.5": 0.923,
+          "3.0": 0.997,
+          "4.0": 1.071
+        },
+        "band_sweep_ratio_to_geometric_null": {
+          "1.0": 1.874,
+          "1.5": 3.417,
+          "2.0": 2.117,
+          "2.5": 1.936,
+          "3.0": 1.53,
+          "4.0": 1.554
+        }
+      }
+    },
+    {
+      "rep": 7,
+      "seed": 1007,
+      "load": {
+        "arrivals": 366,
+        "balked": 0
+      },
+      "markov_order": {
+        "n_sequences": 366,
+        "n_transitions": 4924,
+        "mean_seq_len": 14.453551912568306,
+        "dense_second_order_mass": 4558,
+        "H_next_given_cur_bits": 0.3513,
+        "info_gain_second_order_bits": 0.0454,
+        "info_gain_null_mean_bits": 0.0001,
+        "info_gain_excess_bits": 0.0453,
+        "info_gain_perm_p": 0.005,
+        "mean_tv_first_vs_second": 0.0339,
+        "tv_null_mean": 0.0027,
+        "tv_excess": 0.0311,
+        "tv_perm_p": 0.005,
+        "n_permutations": 200,
+        "n_censored_final": 0,
+        "drain_seconds": 600.0
+      },
+      "emergence": {
+        "perimeter_mean_intensity": 0.2957,
+        "interior_mean_intensity": 0.1573,
+        "perimeter_interior_ratio": 1.88,
+        "band_m": 2.5,
+        "perimeter_interior_ratio_geometric_null": 0.923,
+        "ratio_to_geometric_null": 2.037,
+        "band_sweep": {
+          "1.0": 0.612,
+          "1.5": 2.162,
+          "2.0": 1.72,
+          "2.5": 1.88,
+          "3.0": 1.611,
+          "4.0": 1.749
+        },
+        "band_sweep_geometric_null": {
+          "1.0": 0.32,
+          "1.5": 0.615,
+          "2.0": 0.796,
+          "2.5": 0.923,
+          "3.0": 0.997,
+          "4.0": 1.071
+        },
+        "band_sweep_ratio_to_geometric_null": {
+          "1.0": 1.911,
+          "1.5": 3.514,
+          "2.0": 2.161,
+          "2.5": 2.037,
+          "3.0": 1.616,
+          "4.0": 1.633
+        }
+      }
+    },
+    {
+      "rep": 8,
+      "seed": 1008,
+      "load": {
+        "arrivals": 397,
+        "balked": 4
+      },
+      "markov_order": {
+        "n_sequences": 393,
+        "n_transitions": 5162,
+        "mean_seq_len": 14.134860050890586,
+        "dense_second_order_mass": 4769,
+        "H_next_given_cur_bits": 0.3424,
+        "info_gain_second_order_bits": 0.0408,
+        "info_gain_null_mean_bits": 0.0001,
+        "info_gain_excess_bits": 0.0406,
+        "info_gain_perm_p": 0.005,
+        "mean_tv_first_vs_second": 0.0333,
+        "tv_null_mean": 0.0025,
+        "tv_excess": 0.0307,
+        "tv_perm_p": 0.005,
+        "n_permutations": 200,
+        "n_censored_final": 0,
+        "drain_seconds": 540.0
+      },
+      "emergence": {
+        "perimeter_mean_intensity": 0.3158,
+        "interior_mean_intensity": 0.1735,
+        "perimeter_interior_ratio": 1.82,
+        "band_m": 2.5,
+        "perimeter_interior_ratio_geometric_null": 0.923,
+        "ratio_to_geometric_null": 1.973,
+        "band_sweep": {
+          "1.0": 0.641,
+          "1.5": 2.12,
+          "2.0": 1.71,
+          "2.5": 1.82,
+          "3.0": 1.569,
+          "4.0": 1.757
+        },
+        "band_sweep_geometric_null": {
+          "1.0": 0.32,
+          "1.5": 0.615,
+          "2.0": 0.796,
+          "2.5": 0.923,
+          "3.0": 0.997,
+          "4.0": 1.071
+        },
+        "band_sweep_ratio_to_geometric_null": {
+          "1.0": 2.002,
+          "1.5": 3.446,
+          "2.0": 2.148,
+          "2.5": 1.973,
+          "3.0": 1.573,
+          "4.0": 1.641
+        }
+      }
+    },
+    {
+      "rep": 9,
+      "seed": 1009,
+      "load": {
+        "arrivals": 338,
+        "balked": 4
+      },
+      "markov_order": {
+        "n_sequences": 334,
+        "n_transitions": 4853,
+        "mean_seq_len": 15.529940119760479,
+        "dense_second_order_mass": 4513,
+        "H_next_given_cur_bits": 0.3047,
+        "info_gain_second_order_bits": 0.0201,
+        "info_gain_null_mean_bits": 0.0001,
+        "info_gain_excess_bits": 0.02,
+        "info_gain_perm_p": 0.005,
+        "mean_tv_first_vs_second": 0.0233,
+        "tv_null_mean": 0.0021,
+        "tv_excess": 0.0212,
+        "tv_perm_p": 0.005,
+        "n_permutations": 200,
+        "n_censored_final": 0,
+        "drain_seconds": 600.0
+      },
+      "emergence": {
+        "perimeter_mean_intensity": 0.2875,
+        "interior_mean_intensity": 0.1642,
+        "perimeter_interior_ratio": 1.751,
+        "band_m": 2.5,
+        "perimeter_interior_ratio_geometric_null": 0.923,
+        "ratio_to_geometric_null": 1.897,
+        "band_sweep": {
+          "1.0": 0.581,
+          "1.5": 2.054,
+          "2.0": 1.634,
+          "2.5": 1.751,
+          "3.0": 1.519,
+          "4.0": 1.692
+        },
+        "band_sweep_geometric_null": {
+          "1.0": 0.32,
+          "1.5": 0.615,
+          "2.0": 0.796,
+          "2.5": 0.923,
+          "3.0": 0.997,
+          "4.0": 1.071
+        },
+        "band_sweep_ratio_to_geometric_null": {
+          "1.0": 1.815,
+          "1.5": 3.34,
+          "2.0": 2.052,
+          "2.5": 1.897,
+          "3.0": 1.524,
+          "4.0": 1.58
+        }
+      }
+    }
+  ]
+}

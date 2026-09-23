@@ -113,6 +113,9 @@ MIN_LHS_SCENARIOS = 12
 # budget would otherwise pass on its point and scenario counts alone.
 MIN_LHS_DESIGN = {'n_seeds': 3, 'n_gens': 15, 'pop_size': 24,
                   'mc_iters': 500}
+# Spatial weight vectors behind the weight-sweep numbers (the runner's
+# default, which the Makefile runs the sweep at).
+MIN_LHS_WEIGHT_DRAWS = 256
 MIN_MCGT_SCENARIOS = 6
 MIN_MCGT_BUDGET_RATIO = 10
 MIN_MCGT_NORMAL_BUDGET = 750
@@ -126,6 +129,40 @@ MIN_GOF_REPS = 5
 MIN_GASENS = {'n_scenarios': 3, 'n_seeds': 2, 'n_gens': 25, 'mc_iters': 800,
               'n_heldout_seeds': 10}
 MIN_FIGURES = {'n_seeds': 5, 'n_gens': 25, 'pop_size': 30, 'mc_iters': 2000}
+
+# The equal-budget searches are compared from one starting layout, the
+# as-built one. Runs from before the searches shared that start handed the
+# annealer the popularity ranking instead, so a difference between the
+# searches measured the start as much as the search; those runs do not
+# record 'search_start' and cannot set these numbers.
+ASBUILT = 'asbuilt'
+FIGB_ASBUILT_SEARCHES = ('random_search', 'simulated_annealing')
+MCGT_ASBUILT_SEARCHES = ('random_search_big', 'simulated_annealing_big',
+                         'GA_big')
+
+# Figure B's comparator family and the short names its macros use. The
+# Bonferroni divisor counts the members an artifact contains, so a run
+# whose recorded family holds a method without a name here would be
+# corrected for fewer comparisons than it made, and is refused.
+FIGB_SHORT_NAMES = {'oracle': 'Oracle', 'popularity_rank': 'Pop',
+                    'perimeter_only': 'Perim', 'random_valid': 'Random',
+                    'greedy_swap': 'Greedy', 'random_search': 'RandSearch',
+                    'simulated_annealing': 'SA'}
+# Rows scored beside the family but outside it: reported on the family's
+# estimator and level, never counted in NComparators or NSigComparisons.
+FIGB_SENSITIVITY = {'simulated_annealing_popstart': 'SAPopStart'}
+
+# Equivalence margin of the GA-vs-SA comparison, as a fraction of the
+# annealer's mean paired revenue. Fixed before the re-run; the reasoning is
+# at the computation in main().
+EQUIV_MARGIN_FRAC = 0.001
+
+# Figure C's equal-budget comparators: short name, the paired-difference
+# column and the comparator's own revenue column in results.csv.
+FIGC_COMPARATORS = {'random_search': ('RandSearch', 'diff_rs', 'rs_revenue'),
+                    'simulated_annealing': ('SA', 'diff_sa', 'sa_revenue')}
+FIGC_COMPARATOR_COLUMNS = tuple(c for _, diff, rev in FIGC_COMPARATORS.values()
+                                for c in (rev, diff))
 
 
 @functools.lru_cache(maxsize=None)
@@ -257,15 +294,51 @@ def _figa_big_enough(d):
         return False
 
 
+def _starts_asbuilt(record, searches):
+    """True if ``record`` names the start of every one of ``searches`` and
+    each of them started from the as-built layout. A search that started
+    from different layouts in different runs is recorded as their
+    '/'-joined names, which fails the check."""
+    starts = record.get('search_start')
+    return (isinstance(starts, dict)
+            and all(starts.get(m) == ASBUILT for m in searches))
+
+
 def _figb_big_enough(d):
-    """Paper-scale comparison run that records the annealing schedule its
-    simulated-annealing comparator ran under, so the equal-budget claim
-    rests on the run's own record."""
-    if not (_sidecar_big_enough(d) and _has_results_csv(d)):
+    """Paper-scale, finished comparison run that records the annealing
+    schedule its simulated-annealing comparator ran under, so the
+    equal-budget claim rests on the run's own record; the comparator family
+    it corrects for, with the sensitivity rows outside it; and an as-built
+    start for random search and the annealer."""
+    if not (_sidecar_big_enough(d) and _has_results_csv(d)
+            and _has_summary(d)):
         return False
     try:
         j = json.load(open(os.path.join(d, 'sidecar.json')))
-        return isinstance(j.get('sa_schedule'), dict)
+        family = j.get('comparison_family')
+        return (isinstance(j.get('sa_schedule'), dict)
+                and isinstance(family, list) and bool(family)
+                and all(m in FIGB_SHORT_NAMES for m in family)
+                and _starts_asbuilt(j, FIGB_ASBUILT_SEARCHES))
+    except Exception:
+        return False
+
+
+def _figc_comparators_recorded(d):
+    """True if a real-data run scored the equal-budget searches beside the
+    GA: their columns in results.csv, or their paired differences in the
+    run's summary."""
+    try:
+        with open(os.path.join(d, 'results.csv'), newline='') as f:
+            header = next(csv.reader(f))
+        if all(c in header for c in FIGC_COMPARATOR_COLUMNS):
+            return True
+    except Exception:
+        pass
+    try:
+        s = json.load(open(os.path.join(d, 'summary.json')))
+        comps = (s.get('results') or {}).get('comparators') or {}
+        return all(isinstance(comps.get(m), dict) for m in FIGC_COMPARATORS)
     except Exception:
         return False
 
@@ -274,7 +347,8 @@ def _figc_big_enough(d):
     """True if a finished real-data run used the paper-scale design and
     records what the workbook reader did -- rows read per sheet and the
     cross-sheet repeats dropped before the adapter saw the frame, without
-    which the row counts cannot be checked against the workbook."""
+    which the row counts cannot be checked against the workbook -- and
+    scored the equal-budget searches under the same paired replicates."""
     if not _has_results_csv(d):
         return False
     try:
@@ -285,7 +359,8 @@ def _figc_big_enough(d):
                 and int(a.get('mc_iters', 0)) >= MIN_FIGC_MC_ITERS
                 and len(sheets) >= MIN_FIGC_SHEETS
                 and isinstance(j.get('reader'), dict)
-                and _traceable(j))
+                and _traceable(j)
+                and _figc_comparators_recorded(d))
     except Exception:
         return False
 
@@ -293,25 +368,35 @@ def _figc_big_enough(d):
 def _lhs_big_enough(d):
     """True if a finished LHS run covers the paper's design resolution and
     sweeps every headline comparison rather than only the GA against the
-    popularity baseline, which is what the ``comparisons`` block records."""
+    popularity baseline, which is what the ``comparisons`` block records,
+    and carries the weight sweep over the same layouts at the paper's
+    number of weight vectors."""
     if not _has_summary(d):
         return False
     try:
         s = json.load(open(os.path.join(d, 'summary.json')))
         cfg = s.get('config', {})
+        ws = s.get('weight_sweep')
         return (int(s.get('n_lhs_points', 0)) >= MIN_LHS_POINTS
                 and int(s.get('n_scenarios', 0)) >= MIN_LHS_SCENARIOS
                 and all(int(cfg.get(k, 0)) >= v
                         for k, v in MIN_LHS_DESIGN.items())
-                and isinstance(s.get('comparisons'), dict))
+                and isinstance(s.get('comparisons'), dict)
+                and isinstance(ws, dict)
+                and isinstance(ws.get('comparisons'), dict)
+                and bool(ws['comparisons'])
+                and isinstance(ws.get('design'), dict)
+                and int(ws['design'].get('n_weight_draws', 0))
+                >= MIN_LHS_WEIGHT_DRAWS)
     except Exception:
         return False
 
 
 def _mcgt_big_enough(d):
-    """True if a finished MC ground-truth run used the paper's budgets and
+    """True if a finished MC ground-truth run used the paper's budgets,
     reports the smallest regret with the count that came out below zero,
-    without which the confirmation-noise tail cannot be quoted."""
+    without which the confirmation-noise tail cannot be quoted, and started
+    every big-budget search from the as-built layout."""
     if not _has_summary(d):
         return False
     try:
@@ -323,7 +408,8 @@ def _mcgt_big_enough(d):
                 >= MIN_MCGT_BUDGET_RATIO * normal
                 and int(s.get('mc_iters', 0)) >= MIN_MCGT_MC_ITERS
                 and s.get('mc_regret_min_pct') is not None
-                and s.get('n_negative_regret') is not None)
+                and s.get('n_negative_regret') is not None
+                and _starts_asbuilt(s, MCGT_ASBUILT_SEARCHES))
     except Exception:
         return False
 
@@ -332,16 +418,30 @@ def _abm_ok(s):
     """The paper's replications, the shared protocol, no censored visit
     and finite t-intervals. A single-replication run stores NaN
     half-widths, which would otherwise be printed into the paper as
-    'nan'; a censored agent contributes a truncated state sequence."""
+    'nan'; a censored agent contributes a truncated state sequence. The
+    perimeter ratio must come with its geometric null -- the ratio the
+    floor plan gives traffic spread evenly over the walkable cells -- in
+    the summary and in every replication, since the ratio alone mixes the
+    shoppers' routes with how much of each band is walkable."""
     mk, em = s.get('markov_order', {}), s.get('emergence', {})
     cis = (mk.get('info_gain_ci95'), mk.get('tv_ci95'),
-           em.get('perimeter_ratio_ci95'))
+           em.get('perimeter_ratio_ci95'),
+           em.get('perimeter_interior_ratio_geometric_null'),
+           em.get('ratio_to_geometric_null'),
+           em.get('ratio_to_geometric_null_ci95'))
     proto = s.get('protocol', {})
+    reps = s.get('per_rep') or []
     return (int(proto.get('reps', 0)) >= MIN_ABM_REPS
             and _live_protocol_ok(proto, proto.get('spawn'), proto.get('cap'),
                                   _live_design('abm'))
             and int(mk.get('n_censored_final', -1)) == 0
-            and all(c is not None and np.isfinite(float(c)) for c in cis))
+            and all(c is not None and np.isfinite(float(c)) for c in cis)
+            and bool(reps)
+            and all('perimeter_interior_ratio_geometric_null'
+                    in (r.get('emergence') or {})
+                    and isinstance((r.get('emergence') or {})
+                                   .get('band_sweep_geometric_null'), dict)
+                    for r in reps))
 
 
 def _abm_big_enough(d):
@@ -386,14 +486,35 @@ def _queue_big_enough(d):
     return _dir_summary_ok(d, _queue_ok)
 
 
-def _gof_ok(s):
-    """Replicated goodness-of-fit run under the shared protocol, with the
+GOF_DESIGNS = ('in_sample', 'held_out')
+GOF_PERIODS = ('current', 'prior')
+
+
+def _gof_block_ok(b):
+    """One design's replicated tests under the shared protocol, with the
     pooled tests present."""
-    proto = s.get('protocol', {})
-    return (int(s.get('n_reps', 0)) >= MIN_GOF_REPS
+    proto = b.get('protocol', {})
+    return (int(b.get('n_reps', 0)) >= MIN_GOF_REPS
             and _live_protocol_ok(proto, proto.get('spawn'), proto.get('cap'),
                                   _live_design('gof'))
-            and bool(s.get('pooled')))
+            and bool(b.get('pooled')))
+
+
+def _gof_ok(s):
+    """Replicated goodness-of-fit run under the shared protocol, with the
+    pooled tests present for the in-sample design (the top level) and for
+    the held-out one, and the record of what each design's store was built
+    from and tested against: both periods, and per design the products it
+    placed and the reference invoices holding one of them. Without the
+    held-out block the rows are transfer checks only."""
+    design = s.get('design')
+    if not (isinstance(design, dict) and isinstance(s.get('held_out'), dict)):
+        return False
+    periods = design.get('periods')
+    return (_gof_block_ok(s) and _gof_block_ok(s['held_out'])
+            and all(isinstance(design.get(k), dict) for k in GOF_DESIGNS)
+            and isinstance(periods, dict)
+            and all(isinstance(periods.get(p), dict) for p in GOF_PERIODS))
 
 
 def _gof_big_enough(d):
@@ -484,6 +605,94 @@ def cluster_boot_ci(clustered, n=N_BOOT, seed=0, alpha=0.05):
     return float(grand), float(np.percentile(boots, lo)), float(np.percentile(boots, hi))
 
 
+def runner_boot_ci(x, n=2000, seed=0, alpha=0.05):
+    """The percentile bootstrap the experiment runners report
+    (``experiments._common.bootstrap_ci``: 2000 resamples of integer
+    indices under seed 0), reproduced here so a number the runner reports
+    can be recomputed from its rows without importing the experiment
+    stack. Returns (mean, lo, hi)."""
+    x = np.asarray(x, dtype=np.float64)
+    x = x[np.isfinite(x)]
+    rng = np.random.default_rng(seed)
+    means = np.empty(n)
+    for k in range(n):
+        means[k] = x[rng.integers(0, x.size, x.size)].mean()
+    return (float(x.mean()), float(np.percentile(means, 100 * alpha / 2)),
+            float(np.percentile(means, 100 * (1 - alpha / 2))))
+
+
+def paired_clusters(by, a, b):
+    """Paired differences ``a - b`` grouped by scenario, each carried with
+    ``b``'s own revenue so a margin can also be read relative to what it is
+    a margin over. ``by`` maps (scenario, seed) -> {method: revenue}; only
+    the runs that scored both methods enter, in ``by``'s order."""
+    clusters = defaultdict(list)
+    for (scen, seed), v in by.items():
+        if a in v and b in v:
+            clusters[scen].append((v[a] - v[b], v[b]))
+    return clusters
+
+
+def paired_macros(stem, clusters, alpha):
+    """The paired-difference macros of one Figure B row: the cluster
+    bootstrap mean and interval at two-sided ``alpha``, whether the interval
+    excludes zero, the mean as a share of the second method's revenue, and
+    the win structure behind the average -- a mean difference says nothing
+    about how often it went the other way. A run is one (scenario, seed)
+    pair; a scenario is won when its own mean difference is positive.
+    Returns (macros, significant, per-scenario differences)."""
+    clustered = [[d for d, _ in c] for c in clusters.values()]
+    comp_rev = np.array([b for c in clusters.values() for _, b in c])
+    mean, lo, hi = cluster_boot_ci(clustered, alpha=alpha)
+    sig = (lo > 0 or hi < 0)
+    diffs = np.concatenate([np.asarray(c, dtype=float) for c in clustered])
+    out = {
+        stem: money(mean),
+        f'{stem}CI': f"[{money(lo)}, {money(hi)}]",
+        f'{stem}Sig': 'yes' if sig else 'no',
+        f'{stem}Pct': f"{mean / max(comp_rev.mean(), 1e-9) * 100:+.2f}\\%",
+        f'{stem}WinRuns': str(int((diffs > 0).sum())),
+        f'{stem}WinScen': str(int(sum(np.mean(c) > 0 for c in clustered))),
+    }
+    return out, sig, clustered
+
+
+def figc_comparator_stats(d, rows=None):
+    """GA minus each equal-budget search on a real-data run, as the runner
+    reports it: {method: (mean, lo, hi, pct)}, the 95% percentile bootstrap
+    over the paired replicates and the mean as a share of the comparator's
+    mean revenue.
+
+    Read from the run's summary (or its sidecar, which carries the same
+    results), so the macros quote the runner's own figures. A run whose
+    record lacks them but whose results.csv has the comparator columns is
+    recomputed from ``rows`` with the runner's bootstrap."""
+    recorded = {}
+    for name in ('summary.json', 'sidecar.json'):
+        try:
+            got = (json.load(open(os.path.join(d, name))).get('results')
+                   or {}).get('comparators')
+        except Exception:
+            got = None
+        if isinstance(got, dict) and got:
+            recorded = got
+            break
+    out = {}
+    for meth, (_, diff_col, rev_col) in FIGC_COMPARATORS.items():
+        c = recorded.get(meth)
+        if (isinstance(c, dict)
+                and c.get('paired_mean_diff_GA_minus_X') is not None):
+            out[meth] = (float(c['paired_mean_diff_GA_minus_X']),
+                         float(c['ci_lo']), float(c['ci_hi']),
+                         float(c['pct_diff']))
+        elif rows and diff_col in rows[0] and rev_col in rows[0]:
+            mean, lo, hi = runner_boot_ci([float(r[diff_col]) for r in rows])
+            other = np.array([float(r[rev_col]) for r in rows])
+            out[meth] = (mean, lo, hi, mean / max(float(other.mean()), 1e-6)
+                         * 100.0)
+    return out
+
+
 def fisher_mean_rho(rhos):
     """Average correlations via the Fisher z-transform (audit R3.4)."""
     r = np.clip(np.asarray(rhos, dtype=float), -0.999, 0.999)
@@ -508,6 +717,51 @@ def pfmt(p):
     (``$p=\\StructChiP{}$``); a literal ``$...$`` would close that math."""
     p = float(p)
     return f"{p:.3f}" if p >= 0.001 else "\\ensuremath{<0.001}"
+
+
+def level_pct(level):
+    """A confidence level in percent, whole when it is whole (95\\%) and to
+    one decimal otherwise (99.3\\%)."""
+    return (f"{level:.0f}\\%" if abs(level - round(level)) < 0.05
+            else f"{level:.1f}\\%")
+
+
+# The goodness-of-fit tests, matched on what each is about rather than on
+# its exact label, which is written for the Validation tab and reads better
+# when it is free to change.
+GOF_TAGS = (('basket', 'Basket'), ('revenue', 'Revenue'),
+            ('categor', 'Category'), ('inter-arrival', 'Arrival'))
+
+
+def gof_macros(block, prefix):
+    """The pooled tests of one goodness-of-fit design under ``prefix``:
+    statistic, p-value, decision and both sample sizes per test, how many
+    single windows reached the pooled test's verdict on their own, the
+    replication count and the share of arrivals turned away at the cap."""
+    out = {}
+    split = block.get('per_test_decisions', {})
+    for t in block.get('pooled', []):
+        name = str(t['test']).lower()
+        tag = next((v for k, v in GOF_TAGS if k in name), None)
+        if not tag or t.get('p_value') is None:
+            continue
+        out.update({
+            f'{prefix}{tag}Stat': f"{t['statistic']:.3f}",
+            f'{prefix}{tag}P': pfmt(t['p_value']),
+            f'{prefix}{tag}Decision': t['decision'],
+            f'{prefix}{tag}NObs': f"{int(t['n_observed']):,}",
+            f'{prefix}{tag}NSim': f"{int(t['n_simulated']):,}",
+        })
+        # How many single windows reached the same verdict on their
+        # own: a pooled decision that rests on the pooled sample size
+        # shows up as a split here.
+        if t['test'] in split:
+            out[f'{prefix}{tag}RepPass'] = str(int(split[t['test']]['PASS']))
+    out[f'{prefix}Reps'] = str(int(block['n_reps']))
+    b = balked_pct(block.get('load'))
+    if b is not None:
+        out[f'{prefix}Balked'] = f"{b:.1f}\\%"
+    return out
 
 
 # Expected range of k independent normal samples in SD units (the
@@ -690,53 +944,32 @@ def main():
     d = latest('baseline_comparison_', _figb_big_enough)
     if d:
         rows = read_csv(os.path.join(d, 'results.csv'))
+        side = json.load(open(os.path.join(d, 'sidecar.json')))
         by = defaultdict(dict)      # (scenario, seed) -> {method: revenue}
         for r in rows:
             by[(r['scenario'], r['seed'])][r['method']] = float(r['mc_revenue'])
-        names = {'oracle': 'Oracle', 'popularity_rank': 'Pop',
-                 'perimeter_only': 'Perim', 'random_valid': 'Random',
-                 'greedy_swap': 'Greedy', 'random_search': 'RandSearch',
-                 'simulated_annealing': 'SA'}
-        # Only comparators the artifact actually contains form the family; an
-        # older run without some methods must not be corrected for them.
-        present = [m for m in names
-                   if any('GA' in v and m in v for v in by.values())]
+        # The family is the one the run records, and within it only the
+        # comparators the artifact actually contains; a run without some
+        # methods must not be corrected for them, and a sensitivity row the
+        # run scored beside the family is never one of them.
+        family = set(side['comparison_family'])
+        present = [m for m in FIGB_SHORT_NAMES if m in family
+                   and any('GA' in v and m in v for v in by.values())]
         n_comparisons = len(present)
         alpha_bonf = 0.05 / max(n_comparisons, 1)
         npairs, nscen, n_sig = 0, 0, 0
         for meth in present:
-            short = names[meth]
-            # group paired differences BY SCENARIO for the cluster bootstrap,
-            # carrying the comparator's own revenue alongside each difference
-            # so the margin can also be expressed relative to what it is a
-            # margin over.
-            clusters = defaultdict(list)
-            for (scen, seed), v in by.items():
-                if 'GA' in v and meth in v:
-                    clusters[scen].append((v['GA'] - v[meth], v[meth]))
-            clustered = [[d for d, _ in c] for c in clusters.values()]
-            comp_rev = np.array([b for c in clusters.values() for _, b in c])
+            # Paired differences grouped BY SCENARIO for the cluster
+            # bootstrap; the share of the comparator's revenue lets the size
+            # of a margin be read without knowing the scale of the
+            # scenarios.
+            block, sig, clustered = paired_macros(
+                f'GAvs{FIGB_SHORT_NAMES[meth]}',
+                paired_clusters(by, 'GA', meth), alpha_bonf)
+            macros.update(block)
             npairs = max(npairs, sum(len(c) for c in clustered))
             nscen = max(nscen, len(clustered))
-            mean, lo, hi = cluster_boot_ci(clustered, alpha=alpha_bonf)
-            sig = (lo > 0 or hi < 0)
             n_sig += int(sig)
-            macros[f'GAvs{short}'] = money(mean)
-            macros[f'GAvs{short}CI'] = f"[{money(lo)}, {money(hi)}]"
-            macros[f'GAvs{short}Sig'] = 'yes' if sig else 'no'
-            # The same difference as a share of the comparator's revenue, so
-            # the size of a margin can be read without knowing the scale of
-            # the scenarios, and the win structure behind that average: a
-            # mean difference says nothing about how often it went the other
-            # way. A run is one (scenario, seed) pair; a scenario is won when
-            # its own mean difference is positive.
-            diffs = np.concatenate([np.asarray(c, dtype=float)
-                                    for c in clustered])
-            macros[f'GAvs{short}Pct'] = \
-                f"{mean / max(comp_rev.mean(), 1e-9) * 100:+.2f}\\%"
-            macros[f'GAvs{short}WinRuns'] = str(int((diffs > 0).sum()))
-            macros[f'GAvs{short}WinScen'] = \
-                str(int(sum(np.mean(c) > 0 for c in clustered)))
         per_comp_level = 100 * (1 - alpha_bonf)
         macros['PairedN'] = str(npairs)
         macros['PairedNScen'] = str(nscen)
@@ -744,18 +977,62 @@ def main():
         # How much of the comparator family the design separated at the
         # corrected level, so the text does not have to count the table.
         macros['NSigComparisons'] = str(n_sig)
-        macros['BonfLevel'] = (f"{per_comp_level:.0f}\\%"
-                               if abs(per_comp_level - round(per_comp_level)) < 0.05
-                               else f"{per_comp_level:.1f}\\%")
+        macros['BonfLevel'] = level_pct(per_comp_level)
         macros['CIscheme'] = (f"scenario-level cluster bootstrap "
                               f"({N_BOOT} resamples), Bonferroni-corrected "
                               f"{macros['BonfLevel']} per-comparison")
         macros['FigBDir'] = os.path.basename(d).replace('_', '\\_')
+
+        # Sensitivity rows, outside the family: the annealer warm-started
+        # from the popularity ranking, at the same budget, block and seeds.
+        # They are reported on the family's estimator and level, so they
+        # read like the table's rows, but they are neither counted in
+        # NComparators nor in NSigComparisons.
+        for meth, short in FIGB_SENSITIVITY.items():
+            clusters = paired_clusters(by, 'GA', meth)
+            if clusters:
+                macros.update(paired_macros(f'GAvs{short}', clusters,
+                                            alpha_bonf)[0])
+        # What the warm start was worth to the annealer: the as-built SA
+        # minus the popularity-started one, paired on the same runs. A
+        # negative value means the popularity start helped.
+        clusters = paired_clusters(by, 'simulated_annealing',
+                                   'simulated_annealing_popstart')
+        if clusters:
+            macros.update(paired_macros('SAStartEffect', clusters,
+                                        alpha_bonf)[0])
+
+        # Equivalence of the GA and the annealer (the family's SA row, from
+        # the as-built start). The margin was fixed before the re-run, at
+        # 0.1% of the annealer's mean paired revenue: about a third of the
+        # smallest effect this design resolves (GA minus random search, near
+        # 0.34% of the comparator's revenue), so a difference inside it is
+        # smaller than anything the comparison could otherwise tell apart.
+        # Two one-sided tests, each at the family's Bonferroni level
+        # alpha' = 0.05 / NComparators, reject non-equivalence exactly when
+        # the (1 - 2 alpha') cluster-bootstrap percentile interval of the
+        # paired difference lies inside [-margin, +margin].
+        clusters = paired_clusters(by, 'GA', 'simulated_annealing')
+        if 'simulated_annealing' in present and clusters:
+            clustered = [[d for d, _ in c] for c in clusters.values()]
+            sa_rev = float(np.mean([b for c in clusters.values()
+                                    for _, b in c]))
+            margin = EQUIV_MARGIN_FRAC * sa_rev
+            _, lo, hi = cluster_boot_ci(clustered, alpha=2 * alpha_bonf)
+            macros.update({
+                'GAvsSAEquivMargin': amount(margin),
+                'GAvsSAEquivMarginPct': f"{EQUIV_MARGIN_FRAC * 100:.1f}\\%",
+                'GAvsSAEquivLevel': level_pct(100 * (1 - 2 * alpha_bonf)),
+                'GAvsSAEquivCI': f"[{money(lo)}, {money(hi)}]",
+                'GAvsSAEquivCIPct': (f"[{lo / max(sa_rev, 1e-9) * 100:+.2f}\\%, "
+                                     f"{hi / max(sa_rev, 1e-9) * 100:+.2f}\\%]"),
+                'GAvsSAEquiv': 'yes' if -margin < lo and hi < margin else 'no',
+            })
+
         # Annealing schedule of the equal-budget comparator. The starting
         # temperature is calibrated per run from that run's own first
         # block, so the paper quotes the acceptance probability it was
         # calibrated to and the spread of the temperatures it produced.
-        side = json.load(open(os.path.join(d, 'sidecar.json')))
         sched = side.get('sa_schedule', {})
         t0s = [float(x['sa_T0']) for x in sched.get('sa_T0', [])
                if x.get('sa_T0') is not None]
@@ -827,6 +1104,50 @@ def main():
                 f'Lhs{short}PFive': money(st['lift_p5']),
                 f'Lhs{short}PNinetyFive': money(st['lift_p95']),
             })
+        # The weight sweep: the same layouts re-scored under spatial weight
+        # vectors drawn over the simplex, with everything else held. Each
+        # comparison gets the same summary as under the elasticity bands,
+        # plus how many (scenario, seed) pairs saw their lift take both
+        # signs -- a lower bound, since the draws only sample the simplex.
+        ws = s['weight_sweep']
+        for meth, st in ws['comparisons'].items():
+            short = lhs_names.get(meth)
+            if not short:
+                continue
+            macros.update({
+                f'LhsWeight{short}FracPos':
+                    f"{st['frac_positive'] * 100:.1f}\\%",
+                f'LhsWeight{short}Median': money(st['median']),
+                f'LhsWeight{short}PFive': money(st['p5']),
+                f'LhsWeight{short}PNinetyFive': money(st['p95']),
+                f'LhsWeight{short}SignFlips':
+                    f"{int(st['n_pairs_sign_flip'])}/{int(st['n_pairs'])}",
+            })
+        # The design, and what it holds fixed: the five spatial weights
+        # share their total, while section compliance, accessibility and
+        # both penalties keep their values and the elasticities sit at
+        # their band midpoints.
+        wd = ws['design']
+        fixed = wd.get('fixed') or {}
+        macros['LhsWeightDraws'] = str(int(wd['n_weight_draws']))
+        macros['LhsWeightPairs'] = str(int(ws['n_pairs']))
+        n_values = {int(st['n_values']) for st in ws['comparisons'].values()
+                    if st.get('n_values') is not None}
+        if len(n_values) == 1:
+            macros['LhsWeightValues'] = f"{n_values.pop():,}"
+        macros['LhsWeightSpatialTotal'] = f"{float(wd['spatial_total']):.2f}"
+        if fixed.get('section_compliance') is not None:
+            macros['LhsWeightFixedSection'] = \
+                f"{float(fixed['section_compliance']):.2f}"
+        if fixed.get('accessibility') is not None:
+            macros['LhsWeightFixedAccess'] = \
+                f"{float(fixed['accessibility']):.2f}"
+        if fixed.get('overlap_penalty') is not None:
+            macros['LhsWeightFixedPenOverlap'] = \
+                f"{float(fixed['overlap_penalty']):g}"
+        if fixed.get('bottleneck_penalty') is not None:
+            macros['LhsWeightFixedPenBottleneck'] = \
+                f"{float(fixed['bottleneck_penalty']):g}"
     else:
         missing.append('elasticity_lhs')
 
@@ -857,10 +1178,45 @@ def main():
             'FigCRSE': f"{rse:.2f}\\%",
             'FigCLiftRSE': f"{lift_rse:.2f}\\%",
         })
+        # The GA against the equal-budget searches on the same store, paired
+        # on the same held-out replicates: the runner's 95% percentile
+        # bootstrap per comparison (uncorrected), and the difference as a
+        # share of the comparator's mean revenue. They say whether the lift
+        # over the as-built store needs the GA or only needs search.
+        for meth, (mean_c, lo_c, hi_c, pct_c) in \
+                figc_comparator_stats(d, rows).items():
+            short = FIGC_COMPARATORS[meth][0]
+            macros.update({
+                f'FigCGAvs{short}':
+                    money(mean_c).replace('\\$', '\\pounds '),
+                f'FigCGAvs{short}CI':
+                    f"[{money(lo_c)}, {money(hi_c)}]".replace('\\$',
+                                                             '\\pounds '),
+                f'FigCGAvs{short}Pct': f"{pct_c:+.2f}\\%",
+                f'FigCGAvs{short}Sig': 'yes' if lo_c > 0 or hi_c < 0 else 'no',
+            })
         # Data-quality descriptors from the calibration sidecar (audit R7.3/R7.5).
         sc = os.path.join(d, 'sidecar.json')
         if os.path.exists(sc):
             side = json.load(open(sc))
+            # The equal-budget claim as the run recorded it: search
+            # evaluations (held equal by the runner) and the final-selection
+            # evaluations each search spent on top of them, which need not
+            # be equal -- the annealer ranks distinct archived states only.
+            spent = side.get('evaluation_counts') or {}
+            if spent and len({int(n) for n in spent.values()}) == 1:
+                macros['FigCSearchEvals'] = \
+                    f"{int(next(iter(spent.values()))):,}"
+            final = side.get('final_evaluation_counts') or {}
+            for meth, short in (('GA', 'GA'),
+                                ('random_search', 'RandSearch'),
+                                ('simulated_annealing', 'SA')):
+                if final.get(meth) is not None:
+                    macros[f'FigCFinalEvals{short}'] = \
+                        f"{int(final[meth]):,}"
+            if final and len({int(n) for n in final.values()}) == 1:
+                macros['FigCFinalSelectEvals'] = \
+                    f"{int(next(iter(final.values()))):,}"
             cs = side.get('calibration_summary', {})
             # What the workbook reader handed the adapter. The sheets of
             # this workbook overlap in time, so the rows the adapter saw
@@ -1089,6 +1445,25 @@ def main():
             macros['PerimRatio'] = f"{em['perimeter_interior_ratio']:.2f}"
             if 'perimeter_ratio_ci95' in em:
                 macros['PerimRatioCI'] = f"{em['perimeter_ratio_ci95']:.2f}"
+        # The ratio's geometric null: what the floor plan gives traffic
+        # spread evenly over the walkable cells, fixtures excluded. The
+        # observed-to-null quotient is the part of the ratio the shoppers'
+        # routes add; both are replication means with t half-widths, like
+        # the ratio itself, and the quotient's interval is read against 1.
+        if em.get('perimeter_interior_ratio_geometric_null') is not None:
+            to_null = float(em['ratio_to_geometric_null'])
+            hw = float(em['ratio_to_geometric_null_ci95'])
+            macros.update({
+                'PerimRatioNull':
+                    f"{em['perimeter_interior_ratio_geometric_null']:.2f}",
+                'PerimRatioToNull': f"{to_null:.2f}",
+                'PerimRatioToNullCI': f"{hw:.2f}",
+                'PerimRatioToNullExcludesOne':
+                    'yes' if to_null - hw > 1 or to_null + hw < 1 else 'no',
+            })
+            if em.get('geometric_null_ci95') is not None:
+                macros['PerimRatioNullCI'] = \
+                    f"{float(em['geometric_null_ci95']):.2f}"
         proto = s.get('protocol', {})
         if proto:
             macros['AbmReps'] = str(proto['reps'])
@@ -1200,34 +1575,69 @@ def main():
     d = latest('validation_gof_', _gof_big_enough)
     if d:
         s = json.load(open(os.path.join(d, 'summary.json')))
-        # Matched on what the test is about rather than on its exact
-        # label, which is written for the Validation tab and reads better
-        # when it is free to change.
-        tags = (('basket', 'Basket'), ('revenue', 'Revenue'),
-                ('categor', 'Category'), ('inter-arrival', 'Arrival'))
-        split = s.get('per_test_decisions', {})
-        for t in s.get('pooled', []):
-            name = str(t['test']).lower()
-            tag = next((v for k, v in tags if k in name), None)
-            if not tag or t.get('p_value') is None:
-                continue
-            macros.update({
-                f'Gof{tag}Stat': f"{t['statistic']:.3f}",
-                f'Gof{tag}P': pfmt(t['p_value']),
-                f'Gof{tag}Decision': t['decision'],
-                f'Gof{tag}NObs': f"{int(t['n_observed']):,}",
-                f'Gof{tag}NSim': f"{int(t['n_simulated']):,}",
-            })
-            # How many single windows reached the same verdict on their
-            # own: a pooled decision that rests on the pooled sample size
-            # shows up as a split here.
-            if t['test'] in split:
-                macros[f'Gof{tag}RepPass'] = str(int(split[t['test']]['PASS']))
-        macros['GofReps'] = str(int(s['n_reps']))
+        # The top level is the in-sample design, under the macro names it
+        # has always had.
+        macros.update(gof_macros(s, 'Gof'))
         macros['GofAlpha'] = f"{float(s['alpha']):.2f}"
-        b = balked_pct(s.get('load'))
-        if b is not None:
-            macros['GofBalked'] = f"{b:.1f}\\%"
+        # The held-out design: a store calibrated on the prior period and
+        # tested against the current one, whose invoices the model never
+        # saw. Same tests, level and replication count, under a HeldOut
+        # infix. Its inter-arrival row describes the current period's own
+        # arrivals and is the in-sample one again.
+        macros.update(gof_macros(s['held_out'], 'GofHeldOut'))
+        # What each design's store was built from and tested against: the
+        # two periods' date ranges and invoice counts, and per design the
+        # products the store placed, how many of them the reference period
+        # sells, and the reference invoices holding at least one of them --
+        # the invoices the basket and revenue references are cut from.
+        design = s['design']
+        for period, tag in (('current', 'Current'), ('prior', 'Prior')):
+            p = design['periods'][period]
+            macros[f'GofPeriod{tag}From'] = str(p['first_date'])
+            macros[f'GofPeriod{tag}To'] = str(p['last_date'])
+            macros[f'GofPeriod{tag}Invoices'] = f"{int(p['n_invoices']):,}"
+        for name, prefix in (('in_sample', 'Gof'), ('held_out', 'GofHeldOut')):
+            facts = design[name]
+            macros[f'{prefix}PlacedProducts'] = \
+                str(int(facts['n_placed_products']))
+            macros[f'{prefix}PlacedProductsSold'] = \
+                str(int(facts['n_placed_products_in_reference']))
+            macros[f'{prefix}RefInvoices'] = \
+                f"{int(facts['n_reference_invoices']):,}"
+            macros[f'{prefix}RefInvoicesPlaced'] = \
+                f"{int(facts['n_reference_invoices_with_placed']):,}"
+        # The live store every live diagnostic measures is the in-sample
+        # design's: the current period, laid out by the same builder. Its
+        # shoppers draw their list lengths from the current invoices cut to
+        # the products it stocks, one value per invoice holding at least
+        # one of them, so the sample's size is that invoice count.
+        ins = design['in_sample']
+        macros['LiveStoreProducts'] = str(int(ins['n_placed_products']))
+        macros['LiveStoreListSampleN'] = \
+            f"{int(ins['n_reference_invoices_with_placed']):,}"
+        # Shopping-list length: what the store's shoppers draw from (the
+        # stocked part of each invoice of the period the store was
+        # calibrated on). The held-out store draws from the prior period,
+        # so its sample differs from the current-period reference it is
+        # tested against.
+        def _list_stats(prefix, stats):
+            if not stats or not stats.get('n'):
+                return
+            macros[f'{prefix}Median'] = f"{stats['median']:.0f}"
+            macros[f'{prefix}Mean'] = f"{stats['mean']:.1f}"
+            macros[f'{prefix}PNinety'] = f"{stats['p90']:.0f}"
+        _list_stats('LiveStoreList', ins.get('list_length_agents'))
+        _list_stats('HeldOutStoreList',
+                    design['held_out'].get('list_length_agents'))
+        _list_stats('HeldOutRefList',
+                    design['held_out'].get('list_length_reference'))
+        # How far the two periods' own invoices differ on the held-out
+        # store's products: the yardstick for the held-out distances.
+        for tag, key in (('Basket', 'basket'), ('Revenue', 'revenue')):
+            ys = (design['held_out'].get('year_shift') or {}).get(key)
+            if ys:
+                macros[f'GofYearShift{tag}Stat'] = f"{ys['statistic']:.3f}"
+                macros[f'GofYearShift{tag}P'] = pfmt(ys['p_value'])
     else:
         missing.append('validation_gof')
 

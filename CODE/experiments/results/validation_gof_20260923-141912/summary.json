@@ -1,0 +1,795 @@
+{
+  "alpha": 0.05,
+  "design": {
+    "in_sample": {
+      "label": "in_sample_pipeline_transfer",
+      "store_period": "current",
+      "reference_period": "current",
+      "n_placed_products": 72,
+      "n_placed_products_in_reference": 72,
+      "n_reference_invoices": 19773,
+      "n_reference_invoices_with_placed": 14776,
+      "list_length_agents": {
+        "n": 14776,
+        "median": 3.0,
+        "mean": 4.6023957769355714,
+        "p90": 10.0
+      },
+      "list_length_reference": {
+        "n": 14776,
+        "median": 3.0,
+        "mean": 4.6023957769355714,
+        "p90": 10.0
+      },
+      "year_shift": {
+        "basket": {
+          "statistic": 0.0,
+          "p_value": 1.0,
+          "n_store": 14776,
+          "n_reference": 14776
+        },
+        "revenue": {
+          "statistic": 0.0,
+          "p_value": 1.0,
+          "n_store": 14776,
+          "n_reference": 14776
+        }
+      }
+    },
+    "held_out": {
+      "label": "held_out_prior_period_store",
+      "store_period": "prior",
+      "reference_period": "current",
+      "n_placed_products": 72,
+      "n_placed_products_in_reference": 72,
+      "n_reference_invoices": 19773,
+      "n_reference_invoices_with_placed": 14271,
+      "list_length_agents": {
+        "n": 14804,
+        "median": 3.0,
+        "mean": 4.380370170224264,
+        "p90": 9.0
+      },
+      "list_length_reference": {
+        "n": 14271,
+        "median": 3.0,
+        "mean": 4.018569126199986,
+        "p90": 8.0
+      },
+      "year_shift": {
+        "basket": {
+          "statistic": 0.061992758918340884,
+          "p_value": 1.01996512311576e-24,
+          "n_store": 14804,
+          "n_reference": 14271
+        },
+        "revenue": {
+          "statistic": 0.059540800815707506,
+          "p_value": 7.816898738521924e-23,
+          "n_store": 14804,
+          "n_reference": 14271
+        }
+      }
+    },
+    "periods": {
+      "current": {
+        "period": "current",
+        "workbook": "DATASETS/UCI Online Retail II .xlsx.xlsx",
+        "sheet": "Year 2010-2011",
+        "rows_in": 541910,
+        "rows_adapted": 527664,
+        "rows_calibrated": 527664,
+        "first_date": "2010-12-01",
+        "last_date": "2011-12-09",
+        "first_timestamp": "2010-12-01T08:26:00",
+        "last_timestamp": "2011-12-09T12:50:00",
+        "n_invoices": 19773
+      },
+      "prior": {
+        "period": "prior",
+        "workbook": "DATASETS/UCI Online Retail II .xlsx.xlsx",
+        "sheet": "Year 2009-2010",
+        "rows_in": 525461,
+        "rows_adapted": 509246,
+        "rows_calibrated": 487313,
+        "first_date": "2009-12-01",
+        "last_date": "2010-11-30",
+        "first_timestamp": "2009-12-01T07:45:00",
+        "last_timestamp": "2010-11-30T19:35:00",
+        "n_invoices": 19743,
+        "cut_before": "2010-12-01",
+        "n_invoices_dropped_at_cut": 830,
+        "n_invoices_shared_with_current": 0
+      }
+    }
+  },
+  "pooled": [
+    {
+      "test": "Basket size (items/visit)",
+      "kind": "KS-2sample",
+      "statistic": 0.020083203473193367,
+      "p_value": 0.5604411864788874,
+      "n_observed": 14776,
+      "n_simulated": 1708,
+      "decision": "PASS",
+      "note": "Observed = distinct stocked products per invoice; simulated = distinct items per visit. 14,776 of 19,773 invoices hold at least one of the 72 products placed in the shop; the rest are left out."
+    },
+    {
+      "test": "Per-visit revenue",
+      "kind": "KS-2sample",
+      "statistic": 0.03254391259197458,
+      "p_value": 0.07639136558191773,
+      "n_observed": 14776,
+      "n_simulated": 1708,
+      "decision": "PASS",
+      "note": "Observed = one unit of each stocked product on an invoice, at the shop's calibrated prices; simulated = one unit of each item a visit bought. 14,776 of 19,773 invoices hold at least one of the 72 products placed in the shop; the rest are left out."
+    },
+    {
+      "test": "Category purchase shares",
+      "kind": "Chi-square",
+      "statistic": 51.612949725668514,
+      "p_value": 1.9989985773588485e-08,
+      "n_observed": 68005,
+      "n_simulated": 8241,
+      "decision": "FAIL",
+      "note": "Item purchases per category against the dataset's product-invoice touches, both over the 72 products placed in the shop."
+    },
+    {
+      "test": "Inter-arrival vs. Poisson reference",
+      "kind": "KS-2sample",
+      "statistic": 0.0653893568933635,
+      "p_value": 1.2517447040069911e-36,
+      "n_observed": 19468,
+      "n_simulated": 19468,
+      "decision": "FAIL",
+      "note": "Informational: tests whether the dataset's inter-arrival times are approximately Poisson (the family the simulator assumes), against a reference stamped at the source's 60 s resolution. The reference rate is constant, while the data's rate (and the simulator's) varies by hour of day, so a rejection can come from that variation too."
+    }
+  ],
+  "pooled_notes": [
+    "Traffic (not a test): 7808 of 12095 zone entries fell in a category section; busiest Bags & Accessories 17%, Home & Candles 13%, Kitchen & Tableware 13%."
+  ],
+  "per_test_decisions": {
+    "Basket size (items/visit)": {
+      "PASS": 5,
+      "FAIL": 0,
+      "N/A": 0
+    },
+    "Per-visit revenue": {
+      "PASS": 4,
+      "FAIL": 1,
+      "N/A": 0
+    },
+    "Category purchase shares": {
+      "PASS": 3,
+      "FAIL": 2,
+      "N/A": 0
+    },
+    "Inter-arrival vs. Poisson reference": {
+      "PASS": 0,
+      "FAIL": 5,
+      "N/A": 0
+    }
+  },
+  "n_reps": 5,
+  "load": {
+    "arrivals": 1830,
+    "balked": 45
+  },
+  "protocol": {
+    "mode": "fixed_step",
+    "dt": 0.04,
+    "seed_base": 4000,
+    "seeds": [
+      4000,
+      4001,
+      4002,
+      4003,
+      4004
+    ],
+    "reps": 5,
+    "warmup_s": 900.0,
+    "collect_s": 1860.0,
+    "spawn": 0.26,
+    "cap": 45,
+    "workers": 4,
+    "framing": "terminating"
+  },
+  "held_out": {
+    "alpha": 0.05,
+    "pooled": [
+      {
+        "test": "Basket size (items/visit)",
+        "kind": "KS-2sample",
+        "statistic": 0.053524495524110316,
+        "p_value": 0.0008800708039049456,
+        "n_observed": 14271,
+        "n_simulated": 1481,
+        "decision": "FAIL",
+        "note": "Observed = distinct stocked products per invoice; simulated = distinct items per visit. 14,271 of 19,773 invoices hold at least one of the 72 products placed in the shop; the rest are left out."
+      },
+      {
+        "test": "Per-visit revenue",
+        "kind": "KS-2sample",
+        "statistic": 0.02627332756385259,
+        "p_value": 0.3070531945152527,
+        "n_observed": 14271,
+        "n_simulated": 1481,
+        "decision": "PASS",
+        "note": "Observed = one unit of each stocked product on an invoice, at the shop's calibrated prices; simulated = one unit of each item a visit bought. 14,271 of 19,773 invoices hold at least one of the 72 products placed in the shop; the rest are left out."
+      },
+      {
+        "test": "Category purchase shares",
+        "kind": "Chi-square",
+        "statistic": 139.6754651968191,
+        "p_value": 2.771805905982688e-26,
+        "n_observed": 57349,
+        "n_simulated": 6416,
+        "decision": "FAIL",
+        "note": "Item purchases per category against the dataset's product-invoice touches, both over the 72 products placed in the shop."
+      },
+      {
+        "test": "Inter-arrival vs. Poisson reference",
+        "kind": "KS-2sample",
+        "statistic": 0.0653893568933635,
+        "p_value": 1.2517447040069911e-36,
+        "n_observed": 19468,
+        "n_simulated": 19468,
+        "decision": "FAIL",
+        "note": "Informational: tests whether the dataset's inter-arrival times are approximately Poisson (the family the simulator assumes), against a reference stamped at the source's 60 s resolution. The reference rate is constant, while the data's rate (and the simulator's) varies by hour of day, so a rejection can come from that variation too."
+      }
+    ],
+    "pooled_notes": [
+      "Traffic (not a test): 6666 of 10398 zone entries fell in a category section; busiest Bags & Accessories 17%, General Merchandise 13%, Gifts & Ornaments 12%."
+    ],
+    "per_test_decisions": {
+      "Basket size (items/visit)": {
+        "PASS": 5,
+        "FAIL": 0,
+        "N/A": 0
+      },
+      "Per-visit revenue": {
+        "PASS": 5,
+        "FAIL": 0,
+        "N/A": 0
+      },
+      "Category purchase shares": {
+        "PASS": 0,
+        "FAIL": 5,
+        "N/A": 0
+      },
+      "Inter-arrival vs. Poisson reference": {
+        "PASS": 0,
+        "FAIL": 5,
+        "N/A": 0
+      }
+    },
+    "n_reps": 5,
+    "load": {
+      "arrivals": 1547,
+      "balked": 0
+    },
+    "protocol": {
+      "mode": "fixed_step",
+      "dt": 0.04,
+      "seed_base": 4000,
+      "seeds": [
+        4005,
+        4006,
+        4007,
+        4008,
+        4009
+      ],
+      "reps": 5,
+      "warmup_s": 900.0,
+      "collect_s": 1860.0,
+      "spawn": 0.26,
+      "cap": 45,
+      "workers": 4,
+      "framing": "terminating"
+    },
+    "per_rep": [
+      {
+        "rep": 0,
+        "seed": 4005,
+        "load": {
+          "arrivals": 315,
+          "balked": 0
+        },
+        "tests": [
+          {
+            "test": "Basket size (items/visit)",
+            "kind": "KS-2sample",
+            "statistic": 0.0722170132814654,
+            "p_value": 0.09944617160376212,
+            "n_observed": 14271,
+            "n_simulated": 289,
+            "decision": "PASS",
+            "note": "Observed = distinct stocked products per invoice; simulated = distinct items per visit. 14,271 of 19,773 invoices hold at least one of the 72 products placed in the shop; the rest are left out."
+          },
+          {
+            "test": "Per-visit revenue",
+            "kind": "KS-2sample",
+            "statistic": 0.035969332149137834,
+            "p_value": 0.8443138952065096,
+            "n_observed": 14271,
+            "n_simulated": 289,
+            "decision": "PASS",
+            "note": "Observed = one unit of each stocked product on an invoice, at the shop's calibrated prices; simulated = one unit of each item a visit bought. 14,271 of 19,773 invoices hold at least one of the 72 products placed in the shop; the rest are left out."
+          },
+          {
+            "test": "Category purchase shares",
+            "kind": "Chi-square",
+            "statistic": 32.546404065236196,
+            "p_value": 7.432197592589905e-05,
+            "n_observed": 57349,
+            "n_simulated": 1269,
+            "decision": "FAIL",
+            "note": "Item purchases per category against the dataset's product-invoice touches, both over the 72 products placed in the shop."
+          },
+          {
+            "test": "Inter-arrival vs. Poisson reference",
+            "kind": "KS-2sample",
+            "statistic": 0.0653893568933635,
+            "p_value": 1.2517447040069911e-36,
+            "n_observed": 19468,
+            "n_simulated": 19468,
+            "decision": "FAIL",
+            "note": "Informational: tests whether the dataset's inter-arrival times are approximately Poisson (the family the simulator assumes), against a reference stamped at the source's 60 s resolution. The reference rate is constant, while the data's rate (and the simulator's) varies by hour of day, so a rejection can come from that variation too."
+          }
+        ]
+      },
+      {
+        "rep": 1,
+        "seed": 4006,
+        "load": {
+          "arrivals": 319,
+          "balked": 0
+        },
+        "tests": [
+          {
+            "test": "Basket size (items/visit)",
+            "kind": "KS-2sample",
+            "statistic": 0.058854732524032505,
+            "p_value": 0.21808983034781715,
+            "n_observed": 14271,
+            "n_simulated": 321,
+            "decision": "PASS",
+            "note": "Observed = distinct stocked products per invoice; simulated = distinct items per visit. 14,271 of 19,773 invoices hold at least one of the 72 products placed in the shop; the rest are left out."
+          },
+          {
+            "test": "Per-visit revenue",
+            "kind": "KS-2sample",
+            "statistic": 0.06726863248585296,
+            "p_value": 0.11141372206077671,
+            "n_observed": 14271,
+            "n_simulated": 321,
+            "decision": "PASS",
+            "note": "Observed = one unit of each stocked product on an invoice, at the shop's calibrated prices; simulated = one unit of each item a visit bought. 14,271 of 19,773 invoices hold at least one of the 72 products placed in the shop; the rest are left out."
+          },
+          {
+            "test": "Category purchase shares",
+            "kind": "Chi-square",
+            "statistic": 38.530762135248345,
+            "p_value": 6.005219780792035e-06,
+            "n_observed": 57349,
+            "n_simulated": 1416,
+            "decision": "FAIL",
+            "note": "Item purchases per category against the dataset's product-invoice touches, both over the 72 products placed in the shop."
+          },
+          {
+            "test": "Inter-arrival vs. Poisson reference",
+            "kind": "KS-2sample",
+            "statistic": 0.0653893568933635,
+            "p_value": 1.2517447040069911e-36,
+            "n_observed": 19468,
+            "n_simulated": 19468,
+            "decision": "FAIL",
+            "note": "Informational: tests whether the dataset's inter-arrival times are approximately Poisson (the family the simulator assumes), against a reference stamped at the source's 60 s resolution. The reference rate is constant, while the data's rate (and the simulator's) varies by hour of day, so a rejection can come from that variation too."
+          }
+        ]
+      },
+      {
+        "rep": 2,
+        "seed": 4007,
+        "load": {
+          "arrivals": 302,
+          "balked": 0
+        },
+        "tests": [
+          {
+            "test": "Basket size (items/visit)",
+            "kind": "KS-2sample",
+            "statistic": 0.06711695655220529,
+            "p_value": 0.16626289938155636,
+            "n_observed": 14271,
+            "n_simulated": 276,
+            "decision": "PASS",
+            "note": "Observed = distinct stocked products per invoice; simulated = distinct items per visit. 14,271 of 19,773 invoices hold at least one of the 72 products placed in the shop; the rest are left out."
+          },
+          {
+            "test": "Per-visit revenue",
+            "kind": "KS-2sample",
+            "statistic": 0.06789612866469863,
+            "p_value": 0.1569695717548686,
+            "n_observed": 14271,
+            "n_simulated": 276,
+            "decision": "PASS",
+            "note": "Observed = one unit of each stocked product on an invoice, at the shop's calibrated prices; simulated = one unit of each item a visit bought. 14,271 of 19,773 invoices hold at least one of the 72 products placed in the shop; the rest are left out."
+          },
+          {
+            "test": "Category purchase shares",
+            "kind": "Chi-square",
+            "statistic": 17.586991142735325,
+            "p_value": 0.024545225718531148,
+            "n_observed": 57349,
+            "n_simulated": 1210,
+            "decision": "FAIL",
+            "note": "Item purchases per category against the dataset's product-invoice touches, both over the 72 products placed in the shop."
+          },
+          {
+            "test": "Inter-arrival vs. Poisson reference",
+            "kind": "KS-2sample",
+            "statistic": 0.0653893568933635,
+            "p_value": 1.2517447040069911e-36,
+            "n_observed": 19468,
+            "n_simulated": 19468,
+            "decision": "FAIL",
+            "note": "Informational: tests whether the dataset's inter-arrival times are approximately Poisson (the family the simulator assumes), against a reference stamped at the source's 60 s resolution. The reference rate is constant, while the data's rate (and the simulator's) varies by hour of day, so a rejection can come from that variation too."
+          }
+        ]
+      },
+      {
+        "rep": 3,
+        "seed": 4008,
+        "load": {
+          "arrivals": 323,
+          "balked": 0
+        },
+        "tests": [
+          {
+            "test": "Basket size (items/visit)",
+            "kind": "KS-2sample",
+            "statistic": 0.04844168739084276,
+            "p_value": 0.4449383574203455,
+            "n_observed": 14271,
+            "n_simulated": 318,
+            "decision": "PASS",
+            "note": "Observed = distinct stocked products per invoice; simulated = distinct items per visit. 14,271 of 19,773 invoices hold at least one of the 72 products placed in the shop; the rest are left out."
+          },
+          {
+            "test": "Per-visit revenue",
+            "kind": "KS-2sample",
+            "statistic": 0.05809379887699423,
+            "p_value": 0.23539823214129274,
+            "n_observed": 14271,
+            "n_simulated": 318,
+            "decision": "PASS",
+            "note": "Observed = one unit of each stocked product on an invoice, at the shop's calibrated prices; simulated = one unit of each item a visit bought. 14,271 of 19,773 invoices hold at least one of the 72 products placed in the shop; the rest are left out."
+          },
+          {
+            "test": "Category purchase shares",
+            "kind": "Chi-square",
+            "statistic": 54.95915206348038,
+            "p_value": 4.49636869905514e-09,
+            "n_observed": 57349,
+            "n_simulated": 1364,
+            "decision": "FAIL",
+            "note": "Item purchases per category against the dataset's product-invoice touches, both over the 72 products placed in the shop."
+          },
+          {
+            "test": "Inter-arrival vs. Poisson reference",
+            "kind": "KS-2sample",
+            "statistic": 0.0653893568933635,
+            "p_value": 1.2517447040069911e-36,
+            "n_observed": 19468,
+            "n_simulated": 19468,
+            "decision": "FAIL",
+            "note": "Informational: tests whether the dataset's inter-arrival times are approximately Poisson (the family the simulator assumes), against a reference stamped at the source's 60 s resolution. The reference rate is constant, while the data's rate (and the simulator's) varies by hour of day, so a rejection can come from that variation too."
+          }
+        ]
+      },
+      {
+        "rep": 4,
+        "seed": 4009,
+        "load": {
+          "arrivals": 288,
+          "balked": 0
+        },
+        "tests": [
+          {
+            "test": "Basket size (items/visit)",
+            "kind": "KS-2sample",
+            "statistic": 0.08039909265388118,
+            "p_value": 0.05618158881696644,
+            "n_observed": 14271,
+            "n_simulated": 277,
+            "decision": "PASS",
+            "note": "Observed = distinct stocked products per invoice; simulated = distinct items per visit. 14,271 of 19,773 invoices hold at least one of the 72 products placed in the shop; the rest are left out."
+          },
+          {
+            "test": "Per-visit revenue",
+            "kind": "KS-2sample",
+            "statistic": 0.03565611207702779,
+            "p_value": 0.8672150592597353,
+            "n_observed": 14271,
+            "n_simulated": 277,
+            "decision": "PASS",
+            "note": "Observed = one unit of each stocked product on an invoice, at the shop's calibrated prices; simulated = one unit of each item a visit bought. 14,271 of 19,773 invoices hold at least one of the 72 products placed in the shop; the rest are left out."
+          },
+          {
+            "test": "Category purchase shares",
+            "kind": "Chi-square",
+            "statistic": 32.31447182612292,
+            "p_value": 8.180241434269179e-05,
+            "n_observed": 57349,
+            "n_simulated": 1157,
+            "decision": "FAIL",
+            "note": "Item purchases per category against the dataset's product-invoice touches, both over the 72 products placed in the shop."
+          },
+          {
+            "test": "Inter-arrival vs. Poisson reference",
+            "kind": "KS-2sample",
+            "statistic": 0.0653893568933635,
+            "p_value": 1.2517447040069911e-36,
+            "n_observed": 19468,
+            "n_simulated": 19468,
+            "decision": "FAIL",
+            "note": "Informational: tests whether the dataset's inter-arrival times are approximately Poisson (the family the simulator assumes), against a reference stamped at the source's 60 s resolution. The reference rate is constant, while the data's rate (and the simulator's) varies by hour of day, so a rejection can come from that variation too."
+          }
+        ]
+      }
+    ]
+  },
+  "per_rep": [
+    {
+      "rep": 0,
+      "seed": 4000,
+      "load": {
+        "arrivals": 347,
+        "balked": 4
+      },
+      "tests": [
+        {
+          "test": "Basket size (items/visit)",
+          "kind": "KS-2sample",
+          "statistic": 0.03977646203695884,
+          "p_value": 0.6767010144102324,
+          "n_observed": 14776,
+          "n_simulated": 327,
+          "decision": "PASS",
+          "note": "Observed = distinct stocked products per invoice; simulated = distinct items per visit. 14,776 of 19,773 invoices hold at least one of the 72 products placed in the shop; the rest are left out."
+        },
+        {
+          "test": "Per-visit revenue",
+          "kind": "KS-2sample",
+          "statistic": 0.0674200579831084,
+          "p_value": 0.10414185320557967,
+          "n_observed": 14776,
+          "n_simulated": 327,
+          "decision": "PASS",
+          "note": "Observed = one unit of each stocked product on an invoice, at the shop's calibrated prices; simulated = one unit of each item a visit bought. 14,776 of 19,773 invoices hold at least one of the 72 products placed in the shop; the rest are left out."
+        },
+        {
+          "test": "Category purchase shares",
+          "kind": "Chi-square",
+          "statistic": 4.798923221476714,
+          "p_value": 0.7788354344422741,
+          "n_observed": 68005,
+          "n_simulated": 1496,
+          "decision": "PASS",
+          "note": "Item purchases per category against the dataset's product-invoice touches, both over the 72 products placed in the shop."
+        },
+        {
+          "test": "Inter-arrival vs. Poisson reference",
+          "kind": "KS-2sample",
+          "statistic": 0.0653893568933635,
+          "p_value": 1.2517447040069911e-36,
+          "n_observed": 19468,
+          "n_simulated": 19468,
+          "decision": "FAIL",
+          "note": "Informational: tests whether the dataset's inter-arrival times are approximately Poisson (the family the simulator assumes), against a reference stamped at the source's 60 s resolution. The reference rate is constant, while the data's rate (and the simulator's) varies by hour of day, so a rejection can come from that variation too."
+        }
+      ]
+    },
+    {
+      "rep": 1,
+      "seed": 4001,
+      "load": {
+        "arrivals": 373,
+        "balked": 5
+      },
+      "tests": [
+        {
+          "test": "Basket size (items/visit)",
+          "kind": "KS-2sample",
+          "statistic": 0.051096372495939346,
+          "p_value": 0.3227616143645611,
+          "n_observed": 14776,
+          "n_simulated": 350,
+          "decision": "PASS",
+          "note": "Observed = distinct stocked products per invoice; simulated = distinct items per visit. 14,776 of 19,773 invoices hold at least one of the 72 products placed in the shop; the rest are left out."
+        },
+        {
+          "test": "Per-visit revenue",
+          "kind": "KS-2sample",
+          "statistic": 0.04825701910433908,
+          "p_value": 0.3909079433555749,
+          "n_observed": 14776,
+          "n_simulated": 350,
+          "decision": "PASS",
+          "note": "Observed = one unit of each stocked product on an invoice, at the shop's calibrated prices; simulated = one unit of each item a visit bought. 14,776 of 19,773 invoices hold at least one of the 72 products placed in the shop; the rest are left out."
+        },
+        {
+          "test": "Category purchase shares",
+          "kind": "Chi-square",
+          "statistic": 25.04734201320619,
+          "p_value": 0.0015260992711460012,
+          "n_observed": 68005,
+          "n_simulated": 1713,
+          "decision": "FAIL",
+          "note": "Item purchases per category against the dataset's product-invoice touches, both over the 72 products placed in the shop."
+        },
+        {
+          "test": "Inter-arrival vs. Poisson reference",
+          "kind": "KS-2sample",
+          "statistic": 0.0653893568933635,
+          "p_value": 1.2517447040069911e-36,
+          "n_observed": 19468,
+          "n_simulated": 19468,
+          "decision": "FAIL",
+          "note": "Informational: tests whether the dataset's inter-arrival times are approximately Poisson (the family the simulator assumes), against a reference stamped at the source's 60 s resolution. The reference rate is constant, while the data's rate (and the simulator's) varies by hour of day, so a rejection can come from that variation too."
+        }
+      ]
+    },
+    {
+      "rep": 2,
+      "seed": 4002,
+      "load": {
+        "arrivals": 395,
+        "balked": 18
+      },
+      "tests": [
+        {
+          "test": "Basket size (items/visit)",
+          "kind": "KS-2sample",
+          "statistic": 0.05074842698038351,
+          "p_value": 0.32399625475773086,
+          "n_observed": 14776,
+          "n_simulated": 354,
+          "decision": "PASS",
+          "note": "Observed = distinct stocked products per invoice; simulated = distinct items per visit. 14,776 of 19,773 invoices hold at least one of the 72 products placed in the shop; the rest are left out."
+        },
+        {
+          "test": "Per-visit revenue",
+          "kind": "KS-2sample",
+          "statistic": 0.08543553601962567,
+          "p_value": 0.01203474235194593,
+          "n_observed": 14776,
+          "n_simulated": 354,
+          "decision": "FAIL",
+          "note": "Observed = one unit of each stocked product on an invoice, at the shop's calibrated prices; simulated = one unit of each item a visit bought. 14,776 of 19,773 invoices hold at least one of the 72 products placed in the shop; the rest are left out."
+        },
+        {
+          "test": "Category purchase shares",
+          "kind": "Chi-square",
+          "statistic": 13.880179728682105,
+          "p_value": 0.08494244242358366,
+          "n_observed": 68005,
+          "n_simulated": 1768,
+          "decision": "PASS",
+          "note": "Item purchases per category against the dataset's product-invoice touches, both over the 72 products placed in the shop."
+        },
+        {
+          "test": "Inter-arrival vs. Poisson reference",
+          "kind": "KS-2sample",
+          "statistic": 0.0653893568933635,
+          "p_value": 1.2517447040069911e-36,
+          "n_observed": 19468,
+          "n_simulated": 19468,
+          "decision": "FAIL",
+          "note": "Informational: tests whether the dataset's inter-arrival times are approximately Poisson (the family the simulator assumes), against a reference stamped at the source's 60 s resolution. The reference rate is constant, while the data's rate (and the simulator's) varies by hour of day, so a rejection can come from that variation too."
+        }
+      ]
+    },
+    {
+      "rep": 3,
+      "seed": 4003,
+      "load": {
+        "arrivals": 353,
+        "balked": 17
+      },
+      "tests": [
+        {
+          "test": "Basket size (items/visit)",
+          "kind": "KS-2sample",
+          "statistic": 0.037373173131561355,
+          "p_value": 0.7548459746189753,
+          "n_observed": 14776,
+          "n_simulated": 323,
+          "decision": "PASS",
+          "note": "Observed = distinct stocked products per invoice; simulated = distinct items per visit. 14,776 of 19,773 invoices hold at least one of the 72 products placed in the shop; the rest are left out."
+        },
+        {
+          "test": "Per-visit revenue",
+          "kind": "KS-2sample",
+          "statistic": 0.0459878876464386,
+          "p_value": 0.5013830274687938,
+          "n_observed": 14776,
+          "n_simulated": 323,
+          "decision": "PASS",
+          "note": "Observed = one unit of each stocked product on an invoice, at the shop's calibrated prices; simulated = one unit of each item a visit bought. 14,776 of 19,773 invoices hold at least one of the 72 products placed in the shop; the rest are left out."
+        },
+        {
+          "test": "Category purchase shares",
+          "kind": "Chi-square",
+          "statistic": 13.84695575570217,
+          "p_value": 0.08584270908631761,
+          "n_observed": 68005,
+          "n_simulated": 1561,
+          "decision": "PASS",
+          "note": "Item purchases per category against the dataset's product-invoice touches, both over the 72 products placed in the shop."
+        },
+        {
+          "test": "Inter-arrival vs. Poisson reference",
+          "kind": "KS-2sample",
+          "statistic": 0.0653893568933635,
+          "p_value": 1.2517447040069911e-36,
+          "n_observed": 19468,
+          "n_simulated": 19468,
+          "decision": "FAIL",
+          "note": "Informational: tests whether the dataset's inter-arrival times are approximately Poisson (the family the simulator assumes), against a reference stamped at the source's 60 s resolution. The reference rate is constant, while the data's rate (and the simulator's) varies by hour of day, so a rejection can come from that variation too."
+        }
+      ]
+    },
+    {
+      "rep": 4,
+      "seed": 4004,
+      "load": {
+        "arrivals": 362,
+        "balked": 1
+      },
+      "tests": [
+        {
+          "test": "Basket size (items/visit)",
+          "kind": "KS-2sample",
+          "statistic": 0.025453935072602074,
+          "p_value": 0.9742870109001671,
+          "n_observed": 14776,
+          "n_simulated": 354,
+          "decision": "PASS",
+          "note": "Observed = distinct stocked products per invoice; simulated = distinct items per visit. 14,776 of 19,773 invoices hold at least one of the 72 products placed in the shop; the rest are left out."
+        },
+        {
+          "test": "Per-visit revenue",
+          "kind": "KS-2sample",
+          "statistic": 0.041303809200444186,
+          "p_value": 0.5818727794024128,
+          "n_observed": 14776,
+          "n_simulated": 354,
+          "decision": "PASS",
+          "note": "Observed = one unit of each stocked product on an invoice, at the shop's calibrated prices; simulated = one unit of each item a visit bought. 14,776 of 19,773 invoices hold at least one of the 72 products placed in the shop; the rest are left out."
+        },
+        {
+          "test": "Category purchase shares",
+          "kind": "Chi-square",
+          "statistic": 29.58959361464893,
+          "p_value": 0.00024974762049194995,
+          "n_observed": 68005,
+          "n_simulated": 1703,
+          "decision": "FAIL",
+          "note": "Item purchases per category against the dataset's product-invoice touches, both over the 72 products placed in the shop."
+        },
+        {
+          "test": "Inter-arrival vs. Poisson reference",
+          "kind": "KS-2sample",
+          "statistic": 0.0653893568933635,
+          "p_value": 1.2517447040069911e-36,
+          "n_observed": 19468,
+          "n_simulated": 19468,
+          "decision": "FAIL",
+          "note": "Informational: tests whether the dataset's inter-arrival times are approximately Poisson (the family the simulator assumes), against a reference stamped at the source's 60 s resolution. The reference rate is constant, while the data's rate (and the simulator's) varies by hour of day, so a rejection can come from that variation too."
+        }
+      ]
+    }
+  ]
+}

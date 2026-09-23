@@ -7,6 +7,10 @@ and ``.png`` into ``../figs/``:
 
     regret_boxplot, methods_bar, lhs_hist, figure_c
 
+figure_c adds, when the run scored them, the GA's paired differences
+against random search and simulated annealing beside its lift over the
+as-built layout.
+
     python -m experiments.restyle_figures
     python -m experiments.restyle_figures --figs-dir /tmp/figs
 """
@@ -33,8 +37,10 @@ import figstyle  # noqa: E402
 # smoke run or an in-progress directory cannot redraw a paper figure while
 # the macros still quote the paper-grade run.
 from make_results_macros import (  # noqa: E402
-    latest, cluster_boot_ci, _figa_big_enough, _figb_big_enough,
+    latest, cluster_boot_ci, boot_ci, figc_comparator_stats,
+    FIGC_COMPARATOR_COLUMNS, _figa_big_enough, _figb_big_enough,
     _lhs_big_enough, _figc_big_enough)
+from matplotlib.ticker import FuncFormatter, MaxNLocator  # noqa: E402
 
 
 def _rows(d):
@@ -156,6 +162,54 @@ def lhs_hist(figs=None):
     return True
 
 
+def _paired_panel(ax, rows, comps):
+    """GA minus each layout, paired over the replicates: one row per
+    comparison, every replicate's difference as a faint point, the mean
+    with its 95% bootstrap interval on top of them.
+
+    The intervals are the macros' own -- the lift's from the same bootstrap
+    as its macro, each search's as the runner reports it -- so the panel
+    and the text cannot disagree. Stacked rows with one shared axis keep
+    the labels horizontal, which is what stays legible at column width."""
+    base = np.array([float(r["baseline_revenue"]) for r in rows])
+    diffs = np.array([float(r["diff"]) for r in rows])
+    lo, hi = boot_ci(diffs)
+    entries = [("as-built\n(lift)", diffs, diffs.mean(), lo, hi,
+                diffs.mean() / max(base.mean(), 1e-9) * 100, figstyle.GA)]
+    for meth, col, label in (("random_search", "diff_rs", "random\nsearch"),
+                             ("simulated_annealing", "diff_sa",
+                              "simulated\nannealing")):
+        if meth in comps:
+            mean, c_lo, c_hi, pct = comps[meth]
+            entries.append((label, np.array([float(r[col]) for r in rows]),
+                            mean, c_lo, c_hi, pct, figstyle.ACCENT))
+    rng = np.random.default_rng(0)
+    ys = np.arange(len(entries))[::-1]
+    for y, (_, vals, mean, c_lo, c_hi, pct, color) in zip(ys, entries):
+        ax.scatter(vals, y + rng.uniform(-0.18, 0.18, vals.size), s=10,
+                   color=figstyle.GREY, alpha=0.45, edgecolor="none",
+                   zorder=2)
+        ax.errorbar(mean, y, xerr=[[mean - c_lo], [c_hi - mean]], fmt="o",
+                    ms=6, color=color, ecolor=color, elinewidth=2.0,
+                    capsize=4, zorder=3)
+        # Past the rightmost replicate as well as the interval, so the
+        # label never sits on a point.
+        ax.annotate(f"{pct:+.2f}%", xy=(max(c_hi, vals.max()), y),
+                    xytext=(6, 0),
+                    textcoords="offset points", va="center", fontsize=9)
+    ax.axvline(0, color=figstyle.BLACK, lw=1.0)
+    ax.set_yticks(ys)
+    ax.set_yticklabels([e[0] for e in entries], fontsize=9)
+    ax.set_ylim(-0.6, len(entries) - 0.4)
+    ax.grid(axis="y", visible=False)
+    ax.margins(x=0.12)
+    ax.xaxis.set_major_locator(MaxNLocator(nbins=5))
+    ax.xaxis.set_major_formatter(FuncFormatter(lambda v, _: f"{v:,.0f}"))
+    ax.set_xlabel("GA minus layout, paired projected revenue (GBP)")
+    ax.set_title(f"Paired differences over {len(rows)} replicates "
+                 f"(95% bootstrap CIs)", fontsize=10.5)
+
+
 def figure_c(figs=None):
     d = latest("real_data_uci_", _figc_big_enough)
     if not d:
@@ -163,7 +217,17 @@ def figure_c(figs=None):
     rows = _rows(d)
     base = np.array([float(r["baseline_revenue"]) for r in rows]) / 1e6
     opt = np.array([float(r["optimized_revenue"]) for r in rows]) / 1e6
-    fig, ax = plt.subplots(figsize=(7.4, 4.0))
+    # The equal-budget searches scored under the same replicates. A run
+    # from before they were added has no such columns and is drawn as the
+    # single histogram it always was.
+    comps = (figc_comparator_stats(d, rows)
+             if all(c in rows[0] for c in FIGC_COMPARATOR_COLUMNS) else {})
+    if comps:
+        fig, (ax, ax_d) = plt.subplots(
+            2, 1, figsize=(6.4, 6.8),
+            gridspec_kw={"height_ratios": [1.15, 1.0]})
+    else:
+        fig, ax = plt.subplots(figsize=(7.4, 4.0))
     bins = np.linspace(min(base.min(), opt.min()), max(base.max(), opt.max()), 18)
     ax.hist(base, bins=bins, color=figstyle.BASELINE, alpha=0.75,
             label=f"naive baseline (mean {base.mean():.2f}M)", edgecolor="white")
@@ -175,6 +239,8 @@ def figure_c(figs=None):
     ax.set_title(f"UCI worked example: model-conditional lift "
                  f"{lift_pct:+.2f}%")
     ax.legend(loc="upper center")
+    if comps:
+        _paired_panel(ax_d, rows, comps)
     fig.tight_layout()
     figstyle.save(fig, "figure_c", out_dir=figs)
     plt.close(fig)

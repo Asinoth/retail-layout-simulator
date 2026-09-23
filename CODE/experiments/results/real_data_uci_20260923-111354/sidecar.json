@@ -1,0 +1,264 @@
+{
+  "git_sha": "1292e1eb95b09102121c5894798bb216a8f71935",
+  "git_dirty": false,
+  "git_diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "git_modified": [],
+  "git_untracked_py": [],
+  "git_state_changed_during_run": false,
+  "python": "3.13.2",
+  "platform": "Windows-11-10.0.26200-SP0",
+  "packages": {
+    "numpy": "2.2.4",
+    "scipy": "1.15.3",
+    "pandas": "2.2.3",
+    "matplotlib": "3.10.1",
+    "openpyxl": "3.1.5"
+  },
+  "iso_time": "2026-09-23T11:16:12",
+  "elasticities": {
+    "GA_weights": {
+      "traffic": 0.16,
+      "cross_merch": 0.16,
+      "impulse": 0.16,
+      "flow": 0.16,
+      "revenue_placement": 0.16,
+      "section_compliance": 0.16,
+      "accessibility": 0.04,
+      "overlap_penalty": 0.8,
+      "bottleneck_penalty": 0.2
+    },
+    "ELASTICITY_CONV_BASE": 0.2,
+    "ELASTICITY_CONV_GAIN_MAX": 0.3,
+    "ELASTICITY_IMP_BASE": 0.3,
+    "ELASTICITY_IMP_GAIN_MAX": 0.4,
+    "ELASTICITY_BSK_BASE": 0.1,
+    "ELASTICITY_BSK_GAIN_MAX": 0.2
+  },
+  "experiment": "real_data_uci_figure_c",
+  "args": {
+    "retail_path": "DATASETS/UCI Online Retail II .xlsx.xlsx",
+    "sheets": "Year 2009-2010,Year 2010-2011",
+    "max_items_per_category": 12,
+    "assumed_conversion": 0.3,
+    "mc_iters": 2000,
+    "mc_days": 30,
+    "n_gens": 25,
+    "pop_size": 30,
+    "n_mc_replicates": 30,
+    "ga_seed": 0,
+    "sa_initial_accept": 0.8,
+    "out_root": "CODE/experiments/results"
+  },
+  "wall_seconds": 137.9659314999999,
+  "ga_wall_seconds": 28.093625800000154,
+  "rs_wall_seconds": 27.19238370000039,
+  "sa_wall_seconds": 26.337051999999858,
+  "csv_path": "results.csv",
+  "figure_path": "figure_c.png",
+  "provenance": {
+    "source_path": "DATASETS/UCI Online Retail II .xlsx.xlsx",
+    "source_bytes": 45622278,
+    "source_sha256": "bcbe73b35f5b7babf197fb0cb983a11f5d9ff929078d4aa53d171b1f2df2e980",
+    "adapter_name": "uci_online_retail_ii",
+    "adapter_version": "1.1",
+    "schema_version": "1.0.0",
+    "rows_in": 1044848,
+    "rows_kept": 1014977,
+    "currency": "GBP",
+    "seed": 0,
+    "loaded_at": 1790151371.3241796,
+    "loaded_at_iso": "2026-09-23T11:16:11",
+    "python": "3.13.2",
+    "platform": "Windows-11-10.0.26200-SP0",
+    "packages": {
+      "numpy": "2.2.4",
+      "scipy": "1.15.3",
+      "pandas": "2.2.3",
+      "matplotlib": "3.10.1",
+      "openpyxl": "3.1.5"
+    },
+    "extra": {
+      "sheets": "Year 2009-2010,Year 2010-2011",
+      "reader": {
+        "rows_read": 1067371,
+        "rows_per_sheet": [
+          525461,
+          541910
+        ],
+        "rows_after_dedup": 1044848,
+        "cross_sheet_duplicates_dropped": 22523,
+        "read_notes": [
+          "Read sheet 'Year 2009-2010' (525,461 rows).",
+          "Read sheet 'Year 2010-2011' (541,910 rows).",
+          "Dropped 22,523 rows of sheet 'Year 2010-2011' that repeat rows of an earlier sheet.",
+          "Concatenated 2 sheets -> 1,044,848 rows total."
+        ]
+      },
+      "max_items_per_category": 12,
+      "mc_iters": 2000,
+      "mc_days": 30,
+      "n_gens": 25,
+      "pop_size": 30,
+      "n_mc_replicates": 30,
+      "shop_dims_m": [
+        42.1,
+        30.1
+      ],
+      "sections": 15,
+      "items_placed": 108
+    }
+  },
+  "reader": {
+    "rows_read": 1067371,
+    "rows_per_sheet": [
+      525461,
+      541910
+    ],
+    "rows_after_dedup": 1044848,
+    "cross_sheet_duplicates_dropped": 22523,
+    "read_notes": [
+      "Read sheet 'Year 2009-2010' (525,461 rows).",
+      "Read sheet 'Year 2010-2011' (541,910 rows).",
+      "Dropped 22,523 rows of sheet 'Year 2010-2011' that repeat rows of an earlier sheet.",
+      "Concatenated 2 sheets -> 1,044,848 rows total."
+    ]
+  },
+  "calibration_summary": {
+    "n_invoices": 39516,
+    "n_unique_products": 4721,
+    "n_unique_customers": 5852,
+    "n_unique_categories": 9,
+    "span_seconds": 63781500.0,
+    "arrivals_per_hour": 4.798792547101072,
+    "visitors_per_hour": 15.995975157003572,
+    "assumed_conversion_rate": 0.3,
+    "conversion_rate_source": "assumption",
+    "return_customer_rate": 0.7235133287764867,
+    "currency": "GBP",
+    "basket_units_median": 149.0,
+    "basket_distinct_median": 15.0,
+    "category_fallback_frac": 0.41229087405519516
+  },
+  "shop_summary": {
+    "width_m": 42.1,
+    "height_m": 30.1,
+    "sections": 15,
+    "items_placed": 108
+  },
+  "results": {
+    "baseline_mean": 1029303.7504482516,
+    "optimized_mean": 1045784.7510017476,
+    "paired_mean_diff": 16481.00055349594,
+    "ci_lo": 16470.649270762704,
+    "ci_hi": 16491.203723284343,
+    "pct_lift": 1.6011794911189845,
+    "pct_lift_ci": [
+      1.6001738324172916,
+      1.6021707601961606
+    ],
+    "n_replicates": 30,
+    "comparators": {
+      "random_search": {
+        "mean": 1042721.7702509149,
+        "paired_mean_diff_GA_minus_X": 3062.980750832877,
+        "ci_lo": 3053.509801120903,
+        "ci_hi": 3072.0555173066123,
+        "pct_diff": 0.2937486142728005,
+        "pct_diff_ci": [
+          0.2928403231080639,
+          0.2946189103318874
+        ],
+        "pct_of": "comparator_mean",
+        "lift_over_baseline": {
+          "paired_mean_diff": 13418.01980266306,
+          "ci_lo": 13407.471125331267,
+          "ci_hi": 13427.684740994575,
+          "pct_lift": 1.3036015653124402,
+          "pct_lift_ci": [
+            1.3025767291232007,
+            1.3045405435613104
+          ]
+        },
+        "n_search_evals": 750,
+        "n_final_evals": 150,
+        "start": "asbuilt",
+        "wall_seconds": 27.19238370000039
+      },
+      "simulated_annealing": {
+        "mean": 1040654.7650385014,
+        "paired_mean_diff_GA_minus_X": 5129.985963246269,
+        "ci_lo": 5118.072008041508,
+        "ci_hi": 5142.776375792765,
+        "pct_diff": 0.49295752401195936,
+        "pct_diff_ci": [
+          0.4918126721739609,
+          0.4941865975698959
+        ],
+        "pct_of": "comparator_mean",
+        "lift_over_baseline": {
+          "paired_mean_diff": 11351.014590249668,
+          "ci_lo": 11339.749851735345,
+          "ci_hi": 11362.165956573497,
+          "pct_lift": 1.102785702015213,
+          "pct_lift_ci": [
+            1.1016912982972225,
+            1.1038690912789724
+          ]
+        },
+        "n_search_evals": 750,
+        "n_final_evals": 150,
+        "start": "asbuilt",
+        "sa_T0": 763.2222690907412,
+        "sa_initial_accept": 0.8,
+        "wall_seconds": 26.337051999999858
+      }
+    }
+  },
+  "evaluation_counts": {
+    "GA": 750,
+    "random_search": 750,
+    "simulated_annealing": 750
+  },
+  "final_evaluation_counts": {
+    "GA": 150,
+    "random_search": 150,
+    "simulated_annealing": 150
+  },
+  "sa_schedule": {
+    "sa_initial_accept": 0.8,
+    "sa_T0": 763.2222690907412,
+    "sa_start": "asbuilt"
+  },
+  "search_design": {
+    "budget_search_evals": 750,
+    "block": 30,
+    "n_final_seeds": 5,
+    "seed": 0,
+    "starts": {
+      "GA": "asbuilt",
+      "random_search": "asbuilt",
+      "simulated_annealing": "asbuilt"
+    },
+    "search_seed_ranges": {
+      "GA": [
+        0,
+        31
+      ],
+      "random_search": [
+        0,
+        31
+      ],
+      "simulated_annealing": [
+        0,
+        31
+      ]
+    },
+    "paired_eval_seeds": [
+      1000000,
+      1000030
+    ],
+    "rs_sampler": "zone_sampler",
+    "sa_neighbor": "zone_neighbor(step_frac=0.25)",
+    "ci": "percentile bootstrap, 2000 resamples, 95%, per comparison (uncorrected)"
+  }
+}

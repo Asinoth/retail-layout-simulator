@@ -4,8 +4,10 @@ For a TOMACS submission the calibration story isn't complete without
 showing how close the simulator's output matches the dataset it was
 calibrated against. We compare three primary distributions:
 
-  * basket size (distinct items per visit)
-  * per-visit revenue (one unit of each distinct item)
+  * basket size (distinct stocked products per invoice vs. distinct items
+    per visit)
+  * per-visit revenue (one unit of each stocked product on an invoice vs.
+    one unit of each item a visit bought)
   * inter-arrival time
 
 Test choice:
@@ -20,8 +22,11 @@ Matching units is what makes these tests meaningful, and it is the part
 that is easy to get wrong: the dataset counts units per invoice and prices
 them at wholesale volumes, while a simulated visit picks up one unit of
 each item on its list; the dataset's catalogue holds every product ever
-sold, while the shop carries only the products that were laid out. Each
-test below therefore states, in its note, the quantity both sides count.
+sold, while the shop carries only the products that were laid out. The
+basket and revenue references are therefore each invoice cut down to the
+products the simulated shop stocks (``placed_invoice_sample``): a shopper
+there cannot buy the rest. Each test below states, in its note, the
+quantity both sides count.
 
 We do NOT use t-tests on means: TOMACS reviewers will rightly note that
 a t-test only compares first moments. KS compares the entire CDF.
@@ -36,7 +41,7 @@ from typing import Dict, List, Optional, Any, Tuple
 import numpy as np
 from scipy import stats as sp_stats
 
-from dataset_calibration import CalibratedParams
+from dataset_calibration import CalibratedParams, placed_invoice_sample
 
 
 @dataclass
@@ -437,6 +442,43 @@ def observed_distinct_revenues(params: CalibratedParams
                   "of each item) cannot be compared with.")
 
 
+def observed_placed_invoices(params: CalibratedParams, product_ids
+                             ) -> Tuple[Optional[Dict[str, Any]], str]:
+    """The basket-size and per-visit-revenue reference for a shop carrying
+    ``product_ids``: ``placed_invoice_sample`` -- distinct stocked products
+    per invoice, and the same invoices at one unit of each stocked product
+    -- over the invoices holding at least one of those products.
+
+    The whole-catalogue samples (``observed_distinct_baskets`` /
+    ``observed_distinct_revenues``) count products a shopper in the
+    dataset-built shop could never buy; on Online Retail II that shop
+    stocks about 100 of roughly 4,000 products.
+
+    Returns ``(sample, reason)``: the sample dict, or None when no
+    comparable reference can be formed, with ``reason`` saying why.
+    """
+    if not getattr(params, 'has_invoice_structure', False):
+        return None, ("the calibration carries no per-invoice product sets, "
+                      "so an invoice cannot be cut to the products the shop "
+                      "stocks.")
+    pids = {str(p) for p in (() if product_ids is None else product_ids)}
+    if not pids:
+        return None, ("the shop's items carry no product ids, so the stocked "
+                      "portion of an invoice cannot be formed.")
+    sample = placed_invoice_sample(params, pids)
+    if not sample['n_with_placed']:
+        return None, (f"none of the {len(pids)} products placed in the shop "
+                      f"appears on an invoice.")
+    return sample, ""
+
+
+def _placed_note(sample: Dict[str, Any], n_pids: int) -> str:
+    """Which invoices the placed reference keeps, for the row notes."""
+    return (f" {sample['n_with_placed']:,} of {sample['n_invoices']:,} "
+            f"invoices hold at least one of the {n_pids} products placed in "
+            f"the shop; the rest are left out.")
+
+
 def _timestamp_resolution_s(gaps: np.ndarray) -> float:
     """Smallest time step the source's timestamps can express.
 
@@ -475,49 +517,67 @@ def validate_against_simulation(params: CalibratedParams,
     parametric = (str(extra.get('basket_size_source', '')).startswith('parametric')
                   or extra.get('source_kind') == 'aggregate_retail_omnichannel')
 
+    # The products the simulated shop carries. Every dataset-side sample
+    # below is narrowed to them, since a simulated shopper can buy nothing
+    # else.
+    pids = placed_product_ids(getattr(sim, 'shop', None))
+
     if parametric:
         res.summary_lines.append(
             "Aggregate source: basket-size and per-visit-revenue distributions "
             "are parametric (not directly observed); KS tests on them are "
             "omitted as not applicable. Category shares are still validated.")
     else:
+        # Both rows compare against each invoice cut down to the products
+        # the simulated shop stocks: the whole invoice is not a quantity a
+        # simulated shopper can reproduce.
+        placed, why_not = observed_placed_invoices(params, pids)
+
         # -- Basket size --
         # The simulator counts distinct items per visit, while
         # params.basket_sizes is units per invoice (a bulk line of 200
-        # identical units is one item), so the test needs the distinct sample.
+        # identical units is one item), so the test needs distinct counts.
         sim_baskets = np.array(A.get('basket_sizes', []), dtype=np.float64)
-        obs_distinct = observed_distinct_baskets(params)
-        if obs_distinct is not None:
-            t = _ks_safe(obs_distinct, sim_baskets,
+        if placed is not None:
+            t = _ks_safe(placed['sizes'], sim_baskets,
                          name="Basket size (items/visit)",
-                         note="Observed = distinct products per invoice; "
-                              "simulated = distinct items per visit.")
+                         note="Observed = distinct stocked products per "
+                              "invoice; simulated = distinct items per "
+                              "visit." + _placed_note(placed, len(pids)))
         else:
             t = GoodnessOfFit(name="Basket size (items/visit)", test="KS-2sample",
                               statistic=float('nan'), p_value=float('nan'),
-                              n_observed=int(np.asarray(params.basket_sizes).size),
+                              n_observed=0,
                               n_simulated=int(sim_baskets.size),
-                              note="Not run: the dataset basket sample counts units "
-                                   "per invoice, the simulator counts distinct "
-                                   "items per visit.")
+                              note="Not run: " + why_not
+                                   + " Distinct stocked products per invoice "
+                                   "is the only dataset count comparable "
+                                   "with distinct items per visit.")
         if t: res.tests.append(t)
 
         # -- Per-visit revenue --
         # A simulated visit buys one unit of each item on its list, so the
         # comparable dataset quantity is an invoice priced one unit per
-        # product, not its wholesale total.
+        # stocked product, not its wholesale total.
         sim_revs = np.array(A.get('customer_revenues', []), dtype=np.float64)
-        obs_revs, rev_note = observed_distinct_revenues(params)
-        if obs_revs is None:
+        if placed is not None:
+            t = _ks_safe(placed['revenues'], sim_revs,
+                         name="Per-visit revenue",
+                         note="Observed = one unit of each stocked product "
+                              "on an invoice, at the shop's calibrated "
+                              "prices; simulated = one unit of each item a "
+                              "visit bought." + _placed_note(
+                                  placed, len(pids)))
+        else:
             # Keep the row so the report shows revenue was not validated.
             t = GoodnessOfFit(name="Per-visit revenue", test="KS-2sample",
                               statistic=float('nan'), p_value=float('nan'),
-                              n_observed=int(np.asarray(params.invoice_revenues).size),
+                              n_observed=0,
                               n_simulated=int(sim_revs.size),
-                              note="Not run: " + rev_note)
-        else:
-            t = _ks_safe(obs_revs, sim_revs,
-                         name="Per-visit revenue", note=rev_note)
+                              note="Not run: " + why_not
+                                   + " One unit of each stocked product per "
+                                   "invoice is the only dataset spend "
+                                   "comparable with a simulated visit's.")
         if t: res.tests.append(t)
 
     # -- Category purchase shares (chi-square) --
@@ -526,7 +586,6 @@ def validate_against_simulation(params: CalibratedParams,
     # purchase counters of those products mapped onto their category. Zone
     # entries are not comparable -- an agent crossing a department on its
     # way elsewhere is counted there too, and the dataset has no such notion.
-    pids = placed_product_ids(getattr(sim, 'shop', None))
     cat_observed = observed_category_counts(params,
                                             product_ids=pids or None)
     cat_sim, left_out = simulated_category_purchases(

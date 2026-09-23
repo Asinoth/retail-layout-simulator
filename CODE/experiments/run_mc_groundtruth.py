@@ -1,21 +1,20 @@
-"""MC-objective ground-truth regret (audit R4.3).
+"""MC-objective ground-truth regret.
 
-Reviewer 4 objected that the recovery/regret story (Figure A) is
-measured against the *analytical* reference, which optimizes a
-closed-form objective only weakly correlated with the Monte Carlo
-objective the GA actually maximizes -- so "recovers 98.6%" quietly
-measures the wrong objective, and there is no ground-truth optimum for
-the MC objective itself.
+The recovery/regret story (Figure A) is measured against the
+*analytical* reference, which optimizes a closed-form objective that
+only partly agrees with the Monte Carlo objective the GA actually
+maximizes -- so a recovery figure there measures a different objective,
+and there is no ground-truth optimum for the MC objective itself.
 
 This experiment supplies one. On a set of small scenarios we
 approximate the MC-objective optimum by a **best-known reference**: we
 run three independent searches -- random search, simulated annealing,
 and the GA -- each at an order of magnitude MORE evaluation budget than
-the paper's operating point, then take the best layout any search found
-(the normal-budget GA's own layout included) and confirm it under many
-fresh seeds. The GA at its *normal* budget is then scored against this
-best-known optimum, giving a regret on the MC objective directly (not
-the analytical proxy).
+the paper's operating point and each from the as-built layout, then take
+the best layout any search found (the normal-budget GA's own layout
+included) and confirm it under many fresh seeds. The GA at its *normal*
+budget is then scored against this best-known optimum, giving a regret
+on the MC objective directly (not the analytical proxy).
 
 If the normal-budget GA lands within a few percent of a 10x-budget,
 three-method best-known optimum, the GA is near the MC-optimum at its
@@ -59,7 +58,7 @@ from experiments.metaheuristics import (random_search, simulated_annealing,
 
 # Candidate labels for the best-known selection, in the order passed.
 CANDIDATES = ('random_search_big', 'simulated_annealing_big', 'GA_big',
-              'GA_normal')
+              'GA_normal', 'simulated_annealing_big_popstart')
 # GA population size, also the seed block of RS and SA.
 POP_SIZE = 30
 
@@ -115,8 +114,9 @@ def one_scenario(idx: int, args) -> Dict:
     shop = build_headless_shop(shop_synth)
     names = [it.name for it in shop_synth.items]
     bp = base_params_for(shop_synth)
-    # Both GA runs start from the as-built layout, so the big GA does not
-    # inherit whatever layout the other searches scored last.
+    # Every search starts from the as-built layout: the big GA does not
+    # inherit whatever layout the other searches scored last, and random
+    # search and SA get the same starting information as both GA runs.
     init_layout = {n: tuple(shop.floors[1]['items'][n]['position'])
                    for n in names}
 
@@ -130,26 +130,42 @@ def one_scenario(idx: int, args) -> Dict:
     ga_layout = chromosome_to_layout(ga_out['best_chrom'], names)
 
     # BIG-budget searches (10x): random, SA, and a big GA. RS and SA get
-    # exactly the big GA's search budget (big_gens * pop) and its seed
-    # block, so all three spend the same number of evaluations.
+    # exactly the big GA's search budget (big_gens * pop), its seed block
+    # and its start, so all three spend the same number of evaluations
+    # from the same layout.
     big_gens = max(1, args.big_budget // pop)
     rs_stats: Dict = {}
     rs_big = random_search(shop, shop_synth, names, bp, seed=1000 + idx,
                            budget=big_gens * pop, block=pop,
                            mc_iters=args.mc_iters, mc_days=args.mc_days,
-                           stats=rs_stats)
+                           stats=rs_stats, init_layout=init_layout)
     sa_stats: Dict = {}
     sa_big = simulated_annealing(shop, shop_synth, names, bp, seed=2000 + idx,
                                  budget=big_gens * pop, block=pop,
                                  mc_iters=args.mc_iters, mc_days=args.mc_days,
                                  initial_accept=args.sa_initial_accept,
-                                 stats=sa_stats)
+                                 stats=sa_stats, init_layout=init_layout,
+                                 start='asbuilt')
     ga_big_out = run_ga_headless(shop, names, bp, pop_size=pop,
                                  n_gens=big_gens, mut_rate=0.18,
                                  elite_frac=0.20, mc_iters=args.mc_iters,
                                  mc_days=args.mc_days, rng_seed=3000 + idx,
                                  init_layout=init_layout)
     ga_big = chromosome_to_layout(ga_big_out['best_chrom'], names)
+    # The reference is not a comparison, so it is not held to the common
+    # start: it should be the best layout any search can find. Annealing
+    # from the popularity ranking is added as a further candidate, on the
+    # as-built annealer's seed block and at the same budget, so a weaker
+    # start can never make the reference -- and so the regret -- smaller.
+    sa_pop_stats: Dict = {}
+    sa_big_pop = simulated_annealing(shop, shop_synth, names, bp,
+                                     seed=2000 + idx,
+                                     budget=big_gens * pop, block=pop,
+                                     mc_iters=args.mc_iters,
+                                     mc_days=args.mc_days,
+                                     initial_accept=args.sa_initial_accept,
+                                     stats=sa_pop_stats,
+                                     start='popularity')
 
     # Equal budget is checked on the SEARCH evaluations: SA's final stage
     # ranks distinct archived states, so a search that revisits a state
@@ -162,11 +178,26 @@ def one_scenario(idx: int, args) -> Dict:
     if len(set(counts.values())) != 1:
         raise AssertionError(f"scenario {idx}: big searches spent unequal "
                              f"search-evaluation budgets {counts}")
+    starts = {'random_search_big': rs_stats['rs_start'],
+              'simulated_annealing_big': sa_stats['sa_start'],
+              'GA_big': 'asbuilt', 'GA_normal': 'asbuilt'}
+    if set(starts.values()) != {'asbuilt'}:
+        raise AssertionError(f"scenario {idx}: the searches did not all "
+                             f"start from the as-built layout {starts}")
+    if sa_pop_stats['n_search_evals'] != counts['GA_big']:
+        raise AssertionError(f"scenario {idx}: the popularity-started "
+                             f"annealer spent "
+                             f"{sa_pop_stats['n_search_evals']} search "
+                             f"evaluations, not {counts['GA_big']}")
     counts['GA_normal'] = ga_out['n_search_evals']
+    counts['simulated_annealing_big_popstart'] = sa_pop_stats['n_search_evals']
+    starts['simulated_annealing_big_popstart'] = sa_pop_stats['sa_start']
     final_counts = {'random_search_big': rs_stats['n_final_evals'],
                     'simulated_annealing_big': sa_stats['n_final_evals'],
                     'GA_big': ga_big_out['n_final_evals'],
-                    'GA_normal': ga_out['n_final_evals']}
+                    'GA_normal': ga_out['n_final_evals'],
+                    'simulated_annealing_big_popstart':
+                        sa_pop_stats['n_final_evals']}
 
     # Best-known = best of every layout found, the normal-budget GA's
     # included, so the reference is never worse on the selection seeds than
@@ -174,7 +205,8 @@ def one_scenario(idx: int, args) -> Dict:
     # are fixed points of the repair; mapping them keeps the rule uniform.
     candidates = [feasible_layout(shop, names, rs_big),
                   feasible_layout(shop, names, sa_big),
-                  ga_big, ga_layout]
+                  ga_big, ga_layout,
+                  feasible_layout(shop, names, sa_big_pop)]
     cseed = 900_000 + idx * 1000
     best_known = _final_select(shop, names, candidates, bp,
                                cseed, args.mc_iters, args.mc_days,
@@ -194,6 +226,7 @@ def one_scenario(idx: int, args) -> Dict:
             'best_known_mc': bk_mean, 'mc_regret_pct': regret_pct,
             'best_known_source': best_source, 'evaluation_counts': counts,
             'final_evaluation_counts': final_counts,
+            'search_start': starts,
             'sa_T0': sa_stats.get('sa_T0')}
 
 
@@ -265,6 +298,12 @@ def main():
         'normal_budget': args.normal_budget,
         'big_budget': args.big_budget,
         'mc_iters': args.mc_iters,
+        # The start each search reported; every one is the as-built
+        # layout, so a run made before the searches shared a start cannot
+        # be mistaken for one made after.
+        'search_start': {m: '/'.join(sorted({r['search_start'][m]
+                                             for r in rows}))
+                         for m in CANDIDATES},
     }
     write_sidecar(out_dir, {'experiment': 'mc_groundtruth',
                             'args': vars(args), 'wall_seconds': wall,
@@ -277,6 +316,7 @@ def main():
                                 m: sorted({r['final_evaluation_counts'][m]
                                            for r in rows})
                                 for m in CANDIDATES},
+                            'search_start': summary['search_start'],
                             # The big annealer's starting temperature is
                             # calibrated per scenario from its own first
                             # block, so each one is recorded.

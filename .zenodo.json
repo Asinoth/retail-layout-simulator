@@ -1,0 +1,25 @@
+{
+  "upload_type": "software",
+  "title": "retail-layout-simulator: agent-based retail-layout simulation and optimization",
+  "description": "An agent-based customer-flow simulator for 2D retail floor plans, calibrated against public transactional, in-store and pedestrian-trajectory datasets, with Monte Carlo, Markov-chain and genetic-algorithm engines for evaluating and optimizing item placement. It ships the headless, seeded experiment runners, tests and per-run artifacts behind every reported number, so the results can be regenerated from the code.",
+  "creators": [
+    {
+      "name": "Tsagkanos, Alexandros",
+      "affiliation": "University of Patras",
+      "orcid": "0009-0003-3734-5344"
+    },
+    {
+      "name": "Zeginis, Chrysostomos",
+      "affiliation": "University of Crete",
+      "orcid": "0000-0003-0646-3287"
+    }
+  ],
+  "license": "MIT",
+  "keywords": [
+    "agent-based simulation",
+    "retail layout",
+    "simulation optimization",
+    "genetic algorithm",
+    "Monte Carlo"
+  ]
+}

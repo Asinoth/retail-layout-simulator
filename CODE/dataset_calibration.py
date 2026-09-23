@@ -41,6 +41,12 @@ from retail_literature import (DEFAULT_OP_HOURS_PER_DAY,
 # reproduces the data.
 _MC_MEAN_DAY_MULTIPLIER = (5.0 + 2.0 * DEFAULT_WEEKEND_MULTIPLIER) / 7.0
 
+# Calibration keys holding the live agents' list-length law. Written only by
+# ``CalibratedParams.seed_into`` when it is given the shop, and read by
+# ``Customer._generate_shopping_list``.
+_LIST_LENGTH_KEYS = ('list_length_sample', 'list_length_source',
+                     'n_invoices_with_placed')
+
 
 @dataclass
 class CalibratedParams:
@@ -105,6 +111,31 @@ class CalibratedParams:
     invoice_distinct_revenues: np.ndarray = field(
         default_factory=lambda: np.zeros(0))
 
+    # Each invoice's distinct product set, compressed-sparse-row style and
+    # in the same invoice order as ``basket_distinct_sizes``: invoice i
+    # holds the products
+    # ``invoice_product_index[j] for j in invoice_items[invoice_ptr[i]:
+    # invoice_ptr[i + 1]]``. A dataset-built shop stocks only the top
+    # products of each category, so the per-invoice totals above describe
+    # a catalogue its shoppers cannot buy from; this structure lets
+    # ``placed_invoice_sample`` cut every invoice down to the products a
+    # given shop carries. Empty for sources without invoices (aggregate
+    # calibrations), which ``has_invoice_structure`` reports.
+    invoice_product_index: List[str] = field(default_factory=list)
+    invoice_ptr: np.ndarray = field(
+        default_factory=lambda: np.zeros(0, dtype=np.int64))
+    invoice_items: np.ndarray = field(
+        default_factory=lambda: np.zeros(0, dtype=np.int32))
+
+    @property
+    def has_invoice_structure(self) -> bool:
+        """True when the per-invoice product sets were kept (transactional
+        sources), i.e. when ``placed_invoice_sample`` has invoices to cut."""
+        ptr = getattr(self, 'invoice_ptr', None)
+        index = getattr(self, 'invoice_product_index', None)
+        return (ptr is not None and np.asarray(ptr).size >= 2
+                and index is not None and len(index) > 0)
+
     @property
     def visitors_per_hour(self) -> float:
         """Visitors per open hour: buyers divided by the conversion rate.
@@ -131,6 +162,16 @@ class CalibratedParams:
         ``product_id`` to the shop's item keys, which is how the GA score and
         the optimize helpers look items up. When omitted they stay keyed by
         ``product_id``.
+
+        With a shop, and when the params carry per-invoice product sets,
+        the agents' list-length law is written too: ``list_length_sample``
+        is the number of distinct products the shop carries (on any floor)
+        on each invoice holding at least one of them, with
+        ``list_length_source`` and ``n_invoices_with_placed`` beside it.
+        That is the size of the in-store portion of a real trip, which is
+        all a simulated shopper can buy; without a shop there is no
+        assortment to cut the invoices to, so nothing is written and the
+        agents keep the type-conditional law.
 
         Reseeding replaces the keys the previous call wrote, so a second
         dataset does not inherit the first one's keys; keys written by
@@ -168,8 +209,13 @@ class CalibratedParams:
         # source-dependent), and a stale ``mean_impulse_rate`` or
         # ``source_kind`` from an earlier dataset would change the MC impulse
         # rate and which Validation tests run. The record lives on ``sim``
-        # so the calibration dict itself only carries data.
-        for k in getattr(sim, '_calibration_seeded_keys', ()):
+        # so the calibration dict itself only carries data. The list-length
+        # keys are dropped whatever the record says: only this method writes
+        # them, and a sample left behind would keep driving the agents after
+        # a reseed that writes none (another source, or no shop). Popped
+        # here, they are registered below like every other key written.
+        for k in (*getattr(sim, '_calibration_seeded_keys', ()),
+                  *_LIST_LENGTH_KEYS):
             cal.pop(k, None)
         keys_before = set(cal)
 
@@ -277,14 +323,23 @@ class CalibratedParams:
             cal.update(extra)
 
         # Re-key the per-item dicts onto the shop's item keys (display names,
-        # "(product_id)" suffix on collision). The first item carrying a
-        # product_id wins; pairs with an unplaced item are dropped.
+        # "(product_id)" suffix on collision). The first floor-1 item
+        # carrying a product_id wins; pairs with an unplaced item are
+        # dropped. The same pass collects every product the shop carries on
+        # any floor, which is what the list-length sample is cut to.
         if shop is not None:
             pid_to_key: Dict[str, str] = {}
-            for key, idata in shop.floors[1]['items'].items():
-                pid = idata.get('product_id')
-                if pid is not None and str(pid) not in pid_to_key:
-                    pid_to_key[str(pid)] = key
+            placed_pids = set()
+            floors = getattr(shop, 'floors', None) or {}
+            for fid in sorted(floors):
+                for key, idata in ((floors[fid] or {}).get('items')
+                                   or {}).items():
+                    pid = (idata or {}).get('product_id')
+                    if pid is None:
+                        continue
+                    placed_pids.add(str(pid))
+                    if fid == 1 and str(pid) not in pid_to_key:
+                        pid_to_key[str(pid)] = key
             for name in ('popular_items', 'item_conversion_rates'):
                 cal[name] = {pid_to_key[str(k)]: v
                              for k, v in cal[name].items()
@@ -296,11 +351,98 @@ class CalibratedParams:
                     cross[f"{pid_to_key[pa]}|{pid_to_key[pb]}"] = count
             cal['cross_merchandising'] = cross
 
+            # List length of the live agents: distinct stocked products per
+            # invoice. The whole-catalogue count cannot be used -- a shop
+            # stocking ~100 of ~4,000 products would send agents out for
+            # items it does not carry -- and invoices touching none of the
+            # stocked products are trips this shop never sees.
+            if self.has_invoice_structure:
+                placed = placed_invoice_sample(self, placed_pids)
+                if placed['sizes'].size:
+                    cal['list_length_sample'] = (
+                        placed['sizes'].astype(np.int64).tolist())
+                    cal['list_length_source'] = 'placed-invoice empirical'
+                    cal['n_invoices_with_placed'] = int(placed['n_with_placed'])
+
         sim._calibration_seeded_keys = sorted(set(cal) - keys_before)
         # Spawning agents cache basket weights built from the calibration's
         # popularity and co-purchase dicts. A re-calibration over the same
         # item names would otherwise keep drawing from the old weights.
         sim._basket_struct_cache = None
+
+
+# --- In-store portion of each invoice -------------------------------------
+
+def placed_invoice_sample(params: CalibratedParams,
+                          product_ids) -> Dict[str, Any]:
+    """Each invoice cut down to the products a shop carries.
+
+    A dataset-built shop stocks only the top products of each category
+    (about 100 of roughly 4,000 on Online Retail II), and a simulated
+    shopper can only buy what is stocked. The trip-level quantity the
+    simulator can reproduce is therefore the in-store portion of an
+    invoice, not the whole invoice:
+
+      * ``'sizes'`` -- distinct placed products on each invoice that holds
+        at least one (np.ndarray of int, invoice order);
+      * ``'revenues'`` -- the same invoices priced at one unit of each of
+        those products, at ``params.item_prices`` (the price the
+        dataset-built shop charges), which is the unit a simulated visit
+        spends in;
+      * ``'n_invoices'`` -- every invoice in the structure;
+      * ``'n_with_placed'`` -- how many of them hold a placed product.
+
+    Invoices touching none of the placed products are left out: they are
+    trips this shop never sees, and a simulated visit that reaches the
+    checkout has a non-empty list. ``product_ids`` is any iterable of
+    product id strings. The arrays are empty, and both counts zero, when
+    the params carry no per-invoice product sets (aggregate sources).
+
+    Vectorised over the CSR arrays: membership is tested once per distinct
+    product, then summed per invoice with ``bincount``, so the cost stays
+    linear in the invoice lines of the full UCI sheets.
+    """
+    empty = {'sizes': np.zeros(0, dtype=np.int64),
+             'revenues': np.zeros(0, dtype=np.float64),
+             'n_invoices': 0, 'n_with_placed': 0}
+    if not getattr(params, 'has_invoice_structure', False):
+        return empty
+    ptr = np.asarray(params.invoice_ptr, dtype=np.int64)
+    items = np.asarray(params.invoice_items, dtype=np.int64)
+    index = np.asarray([str(p) for p in params.invoice_product_index],
+                       dtype=str)
+    n_inv = int(ptr.size) - 1
+    empty['n_invoices'] = n_inv
+
+    wanted = np.asarray(
+        sorted({str(p) for p in (() if product_ids is None else product_ids)}),
+        dtype=str)
+    if wanted.size == 0:
+        return empty
+    stocked = np.isin(index, wanted)
+    if not stocked.any():
+        return empty
+
+    # Invoice row of every stored (invoice, product) entry.
+    row = np.repeat(np.arange(n_inv, dtype=np.int64), np.diff(ptr))
+    hit = stocked[items]
+    hit_rows = row[hit]
+    sizes = np.bincount(hit_rows, minlength=n_inv)
+
+    # ``invoice_product_index`` holds ids as strings; ``item_prices`` keeps
+    # the source's own id type, so it is looked up by the string form too.
+    price_of = {str(k): v for k, v in (params.item_prices or {}).items()}
+    prices = (pd.Series(params.invoice_product_index, dtype=object)
+              .astype(str).map(price_of)
+              .fillna(0.0).to_numpy(dtype=np.float64))
+    revenues = np.bincount(hit_rows, weights=prices[items[hit]],
+                           minlength=n_inv)
+
+    keep = sizes > 0
+    return {'sizes': sizes[keep].astype(np.int64),
+            'revenues': revenues[keep].astype(np.float64),
+            'n_invoices': n_inv,
+            'n_with_placed': int(keep.sum())}
 
 
 # --- Calibration ----------------------------------------------------------
@@ -407,6 +549,24 @@ def calibrate_transactional(df: pd.DataFrame,
                              .groupby(inv_prod["invoice_id"]).sum()
                              .to_numpy(dtype=np.float64))
 
+    # Each invoice's distinct product set, as CSR arrays in ``inv_g``'s
+    # invoice order (so row i lines up with ``distinct_per_invoice[i]``).
+    # The invoice position is looked up in ``inv_g``'s own key index rather
+    # than re-derived by sorting, so the two orders cannot disagree. Missing
+    # product ids are left out, as ``nunique`` leaves them out of the count.
+    inv_keys = inv_g.size().index
+    pairs = inv_prod[inv_prod["product_id"].notna()]
+    row_of = inv_keys.get_indexer(pairs["invoice_id"])
+    pairs = pairs[row_of >= 0]
+    row_of = row_of[row_of >= 0].astype(np.int64)
+    prod_codes, prod_uniques = pd.factorize(pairs["product_id"], sort=False)
+    order = np.lexsort((prod_codes, row_of))
+    invoice_items = prod_codes[order].astype(np.int32)
+    invoice_ptr = np.zeros(len(inv_keys) + 1, dtype=np.int64)
+    np.cumsum(np.bincount(row_of, minlength=len(inv_keys)),
+              out=invoice_ptr[1:])
+    invoice_product_index = [str(p) for p in prod_uniques]
+
     name_str = df["product_name"].astype(str)
     name_clean = df["product_name"].where(name_str.str.strip() != "", other=pd.NA)
     cat_str = df["category"].astype(str)
@@ -503,6 +663,9 @@ def calibrate_transactional(df: pd.DataFrame,
         category_fallback_frac=category_fallback_frac,
         basket_distinct_sizes=distinct_per_invoice,
         invoice_distinct_revenues=invoice_distinct_revs,
+        invoice_product_index=invoice_product_index,
+        invoice_ptr=invoice_ptr,
+        invoice_items=invoice_items,
         # How the rate was put on the engine's day model, and how far the
         # two day counts differ (UCI: 305 trading days over 374 calendar
         # days), so a reader can see what the divisor was.

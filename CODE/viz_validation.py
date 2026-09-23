@@ -25,8 +25,7 @@ from dataset_validation import (validate_against_simulation,
                                 observed_category_counts,
                                 simulated_category_purchases,
                                 placed_product_ids,
-                                observed_distinct_baskets,
-                                observed_distinct_revenues)
+                                observed_placed_invoices)
 
 
 def _is_aggregate_source(params) -> bool:
@@ -293,12 +292,21 @@ class ValidationMixin:
         # purchase probabilities, not observed visits; their KS tests are
         # left out as circular, so the panels draw no simulated overlay.
         aggregate = _is_aggregate_source(params)
+        # The products the simulated shop stocks. The basket and revenue
+        # panels draw the stocked part of each invoice -- the reference the
+        # goodness-of-fit tests use -- because a shopper here can only buy
+        # those products; the category panel restricts to them as well.
+        pids = placed_product_ids(getattr(self.customer_simulation, 'shop',
+                                          None))
+        placed = (None if aggregate
+                  else observed_placed_invoices(params, pids)[0])
 
         # 1) Basket size histogram
         # The simulator counts distinct items per visit; params.basket_sizes
         # is units per invoice, so the simulated overlay is only drawn
-        # against a distinct-items-per-invoice sample.
-        obs = None if aggregate else observed_distinct_baskets(params)
+        # against distinct stocked products per invoice.
+        obs = (None if placed is None
+               else np.asarray(placed['sizes'], dtype=np.float64))
         comparable = obs is not None
         if not comparable:
             obs = np.asarray(params.basket_sizes, dtype=np.float64)
@@ -311,7 +319,7 @@ class ValidationMixin:
             ax_b.hist(simulated_baskets, bins=bins, density=True, alpha=0.4,
                       color='#FF6B6B', label='Simulated')
         if comparable:
-            ax_b.set_title('Basket size  (items / visit)')
+            ax_b.set_title('Basket size  (stocked items / visit)')
             ax_b.set_xlabel('items')
         elif aggregate:
             # Distinct families bought per synthetic visitor.
@@ -326,10 +334,11 @@ class ValidationMixin:
 
         # 2) Per-visit revenue
         # A simulated visit buys one unit of each item it picks up, so the
-        # overlay is only drawn against the dataset's one-unit-per-product
-        # invoice sums; params.invoice_revenues is sum(quantity x price),
+        # overlay is only drawn against one unit of each stocked product on
+        # the invoice; params.invoice_revenues is sum(quantity x price),
         # which a wholesale line inflates.
-        obs_r = None if aggregate else observed_distinct_revenues(params)[0]
+        obs_r = (None if placed is None
+                 else np.asarray(placed['revenues'], dtype=np.float64))
         comparable_r = obs_r is not None
         if not comparable_r:
             obs_r = np.asarray(params.invoice_revenues, dtype=np.float64)
@@ -345,7 +354,7 @@ class ValidationMixin:
                           color='#FF6B6B', label='Simulated')
             if comparable_r:
                 ax_r.set_title(f'Per-visit revenue  ({params.currency}, '
-                               f'one unit / product)')
+                               f'one unit / stocked product)')
             elif aggregate:
                 ax_r.set_title(f'Per-visit revenue  ({params.currency}, '
                                f'parametric)')
@@ -362,8 +371,6 @@ class ValidationMixin:
         # touches per category over the products placed in the shop, against
         # the live item purchases of those products per category, each
         # normalized over its own total.
-        pids = placed_product_ids(getattr(self.customer_simulation, 'shop',
-                                          None))
         obs_counts = observed_category_counts(params,
                                               product_ids=pids or None)
         sim_counts = dict(simulated_categories or {})

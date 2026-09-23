@@ -18,27 +18,37 @@ seed. Runs are independent, so ``--workers`` runs them in parallel; results
 are put back in design order before aggregation, so the summary is the
 same for any worker count.
 
-The sweep runs at the nominal protocol shared with run_abm_diagnostics, set
-by a transient study on the calibrated store this script builds (3,600 s
-runs from 09:00 on seeds disjoint from the runners' own), each value by a
-fixed rule:
+The store is ``experiments._live_store``'s: the UCI workbook's current
+period (its last sheet, every row), laid out naively and seeded with the
+shop so the agents draw their list lengths from the invoices cut to the
+stocked products. ``--retail-path`` names the workbook; without it
+``dataset_paths.uci_workbook()`` finds it. The summary records the period,
+its date range and the workbook.
 
-  --spawn 0.22 --cap 45  The highest arrival rate on a 0.01/s grid at which
+The sweep runs at the nominal protocol shared with run_abm_diagnostics.
+The defaults were set by a transient study on this store (3,600 s runs
+from 09:00 on seeds disjoint from the runners' own), each value by a fixed
+rule:
+
+  --spawn 0.26 --cap 45  The highest arrival rate on a 0.01/s grid at which
       occupancy stays below the cap at least 99% of the time after the
-      warm-up. The cap binds 0.31% of the time at 0.22/s and 1.04% at
-      0.23/s (16 replications each). The calibrated hour-of-day profile
-      scales the rate by 0.706 in the 09:00-10:00 hour a run falls in.
-  --warmup 600  Welch's procedure on the replication-mean occupancy at the
-      nominal rate: the smoothed curve settles within 5% of its plateau
-      (31.8 customers in store) between 240 s and 300 s (half-window
-      30 s), doubled and rounded up to the next 60 s.
-  --seconds 2280  The shortest whole-minute window in which every study
+      warm-up. The cap binds 0.66% of the time at 0.26/s and 1.49% at
+      0.27/s (16 replications each). The calibrated hour-of-day profile
+      scales the rate by 0.744 in the 09:00-10:00 hour a run falls in.
+  --warmup 900  Welch's procedure on the replication-mean occupancy at the
+      nominal rate. The moving average is taken only where its window is
+      complete, with the smallest half-window (from 30, 60, 120, 240 and
+      480 s) whose plateau noise is under a third of the 5% band: 240 s.
+      The smoothed curve then stays within 5% of its plateau (32.4
+      customers in store) from 435 s on; doubled and rounded up to the
+      next 60 s that is 900 s. MSER-5 on the same curve truncates at
+      600 s, so it asks for no more.
+  --seconds 1860  The shortest whole-minute window in which every study
       replication completes at least 300 visits (agents that arrive after
-      the warm-up and leave inside the window; the fewest was exactly 300
-      and the mean 331) and that spans at least ten median visits (median
-      185 s). Warm-up plus window
-      ends at 2,880 s, inside the first trading hour, so the arrival rate
-      is constant over a run.
+      the warm-up and leave inside the window; the fewest was 301 and the
+      mean 329) and that spans at least ten median visits (median 120 s).
+      Warm-up plus window ends at 2,760 s, inside the first trading hour,
+      so the arrival rate is constant over a run.
 
     python -m experiments.run_structural_sensitivity
     python -m experiments.run_structural_sensitivity --reps 5 --workers 14
@@ -58,38 +68,19 @@ import numpy as np
 _HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.dirname(_HERE))
 
-import dataset_adapters as DA          # noqa: E402
-import dataset_calibration as DC       # noqa: E402
-from experiments._common import (build_headless_shop_from_calibration,  # noqa: E402
-                                 make_run_dir)
+from experiments import _live_store as LS  # noqa: E402
+from experiments._common import (make_run_dir, provenance_snapshot,  # noqa: E402
+                                 write_sidecar)
 
 # Anti-congestion separation strengths to sweep; 0.08 is the shipped default.
 STRENGTHS = [0.0, 0.04, 0.08, 0.16, 0.32]
 DEFAULT = 0.08
 
 # Default protocol; the module docstring records how each value was chosen.
-NOMINAL_SPAWN = 0.22
+NOMINAL_SPAWN = 0.26
 NOMINAL_CAP = 45
-WARMUP_S = 600.0
-COLLECT_S = 2280.0
-
-
-def _uci_path():
-    root = os.path.dirname(_HERE)
-    for c in (os.path.join(root, 'DATASETS', 'UCI Online Retail II .xlsx.xlsx'),
-              os.path.join(os.path.dirname(root), 'DATASETS',
-                           'UCI Online Retail II .xlsx.xlsx')):
-        if os.path.exists(c):
-            return c
-    raise FileNotFoundError('UCI dataset not found under DATASETS/')
-
-
-def _calibrate():
-    df, _ = DA.read_excel_sheets(_uci_path(),
-                                 [DA.list_excel_sheets(_uci_path())[-1][0]])
-    df = df.sample(n=60000, random_state=0).reset_index(drop=True)
-    norm, _ = DA.OnlineRetailIIAdapter().adapt(df)
-    return DC.calibrate_transactional(norm, currency='GBP')
+WARMUP_S = 900.0
+COLLECT_S = 1860.0
 
 
 def _counters(sim):
@@ -107,9 +98,7 @@ def run_one(params, strength, seconds, spawn, cap, warmup=WARMUP_S, dt=0.04,
     headless for ``warmup + seconds`` simulated seconds. The empty-store
     fill-up transient is deleted: counters are snapshotted at the warm-up
     boundary and every reported count is a post-warm-up increment."""
-    shop = build_headless_shop_from_calibration(params,
-                                                max_items_per_category=8,
-                                                naive=True)
+    shop = LS.build_live_store(params)
     sim = shop.customer_simulation
     sim.max_customers = cap
     sim.spawn_rate = spawn
@@ -208,6 +197,10 @@ def parse_args(argv=None):
                    help="Base seed; run j of the design runs under seed + j")
     p.add_argument('--workers', type=int, default=1,
                    help="Processes running the sweep's runs in parallel")
+    p.add_argument('--retail-path', type=str, default=None,
+                   help="Path to the UCI Online Retail II workbook. Default: "
+                        "found by dataset_paths.uci_workbook() "
+                        "($UCI_RETAIL_XLSX, then DATASETS/)")
     p.add_argument('--out-root', type=str,
                    default=os.path.join(_HERE, 'results'))
     args = p.parse_args(argv)
@@ -223,8 +216,13 @@ def parse_args(argv=None):
 def main(argv=None):
     args = parse_args(argv)
     out_dir = make_run_dir(args.out_root, 'structural_sensitivity')
-    print('[struct] calibrating UCI shop once...', flush=True)
-    params = _calibrate()
+    # The git state at the start of the run, so the sidecar can say which
+    # committed code produced the summary and whether it changed mid-run.
+    prov = provenance_snapshot()
+    print('[struct] calibrating the live store (current period) once...',
+          flush=True)
+    params = LS.calibrate_live_store(args.retail_path, 'current')
+    data = LS.period_record(args.retail_path, 'current')
 
     # Run j = k * reps + r (setting k, replication r) uses seed base + j.
     # Every setting thus draws its own arrival and agent streams, so the
@@ -379,8 +377,15 @@ def main(argv=None):
                      'collect_s': args.seconds, 'spawn': args.spawn,
                      'cap': args.cap, 'workers': args.workers,
                      'framing': 'terminating'},
+        # The data the store was calibrated from.
+        'data': data,
         'rows': rows,
     }
+    # The sidecar goes first: summary.json is the file that marks a run as
+    # finished, so it is written last.
+    write_sidecar(out_dir, {'experiment': 'structural_sensitivity',
+                            'args': vars(args), 'wall_seconds': wall},
+                  provenance=prov)
     with open(os.path.join(out_dir, 'summary.json'), 'w') as f:
         json.dump(summary, f, indent=2)
     verdict = ('no detectable' if (np.isfinite(comp_p) and comp_p > 0.05)

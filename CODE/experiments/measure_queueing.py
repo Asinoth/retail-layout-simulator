@@ -21,38 +21,46 @@ seed, so ``--workers`` can run replications in parallel; results are put
 back in replication order before aggregation, so the summary and the
 figure are the same for any worker count.
 
-The defaults were set by a transient study on the calibrated store this
-script builds (3,600 s runs from 09:00 on seeds disjoint from the runners'
-own), each by a fixed rule. Lane utilisation below is the fraction of time
-a lane is serving a customer, averaged over the lanes.
+The store is ``experiments._live_store``'s: the UCI workbook's current
+period (its last sheet, every row), laid out naively and seeded with the
+shop so the agents draw their list lengths from the invoices cut to the
+stocked products. ``--retail-path`` names the workbook; without it
+``dataset_paths.uci_workbook()`` finds it. The summary records the period,
+its date range and the workbook.
 
-  --spawn 0.22 --cap 45  The nominal load shared with the other live
+The defaults were set by a transient study on this store (3,600 s runs
+from 09:00 on seeds disjoint from the runners' own), each value by a fixed
+rule. Lane utilisation below is the fraction of time a lane is serving a
+customer, averaged over the lanes.
+
+  --spawn 0.26 --cap 45  The nominal load shared with the other live
       diagnostics: the highest arrival rate on a 0.01/s grid at which
       occupancy stays below the cap at least 99% of the time after the
-      warm-up. The cap binds 0.31% of the time at 0.22/s and 1.04% at
-      0.23/s (16 replications each); lane utilisation there is 0.26.
-  --stress-spawn 0.60 --stress-cap 110  The lowest rate on the same grid
-      at which lane utilisation reaches 0.7 while the cap binds less than
-      5% of the time, with the cap raised only as far as that needs. Cap 45
-      cannot get there: at the nominal rate utilisation is 0.26, and the cap
-      binds long before the lanes saturate. With the cap out of reach (150)
-      utilisation climbs 0.36 / 0.42 / 0.47 / 0.54 / 0.60 / 0.70 at
-      0.30 / 0.35 / 0.40 / 0.45 / 0.50 / 0.60 arrivals per second, so 0.60/s
-      is the first rate that reaches 0.7. At 0.60/s a cap of 90 binds 5.8%
-      of the time and holds utilisation down to 0.649, and a cap of 100
-      binds 1.9% at 0.681, because refused arrivals never reach a lane; a
-      cap of 110 binds 0.37% with utilisation 0.703, so the stress level
-      uses 110.
-  --warmup 600  Welch's procedure on the replication-mean occupancy: the
-      smoothed curve settles within 5% of its plateau between 240 s and
-      300 s at both levels; doubled and rounded up to the next 60 s that is
-      600 s, which therefore serves both and samples no fill-up transient.
-  --seconds 2280  The nominal collection window of the other live
+      warm-up. The cap binds 0.66% of the time at 0.26/s and 1.49% at
+      0.27/s (16 replications each); lane utilisation there is 0.27.
+  --stress-spawn 0.70 --stress-cap 110  The lowest rate on the grid at
+      which lane utilisation reaches 0.7 while the cap binds less than 5%
+      of the time, with the cap raised only as far as that needs. Cap 45
+      cannot get there: the cap binds long before the lanes saturate. With
+      the cap out of reach (200) utilisation climbs 0.34 / 0.38 / 0.43 /
+      0.48 / 0.51 / 0.59 / 0.61 / 0.72 at 0.30 / 0.35 / 0.40 / 0.45 /
+      0.50 / 0.55 / 0.60 / 0.70 arrivals per second, so 0.70/s is the first
+      rate on the grid that reaches 0.7. At 0.70/s a cap of 90 binds 5.5%
+      of the time and holds utilisation to 0.672, and a cap of 100 binds
+      1.4% at 0.698, because refused arrivals never reach a lane; a cap of
+      110 binds 0.42% with utilisation 0.710, so the stress level uses 110.
+  --warmup 900  The nominal level's warm-up (see run_abm_diagnostics:
+      Welch's procedure, settle at 435 s, doubled and rounded up; MSER-5
+      600 s). At the stress level Welch's procedure cannot separate the
+      transient from sampling noise on the study's eight 1,800 s
+      replications at any half-window the run length allows, while MSER-5
+      truncates at 370 s, so the nominal 900 s serves both levels.
+  --seconds 1860  The nominal collection window of the other live
       diagnostics: every study replication completes at least 300 visits
-      in it (the fewest exactly 300) and it spans at least ten median
-      visits (median 185 s). Runs end at 2,880 s, inside the first trading
-      hour, so both rates are constant over a run; the calibrated
-      hour-of-day profile scales them by 0.706 in that hour.
+      in it (the fewest 301) and it spans at least ten median visits
+      (median 120 s). Runs end at 2,760 s, inside the first trading hour,
+      so both rates are constant over a run; the calibrated hour-of-day
+      profile scales them by 0.744 in that hour.
 
     python -m experiments.measure_queueing
     python -m experiments.measure_queueing --reps 5 --workers 10
@@ -79,39 +87,19 @@ import matplotlib.pyplot as plt  # noqa: E402
 import figstyle  # noqa: E402  (shared style, audit R9)
 figstyle.apply()
 
-import dataset_adapters as DA          # noqa: E402
-import dataset_calibration as DC       # noqa: E402
-from experiments._common import (build_headless_shop_from_calibration,  # noqa: E402
-                                 make_run_dir, package_versions,
+from experiments import _live_store as LS  # noqa: E402
+from experiments._common import (make_run_dir, package_versions,  # noqa: E402
                                  provenance_snapshot, write_sidecar)
 
 SAMPLE_INTERVAL_S = 0.4     # simulated seconds between queue samples
 
 # Default protocol; the module docstring records how each value was chosen.
-NOMINAL_SPAWN = 0.22
+NOMINAL_SPAWN = 0.26
 NOMINAL_CAP = 45
-STRESS_SPAWN = 0.60
+STRESS_SPAWN = 0.70
 STRESS_CAP = 110
-WARMUP_S = 600.0
-COLLECT_S = 2280.0
-
-
-def _uci_path():
-    root = os.path.dirname(_HERE)
-    for c in (os.path.join(root, 'DATASETS', 'UCI Online Retail II .xlsx.xlsx'),
-              os.path.join(os.path.dirname(root), 'DATASETS',
-                           'UCI Online Retail II .xlsx.xlsx')):
-        if os.path.exists(c):
-            return c
-    raise FileNotFoundError('UCI dataset not found under DATASETS/')
-
-
-def _calibrate():
-    df, _ = DA.read_excel_sheets(_uci_path(),
-                                 [DA.list_excel_sheets(_uci_path())[-1][0]])
-    df = df.sample(n=60000, random_state=0).reset_index(drop=True)
-    norm, _ = DA.OnlineRetailIIAdapter().adapt(df)
-    return DC.calibrate_transactional(norm, currency='GBP')
+WARMUP_S = 900.0
+COLLECT_S = 1860.0
 
 
 def _figs_dir():
@@ -158,9 +146,7 @@ def run_once(params, spawn, cap, seconds, warmup=WARMUP_S, dt=0.04, seed=None,
     """One replication, fixed-step headless for ``warmup + seconds``
     simulated seconds, sampling the lanes every ``sample_every`` simulated
     seconds after the warm-up."""
-    shop = build_headless_shop_from_calibration(params,
-                                                max_items_per_category=8,
-                                                naive=True)
+    shop = LS.build_live_store(params)
     sim = shop.customer_simulation
     sim.max_customers = cap
     sim.spawn_rate = spawn
@@ -289,6 +275,10 @@ def parse_args(argv=None):
                          "seed + reps + r")
     ap.add_argument('--workers', type=int, default=1,
                     help="Processes running replications in parallel")
+    ap.add_argument('--retail-path', type=str, default=None,
+                    help="Path to the UCI Online Retail II workbook. Default: "
+                         "found by dataset_paths.uci_workbook() "
+                         "($UCI_RETAIL_XLSX, then DATASETS/)")
     ap.add_argument('--out-root', type=str,
                     default=os.path.join(_HERE, 'results'))
     ap.add_argument('--figs-dir', type=str, default=None,
@@ -346,8 +336,10 @@ def main(argv=None):
     os.makedirs(figs, exist_ok=True)
     out_dir = make_run_dir(args.out_root, 'measure_queueing')
     prov = provenance_snapshot()
-    print('[queue] calibrating UCI shop once...', flush=True)
-    params = _calibrate()
+    print('[queue] calibrating the live store (current period) once...',
+          flush=True)
+    params = LS.calibrate_live_store(args.retail_path, 'current')
+    data = LS.period_record(args.retail_path, 'current')
 
     # The stress replications continue the seed sequence after the nominal
     # ones, so the two load levels are independent samples.
@@ -498,6 +490,8 @@ def main(argv=None):
                      'wait': 'simulated seconds from joining the lane '
                              'queue to service start'},
         'verdict': verdict,
+        # The data the store was calibrated from.
+        'data': data,
         # The paper's queue numbers are read straight out of the copy in
         # figs/, so the file carries the checkout that produced it and the
         # resolved numerics stack next to the protocol above; the protocol

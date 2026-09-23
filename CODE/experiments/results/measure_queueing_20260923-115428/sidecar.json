@@ -1,0 +1,331 @@
+{
+  "git_sha": "1292e1eb95b09102121c5894798bb216a8f71935",
+  "git_dirty": false,
+  "git_diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "git_modified": [],
+  "git_untracked_py": [],
+  "git_state_changed_during_run": false,
+  "python": "3.13.2",
+  "platform": "Windows-11-10.0.26200-SP0",
+  "packages": {
+    "numpy": "2.2.4",
+    "scipy": "1.15.3",
+    "pandas": "2.2.3",
+    "matplotlib": "3.10.1",
+    "openpyxl": "3.1.5"
+  },
+  "iso_time": "2026-09-23T11:59:14",
+  "elasticities": {
+    "GA_weights": {
+      "traffic": 0.16,
+      "cross_merch": 0.16,
+      "impulse": 0.16,
+      "flow": 0.16,
+      "revenue_placement": 0.16,
+      "section_compliance": 0.16,
+      "accessibility": 0.04,
+      "overlap_penalty": 0.8,
+      "bottleneck_penalty": 0.2
+    },
+    "ELASTICITY_CONV_BASE": 0.2,
+    "ELASTICITY_CONV_GAIN_MAX": 0.3,
+    "ELASTICITY_IMP_BASE": 0.3,
+    "ELASTICITY_IMP_GAIN_MAX": 0.4,
+    "ELASTICITY_BSK_BASE": 0.1,
+    "ELASTICITY_BSK_GAIN_MAX": 0.2
+  },
+  "experiment": "measure_queueing",
+  "args": {
+    "spawn": 0.26,
+    "cap": 45,
+    "seconds": 1860.0,
+    "warmup": 900.0,
+    "stress_spawn": 0.7,
+    "stress_cap": 110,
+    "reps": 5,
+    "dt": 0.04,
+    "seed": 3000,
+    "workers": 4,
+    "retail_path": null,
+    "out_root": "CODE/experiments/results",
+    "figs_dir": null
+  },
+  "wall_seconds": 259.8365701999992,
+  "figs_dir": "figs",
+  "summary": {
+    "nominal": {
+      "cap": 45,
+      "spawn": 0.26,
+      "n_reps": 5,
+      "peak_agents": 45,
+      "max_lane_occupancy": 3,
+      "busy_frac": 0.09488172043010754,
+      "busy_frac_sd": 0.015062516656390761,
+      "mean_waiting": 0.035584229390681,
+      "mean_waiting_sd": 0.007066406188957201,
+      "occupancy": 0.2767168458781362,
+      "occupancy_sd": 0.017253841457127307,
+      "mean_wait_s": 0.568228571428571,
+      "mean_wait_s_sd": 0.12209496124388708,
+      "n_waits": 1750,
+      "mean_waiting_per_lane": {
+        "Checkout": 0.029892473118279573,
+        "Checkout_Lane2": 0.03329032258064516,
+        "Checkout_Lane3": 0.04356989247311828
+      },
+      "wait_frac_per_lane": {
+        "Checkout": 0.028129032258064512,
+        "Checkout_Lane2": 0.031311827956989245,
+        "Checkout_Lane3": 0.04163440860215054
+      },
+      "occupancy_per_lane": {
+        "Checkout": 0.2590107526881721,
+        "Checkout_Lane2": 0.2621505376344086,
+        "Checkout_Lane3": 0.308989247311828
+      },
+      "load": {
+        "arrivals": 1838,
+        "balked": 4,
+        "balked_frac": 0.0022
+      },
+      "per_rep": [
+        {
+          "rep": 0,
+          "seed": 3000,
+          "busy_frac": 0.07849462365591398,
+          "mean_waiting": 0.02853046594982079,
+          "occupancy": 0.2535483870967742,
+          "mean_wait_s": 0.47257485029940144,
+          "n_waits": 334,
+          "max_lane_occupancy": 3,
+          "peak_agents": 44,
+          "arrivals": 354,
+          "balked": 0
+        },
+        {
+          "rep": 1,
+          "seed": 3001,
+          "busy_frac": 0.08086021505376344,
+          "mean_waiting": 0.028243727598566307,
+          "occupancy": 0.28659498207885303,
+          "mean_wait_s": 0.43517808219178067,
+          "n_waits": 365,
+          "max_lane_occupancy": 2,
+          "peak_agents": 43,
+          "arrivals": 392,
+          "balked": 0
+        },
+        {
+          "rep": 2,
+          "seed": 3002,
+          "busy_frac": 0.09612903225806452,
+          "mean_waiting": 0.03878136200716846,
+          "occupancy": 0.298494623655914,
+          "mean_wait_s": 0.5671767810026386,
+          "n_waits": 379,
+          "max_lane_occupancy": 3,
+          "peak_agents": 45,
+          "arrivals": 393,
+          "balked": 0
+        },
+        {
+          "rep": 3,
+          "seed": 3003,
+          "busy_frac": 0.10666666666666667,
+          "mean_waiting": 0.03777777777777778,
+          "occupancy": 0.26767025089605734,
+          "mean_wait_s": 0.6425377643504512,
+          "n_waits": 331,
+          "max_lane_occupancy": 3,
+          "peak_agents": 41,
+          "arrivals": 346,
+          "balked": 0
+        },
+        {
+          "rep": 4,
+          "seed": 3004,
+          "busy_frac": 0.11225806451612903,
+          "mean_waiting": 0.044587813620071685,
+          "occupancy": 0.2772759856630824,
+          "mean_wait_s": 0.7333724340175948,
+          "n_waits": 341,
+          "max_lane_occupancy": 3,
+          "peak_agents": 45,
+          "arrivals": 353,
+          "balked": 4
+        }
+      ]
+    },
+    "stress": {
+      "cap": 110,
+      "spawn": 0.7,
+      "n_reps": 5,
+      "peak_agents": 110,
+      "max_lane_occupancy": 8,
+      "busy_frac": 0.7178924731182796,
+      "busy_frac_sd": 0.045684475894190876,
+      "mean_waiting": 0.6911254480286738,
+      "mean_waiting_sd": 0.04560569307681819,
+      "occupancy": 0.7254480286738352,
+      "occupancy_sd": 0.018166846195470137,
+      "mean_wait_s": 4.147823845327586,
+      "mean_wait_s_sd": 0.21270671742463185,
+      "n_waits": 4655,
+      "mean_waiting_per_lane": {
+        "Checkout": 0.665978494623656,
+        "Checkout_Lane2": 0.6188387096774194,
+        "Checkout_Lane3": 0.7885591397849463
+      },
+      "wait_frac_per_lane": {
+        "Checkout": 0.39840860215053764,
+        "Checkout_Lane2": 0.37427956989247313,
+        "Checkout_Lane3": 0.44511827956989247
+      },
+      "occupancy_per_lane": {
+        "Checkout": 0.7153548387096775,
+        "Checkout_Lane2": 0.7092043010752688,
+        "Checkout_Lane3": 0.7517849462365592
+      },
+      "load": {
+        "arrivals": 4847,
+        "balked": 8,
+        "balked_frac": 0.0017
+      },
+      "per_rep": [
+        {
+          "rep": 0,
+          "seed": 3005,
+          "busy_frac": 0.7395698924731183,
+          "mean_waiting": 0.6392114695340502,
+          "occupancy": 0.724516129032258,
+          "mean_wait_s": 3.8520086393088415,
+          "n_waits": 926,
+          "max_lane_occupancy": 6,
+          "peak_agents": 110,
+          "arrivals": 989,
+          "balked": 3
+        },
+        {
+          "rep": 1,
+          "seed": 3006,
+          "busy_frac": 0.7782795698924732,
+          "mean_waiting": 0.7258781362007168,
+          "occupancy": 0.7503942652329749,
+          "mean_wait_s": 4.174834710743784,
+          "n_waits": 968,
+          "max_lane_occupancy": 7,
+          "peak_agents": 110,
+          "arrivals": 990,
+          "balked": 1
+        },
+        {
+          "rep": 2,
+          "seed": 3007,
+          "busy_frac": 0.6894623655913978,
+          "mean_waiting": 0.7178494623655914,
+          "occupancy": 0.7217204301075268,
+          "mean_wait_s": 4.319183673469366,
+          "n_waits": 931,
+          "max_lane_occupancy": 8,
+          "peak_agents": 105,
+          "arrivals": 956,
+          "balked": 0
+        },
+        {
+          "rep": 3,
+          "seed": 3008,
+          "busy_frac": 0.7225806451612903,
+          "mean_waiting": 0.7291039426523297,
+          "occupancy": 0.730752688172043,
+          "mean_wait_s": 4.364529914529894,
+          "n_waits": 936,
+          "max_lane_occupancy": 8,
+          "peak_agents": 110,
+          "arrivals": 966,
+          "balked": 4
+        },
+        {
+          "rep": 4,
+          "seed": 3009,
+          "busy_frac": 0.6595698924731183,
+          "mean_waiting": 0.643584229390681,
+          "occupancy": 0.6998566308243728,
+          "mean_wait_s": 4.019642058165526,
+          "n_waits": 894,
+          "max_lane_occupancy": 7,
+          "peak_agents": 110,
+          "arrivals": 946,
+          "balked": 0
+        }
+      ]
+    },
+    "protocol": {
+      "mode": "fixed_step",
+      "dt": 0.04,
+      "seed_base": 3000,
+      "seeds": {
+        "nominal": [
+          3000,
+          3001,
+          3002,
+          3003,
+          3004
+        ],
+        "stress": [
+          3005,
+          3006,
+          3007,
+          3008,
+          3009
+        ]
+      },
+      "warmup_s": 900.0,
+      "collect_s": 1860.0,
+      "spawn": {
+        "nominal": 0.26,
+        "stress": 0.7
+      },
+      "cap": {
+        "nominal": 45,
+        "stress": 110
+      },
+      "workers": 4,
+      "sample_interval_s": 0.4,
+      "n_reps": 5,
+      "framing": "terminating",
+      "discipline": "single-server FIFO per lane",
+      "busy_frac": "fraction of samples in which some lane has >= 1 customer waiting",
+      "max_lane_occupancy": "largest queue length at one lane (in service + waiting)",
+      "wait": "simulated seconds from joining the lane queue to service start"
+    },
+    "verdict": "emergent congestion is observable",
+    "data": {
+      "period": "current",
+      "workbook": "DATASETS/UCI Online Retail II .xlsx.xlsx",
+      "sheet": "Year 2010-2011",
+      "rows_in": 541910,
+      "rows_adapted": 527664,
+      "rows_calibrated": 527664,
+      "first_date": "2010-12-01",
+      "last_date": "2011-12-09",
+      "first_timestamp": "2010-12-01T08:26:00",
+      "last_timestamp": "2011-12-09T12:50:00",
+      "n_invoices": 19773
+    },
+    "provenance": {
+      "git_sha": "1292e1eb95b09102121c5894798bb216a8f71935",
+      "git_dirty": false,
+      "git_diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "git_modified": [],
+      "git_untracked_py": [],
+      "python": "3.13.2",
+      "packages": {
+        "numpy": "2.2.4",
+        "scipy": "1.15.3",
+        "pandas": "2.2.3",
+        "matplotlib": "3.10.1",
+        "openpyxl": "3.1.5"
+      }
+    }
+  }
+}

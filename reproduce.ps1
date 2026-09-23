@@ -1,6 +1,6 @@
 ﻿<#
 .SYNOPSIS
-  Reproduction driver for the retail-layout simulator (audit R5.2),
+  Reproduction driver for the retail-layout simulator,
   the Windows/PowerShell counterpart of the Makefile.
 
 .DESCRIPTION
@@ -11,19 +11,34 @@
 .PARAMETER Target
   deps | test | verify | smoke | figures-headless | macros | paper |
   experiments-paper | paper-grade | help
+
+.PARAMETER Retail
+  Path to the UCI Online Retail II workbook, absolute or relative to CODE/
+  (the runners run there); the Makefile's RETAIL. Empty (the default,
+  unless $env:RETAIL is set): the runners find it themselves, under
+  DATASETS/ or wherever UCI_RETAIL_XLSX points; see CODE/dataset_paths.py.
+
+.PARAMETER Workers
+  Worker processes for every runner that takes --workers; the Makefile's
+  WORKERS (default 1, unless $env:WORKERS is set). Outputs are identical
+  for any value; only wall time changes.
 #>
 param(
   [ValidateSet('help','deps','test','verify','smoke','figures-headless','macros',
                'paper','experiments-paper','paper-grade')]
-  [string]$Target = 'help'
+  [string]$Target = 'help',
+  [string]$Retail = $env:RETAIL,
+  [int]$Workers = $(if ($env:WORKERS) { [int]$env:WORKERS } else { 1 })
 )
 
 $ErrorActionPreference = 'Stop'
 $Root   = $PSScriptRoot
 $Code   = Join-Path $Root 'CODE'
 $Paper  = 'TOMACS_submission'
-$Retail = 'DATASETS/UCI Online Retail II .xlsx.xlsx'
 $PY     = 'python'
+# '--retail-path <Retail>' when Retail is set, nothing otherwise.
+$RetailArg = @()
+if ($Retail) { $RetailArg = @('--retail-path', $Retail) }
 
 function Invoke-In($dir, [string[]]$argv) {
   Push-Location $dir
@@ -42,9 +57,10 @@ function Do-Test    { Invoke-In $Code @('-m','pytest','-q','tests/') }
 function Do-Smoke {
   Invoke-In $Code @('-m','experiments.run_synthetic_gt','--n-scenarios','3',
     '--n-seeds','2','--mc-iters','200','--n-gens','8','--pop-size','16',
-    '--n-spearman-samples','40')
+    '--n-spearman-samples','40','--workers',"$Workers")
   Invoke-In $Code @('-m','experiments.run_baseline_comparison','--n-scenarios','3',
-    '--n-seeds','2','--mc-iters','200','--n-gens','8','--pop-size','16')
+    '--n-seeds','2','--mc-iters','200','--n-gens','8','--pop-size','16',
+    '--workers',"$Workers")
 }
 function Do-Verify {
   # The two standalone verification scripts cited in the paper's
@@ -58,7 +74,14 @@ function Do-FiguresHeadless {
   Invoke-In $Code @('-m','experiments.make_layout_previews')
 }
 function Do-Macros { Invoke-In $Code @('make_results_macros.py') }
+# The manuscript source is withheld from the public repository while the
+# paper is under submission; there the target says so and succeeds, so
+# paper-grade still completes everything the repository can rebuild.
 function Do-Paper {
+  if (-not (Test-Path (Join-Path $Root "$Paper.tex"))) {
+    Write-Host "paper: $Paper.tex is not in this repository (the manuscript source is withheld); nothing to typeset."
+    return
+  }
   Push-Location $Root
   try {
     Invoke-Native 'pdflatex' @('-interaction=nonstopmode','-halt-on-error',"$Paper.tex")
@@ -69,23 +92,29 @@ function Do-Paper {
 }
 function Do-ExperimentsPaper {
   Invoke-In $Code @('-m','experiments.run_synthetic_gt','--n-scenarios','30',
-    '--n-seeds','10','--mc-iters','2000','--n-gens','25','--pop-size','30')
+    '--n-seeds','10','--mc-iters','2000','--n-gens','25','--pop-size','30',
+    '--workers',"$Workers")
   Invoke-In $Code @('-m','experiments.run_baseline_comparison','--n-scenarios','30',
-    '--n-seeds','10','--mc-iters','2000','--n-gens','25','--pop-size','30')
+    '--n-seeds','10','--mc-iters','2000','--n-gens','25','--pop-size','30',
+    '--workers',"$Workers")
   Invoke-In $Code @('-m','experiments.run_mc_groundtruth','--n-scenarios','6',
-    '--normal-budget','750','--big-budget','7500','--mc-iters','1000')
+    '--normal-budget','750','--big-budget','7500','--mc-iters','1000',
+    '--workers',"$Workers")
   Invoke-In $Code @('-m','experiments.run_ga_sensitivity','--n-scenarios','3',
     '--n-seeds','2','--n-gens','25','--mc-iters','800')
   Invoke-In $Code @('-m','experiments.run_elasticity_lhs','--n-scenarios','12',
     '--n-seeds','3','--n-draws','256','--n-gens','15','--pop-size','24',
-    '--mc-iters','500')
+    '--mc-iters','500','--workers',"$Workers")
   Invoke-In $Code @('-m','experiments.make_paper_figures')
-  Invoke-In $Code @('-m','experiments.run_abm_diagnostics','--reps','10')
-  Invoke-In $Code @('-m','experiments.run_structural_sensitivity')
-  Invoke-In $Code @('-m','experiments.measure_queueing')
-  Invoke-In $Code @('-m','experiments.run_validation_gof')
-  Invoke-In $Code @('-m','experiments.run_real_data_example',
-    '--retail-path',"../$Retail")
+  Invoke-In $Code (@('-m','experiments.run_abm_diagnostics','--reps','10',
+    '--workers',"$Workers") + $RetailArg)
+  Invoke-In $Code (@('-m','experiments.run_structural_sensitivity',
+    '--workers',"$Workers") + $RetailArg)
+  Invoke-In $Code (@('-m','experiments.measure_queueing',
+    '--workers',"$Workers") + $RetailArg)
+  Invoke-In $Code (@('-m','experiments.run_validation_gof',
+    '--workers',"$Workers") + $RetailArg)
+  Invoke-In $Code (@('-m','experiments.run_real_data_example') + $RetailArg)
 }
 
 switch ($Target) {
@@ -104,5 +133,6 @@ switch ($Target) {
   'paper-grade'       { Do-ExperimentsPaper; Do-FiguresHeadless; Do-Macros; Do-Paper }
   default {
     Write-Host 'Targets: deps test verify smoke figures-headless macros paper experiments-paper paper-grade'
+    Write-Host 'Options: -Retail <workbook path> (default: discovered), -Workers <n> (default: 1)'
   }
 }

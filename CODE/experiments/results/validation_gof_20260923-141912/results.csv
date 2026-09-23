@@ -1,0 +1,41 @@
+design,rep,seed,test,kind,statistic,p_value,n_observed,n_simulated,decision
+in_sample,0,4000,Basket size (items/visit),KS-2sample,0.039776,0.676701,14776,327,PASS
+in_sample,0,4000,Per-visit revenue,KS-2sample,0.067420,0.104142,14776,327,PASS
+in_sample,0,4000,Category purchase shares,Chi-square,4.798923,0.778835,68005,1496,PASS
+in_sample,0,4000,Inter-arrival vs. Poisson reference,KS-2sample,0.065389,1.25174e-36,19468,19468,FAIL
+in_sample,1,4001,Basket size (items/visit),KS-2sample,0.051096,0.322762,14776,350,PASS
+in_sample,1,4001,Per-visit revenue,KS-2sample,0.048257,0.390908,14776,350,PASS
+in_sample,1,4001,Category purchase shares,Chi-square,25.047342,0.0015261,68005,1713,FAIL
+in_sample,1,4001,Inter-arrival vs. Poisson reference,KS-2sample,0.065389,1.25174e-36,19468,19468,FAIL
+in_sample,2,4002,Basket size (items/visit),KS-2sample,0.050748,0.323996,14776,354,PASS
+in_sample,2,4002,Per-visit revenue,KS-2sample,0.085436,0.0120347,14776,354,FAIL
+in_sample,2,4002,Category purchase shares,Chi-square,13.880180,0.0849424,68005,1768,PASS
+in_sample,2,4002,Inter-arrival vs. Poisson reference,KS-2sample,0.065389,1.25174e-36,19468,19468,FAIL
+in_sample,3,4003,Basket size (items/visit),KS-2sample,0.037373,0.754846,14776,323,PASS
+in_sample,3,4003,Per-visit revenue,KS-2sample,0.045988,0.501383,14776,323,PASS
+in_sample,3,4003,Category purchase shares,Chi-square,13.846956,0.0858427,68005,1561,PASS
+in_sample,3,4003,Inter-arrival vs. Poisson reference,KS-2sample,0.065389,1.25174e-36,19468,19468,FAIL
+in_sample,4,4004,Basket size (items/visit),KS-2sample,0.025454,0.974287,14776,354,PASS
+in_sample,4,4004,Per-visit revenue,KS-2sample,0.041304,0.581873,14776,354,PASS
+in_sample,4,4004,Category purchase shares,Chi-square,29.589594,0.000249748,68005,1703,FAIL
+in_sample,4,4004,Inter-arrival vs. Poisson reference,KS-2sample,0.065389,1.25174e-36,19468,19468,FAIL
+held_out,0,4005,Basket size (items/visit),KS-2sample,0.072217,0.0994462,14271,289,PASS
+held_out,0,4005,Per-visit revenue,KS-2sample,0.035969,0.844314,14271,289,PASS
+held_out,0,4005,Category purchase shares,Chi-square,32.546404,7.4322e-05,57349,1269,FAIL
+held_out,0,4005,Inter-arrival vs. Poisson reference,KS-2sample,0.065389,1.25174e-36,19468,19468,FAIL
+held_out,1,4006,Basket size (items/visit),KS-2sample,0.058855,0.21809,14271,321,PASS
+held_out,1,4006,Per-visit revenue,KS-2sample,0.067269,0.111414,14271,321,PASS
+held_out,1,4006,Category purchase shares,Chi-square,38.530762,6.00522e-06,57349,1416,FAIL
+held_out,1,4006,Inter-arrival vs. Poisson reference,KS-2sample,0.065389,1.25174e-36,19468,19468,FAIL
+held_out,2,4007,Basket size (items/visit),KS-2sample,0.067117,0.166263,14271,276,PASS
+held_out,2,4007,Per-visit revenue,KS-2sample,0.067896,0.15697,14271,276,PASS
+held_out,2,4007,Category purchase shares,Chi-square,17.586991,0.0245452,57349,1210,FAIL
+held_out,2,4007,Inter-arrival vs. Poisson reference,KS-2sample,0.065389,1.25174e-36,19468,19468,FAIL
+held_out,3,4008,Basket size (items/visit),KS-2sample,0.048442,0.444938,14271,318,PASS
+held_out,3,4008,Per-visit revenue,KS-2sample,0.058094,0.235398,14271,318,PASS
+held_out,3,4008,Category purchase shares,Chi-square,54.959152,4.49637e-09,57349,1364,FAIL
+held_out,3,4008,Inter-arrival vs. Poisson reference,KS-2sample,0.065389,1.25174e-36,19468,19468,FAIL
+held_out,4,4009,Basket size (items/visit),KS-2sample,0.080399,0.0561816,14271,277,PASS
+held_out,4,4009,Per-visit revenue,KS-2sample,0.035656,0.867215,14271,277,PASS
+held_out,4,4009,Category purchase shares,Chi-square,32.314472,8.18024e-05,57349,1157,FAIL
+held_out,4,4009,Inter-arrival vs. Poisson reference,KS-2sample,0.065389,1.25174e-36,19468,19468,FAIL

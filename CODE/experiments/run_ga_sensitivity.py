@@ -1,7 +1,7 @@
-"""GA hyperparameter sensitivity + population-diversity trace (audit R4.5).
+"""GA hyperparameter sensitivity + population-diversity trace.
 
-Reviewer 4 noted that the GA's operators are asserted, never justified,
-and that the "plateau by generation 10" convergence is equally
+The GA's operator settings need justifying rather than asserting, and a
+"plateau by generation 10" convergence is on its own equally
 consistent with genuine convergence or with premature diversity
 collapse. Two artifacts answer this:
 
@@ -44,15 +44,15 @@ import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt  # noqa: E402
 
-import figstyle  # noqa: E402  (shared style, audit R9)
+import figstyle  # noqa: E402  (shared style)
 figstyle.apply()
 
 from synthetic_shops import generate_synthetic_shop        # noqa: E402
 from experiments._common import (build_headless_shop,       # noqa: E402
                                  base_params_for, run_ga_headless,
                                  layout_to_chromosome, make_run_dir,
-                                 package_versions, provenance_snapshot,
-                                 write_sidecar)
+                                 package_versions, portable_paths,
+                                 provenance_snapshot, write_sidecar)
 
 MUT_RATES = [0.10, 0.18, 0.30]
 POP_SIZES = [20, 30, 40]
@@ -146,6 +146,15 @@ def main():
     os.makedirs(figs, exist_ok=True)
     out_dir = make_run_dir(args.out_root, 'ga_sensitivity')
     prov = provenance_snapshot()
+    # The arguments as run: the figures directory is the one actually
+    # written to, not None when --figs-dir was left at its default, and
+    # both output locations are absolute here so they mean the same thing
+    # whatever the working directory. The JSON files below name them
+    # relative to the repository when they lie inside it
+    # (``portable_paths``; ``write_sidecar`` applies the same rule), so a
+    # shipped file does not carry this checkout's absolute path.
+    run_args = {**vars(args), 'figs_dir': os.path.abspath(figs),
+                'out_root': os.path.abspath(args.out_root)}
 
     # scenario/seed -> per-setting held-out fitness; plus diversity traces
     # for the default setting.
@@ -247,17 +256,17 @@ def main():
         'heldout_seed_rule': f'{HELDOUT_SEED_BASE} + 1000*scenario + k',
         # The design behind these numbers, so a reader (and the macro
         # builder) can tell a paper-grade sweep from a quick check.
-        'config': vars(args),
+        'config': run_args,
         'provenance': {**prov, 'python': sys.version.split()[0],
                        'packages': package_versions()},
     }
     with open(os.path.join(figs, 'ga_sensitivity.json'), 'w') as f:
-        json.dump(summary, f, indent=2)
+        json.dump(portable_paths(summary), f, indent=2)
     with open(os.path.join(out_dir, 'summary.json'), 'w') as f:
-        json.dump(summary, f, indent=2)
+        json.dump(portable_paths(summary), f, indent=2)
     write_sidecar(out_dir, {'experiment': 'ga_sensitivity',
-                            'args': vars(args),
-                            'figs_dir': figs,
+                            'args': run_args,
+                            'figs_dir': run_args['figs_dir'],
                             'wall_seconds': time.perf_counter() - t0,
                             'summary': summary},
                   provenance=prov)
