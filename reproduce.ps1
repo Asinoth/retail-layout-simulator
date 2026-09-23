@@ -115,6 +115,8 @@ function Do-ExperimentsPaper {
   Invoke-In $Code (@('-m','experiments.run_validation_gof',
     '--workers',"$Workers") + $RetailArg)
   Invoke-In $Code (@('-m','experiments.run_real_data_example') + $RetailArg)
+  Invoke-In $Code (@('-m','experiments.run_real_data_seeds',
+    '--workers',"$Workers") + $RetailArg)
 }
 
 switch ($Target) {

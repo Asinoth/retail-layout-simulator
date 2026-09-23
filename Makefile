@@ -112,6 +112,8 @@ experiments-paper:
 	cd $(CODE) && $(PY) -m experiments.run_validation_gof \
 	    --workers $(WORKERS) $(RETAIL_ARG)
 	cd $(CODE) && $(PY) -m experiments.run_real_data_example $(RETAIL_ARG)
+	cd $(CODE) && $(PY) -m experiments.run_real_data_seeds \
+	    --workers $(WORKERS) $(RETAIL_ARG)
 
 # Ordered recipe lines rather than prerequisites: `make -j` runs
 # prerequisites concurrently, but restyle_figures, macros and the paper

@@ -21,6 +21,14 @@ the same held-out paired replicates as the GA and the baseline, which says
 whether the lift over the as-built store needs the GA or only needs
 search.
 
+Each method searches once, from ``--ga-seed``, so the paired replicates
+cover evaluation noise only. ``experiments.run_real_data_seeds`` repeats the
+three searches over a range of search seeds to measure the search-to-search
+spread; it builds the store with ``build_store``, searches with
+``run_searches`` and scores with ``score_layouts`` from this module, so the
+two runners cannot drift apart on the store, the budget or the evaluation
+seeds.
+
 This is the script that reproduces the paper's real-data application
 figure. Output sidecar.json records dataset SHA-256, git SHA, elasticity
 snapshot, and the conversion-rate assumption marker -- everything needed
@@ -60,7 +68,8 @@ import os
 import re
 import sys
 import time
-from typing import Dict, List, Optional, Sequence, Tuple
+from dataclasses import dataclass
+from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
 
@@ -132,8 +141,31 @@ def search_seed_ranges(ga_seed: int, n_gens: int,
             'simulated_annealing': list(meta)}
 
 
-def parse_args() -> argparse.Namespace:
-    p = argparse.ArgumentParser()
+def search_seeds_fit(ga_seed: int, n_gens: int, pop_size: int) -> bool:
+    """True if every seed the searches of run seed ``ga_seed`` score or
+    select under stays inside that seed's own block of 1000 and below the
+    held-out evaluation seeds.
+
+    Inside its own block, no method is finally compared under a noise draw
+    it searched or selected under; and when several run seeds are searched
+    (``run_real_data_seeds``), no search reuses the draws of another."""
+    ceiling = min((ga_seed + 1) * 1000, EVAL_SEED_BASE)
+    ranges = search_seed_ranges(ga_seed, n_gens, pop_size)
+    return ga_seed >= 0 and all(hi <= ceiling for _, hi in ranges.values())
+
+
+_GA_SEED_HELP = ("RNG seed for the GA initialization; random search "
+                 "and simulated annealing are seeded from it too")
+
+
+def add_arguments(p: argparse.ArgumentParser,
+                  ga_seed_help: str = _GA_SEED_HELP) -> None:
+    """The store and search options, defaults included.
+
+    ``run_real_data_seeds`` takes them from here: it has to build this
+    example's store and search it at this example's budget, and a copy of
+    the defaults could drift from them unnoticed. Only the meaning of
+    ``--ga-seed`` differs there (the first of its search seeds)."""
     p.add_argument('--retail-path', type=str, default=None,
                    help="Path to the UCI Online Retail II workbook. Default: "
                         "found by dataset_paths.uci_workbook() "
@@ -151,16 +183,21 @@ def parse_args() -> argparse.Namespace:
     p.add_argument('--pop-size', type=int, default=30)
     p.add_argument('--n-mc-replicates', type=int, default=30,
                    help="Number of paired-MC replicate seeds used to estimate the lift CI")
-    p.add_argument('--ga-seed', type=int, default=0,
-                   help="RNG seed for the GA initialization; random search "
-                        "and simulated annealing are seeded from it too")
+    p.add_argument('--ga-seed', type=int, default=0, help=ga_seed_help)
     p.add_argument('--sa-initial-accept', type=float,
                    default=DEFAULT_INITIAL_ACCEPT,
                    help="Acceptance probability of a median worsening move "
                         "at the annealer's starting temperature")
     p.add_argument('--out-root', type=str,
                    default=os.path.join(_HERE, 'results'))
-    args = p.parse_args()
+
+
+def check_search_arguments(p: argparse.ArgumentParser,
+                           args: argparse.Namespace) -> None:
+    """Refuse a search design the three searches cannot run as specified.
+
+    Kept apart from the workbook lookup so that a bad design is reported
+    before, and without, the dataset being found."""
     if args.pop_size < 2 or args.n_gens < 1:
         p.error("--pop-size must be >= 2 (simulated annealing re-scores its "
                 "incumbent at the start of every pop_size block) and "
@@ -170,17 +207,29 @@ def parse_args() -> argparse.Namespace:
     # Each search's seeds must stay inside the run seed's own block of 1000
     # and below the held-out evaluation seeds, so no method is finally
     # compared under a noise draw it searched or selected under.
-    ceiling = min((args.ga_seed + 1) * 1000, EVAL_SEED_BASE)
-    ranges = search_seed_ranges(args.ga_seed, args.n_gens, args.pop_size)
-    if args.ga_seed < 0 or any(hi > ceiling for _, hi in ranges.values()):
+    if not search_seeds_fit(args.ga_seed, args.n_gens, args.pop_size):
         p.error(f"--ga-seed must be in [0, 999] and --n-gens + "
                 f"{1 + GA_N_FINAL_SEEDS} <= 1000 so the search seeds of the "
                 f"GA, random search and simulated annealing stay below the "
                 f"evaluation seeds")
+
+
+def resolve_workbook(p: argparse.ArgumentParser,
+                     args: argparse.Namespace) -> None:
+    """Replace ``args.retail_path`` by the workbook ``dataset_paths`` finds,
+    or stop with the paths it tried."""
     try:
         args.retail_path = uci_workbook(args.retail_path)
     except FileNotFoundError as exc:
         p.error(str(exc))
+
+
+def parse_args() -> argparse.Namespace:
+    p = argparse.ArgumentParser()
+    add_arguments(p)
+    args = p.parse_args()
+    check_search_arguments(p, args)
+    resolve_workbook(p, args)
     return args
 
 
@@ -294,31 +343,47 @@ def comparator_summary(optimized: np.ndarray, other: np.ndarray,
     }
 
 
-def main() -> int:
-    args = parse_args()
-    out_dir = make_run_dir(args.out_root, 'real_data_uci')
-    print(f"output dir: {out_dir}", flush=True)
+@dataclass
+class CalibratedStore:
+    """The calibrated store as the searches and the scoring see it.
 
-    wall_t0 = time.perf_counter()
+    ``init_layout`` is the as-calibrated layout every search starts from;
+    ``baseline_layout`` is its image under the GA's repair chain, so the lift
+    is measured between two layouts of the same feasible set."""
+    shop: Any
+    item_names: List[str]
+    init_layout: Dict[str, Tuple[float, float]]
+    baseline_layout: Dict[str, Tuple[float, float]]
+    base_params: Dict[str, Any]
 
-    # -- 1. Calibrate from the UCI dataset --------------------------
-    params, report, reader = calibrate_from_file(args)
+    @property
+    def n_sections(self) -> int:
+        return sum(1 for w in self.shop.floors[1]['walls']
+                   if w.startswith('Section_'))
 
-    # -- 2. Build the headless shop --------------------------------
-    print("[real] building headless shop from calibration…", flush=True)
+
+def build_store(params: CalibratedParams, max_items_per_category: int,
+                verbose: bool = True) -> CalibratedStore:
+    """Lay the calibrated store out on a headless shop and snapshot its
+    starting layout. Deterministic in ``params``: the layout engine runs
+    with ``vary=False`` and a fixed seed, so a rebuild -- in another process
+    too -- gives the same store."""
+    if verbose:
+        print("[real] building headless shop from calibration…", flush=True)
     # Figure C uses the naive baseline (the GUI default): the starting
     # layout groups items by category but does NOT pre-cluster by traffic
     # or impulse-near-checkout. This is the user-facing thesis test -- the
     # GA should measurably improve over a realistic un-optimized store.
     shop = build_headless_shop_from_calibration(
-        params, max_items_per_category=args.max_items_per_category,
+        params, max_items_per_category=max_items_per_category,
         naive=True,
     )
     item_names = list(shop.floors[1]['items'].keys())
-    print(f"[real] shop dims {shop.width:.1f}x{shop.height:.1f} m  "
-          f"sections={sum(1 for w in shop.floors[1]['walls'] if w.startswith('Section_'))}, "
-          f"items_placed={len(item_names)}",
-          flush=True)
+    if verbose:
+        print(f"[real] shop dims {shop.width:.1f}x{shop.height:.1f} m  "
+              f"sections={sum(1 for w in shop.floors[1]['walls'] if w.startswith('Section_'))}, "
+              f"items_placed={len(item_names)}",
+              flush=True)
     if len(item_names) < 2:
         raise SystemExit("Too few items placed to run a GA (need >= 2).")
     # Snapshot the as-calibrated layout. The GA starts from it; the
@@ -331,32 +396,55 @@ def main() -> int:
     baseline_layout = feasible_layout(shop, item_names, init_layout)
 
     base_params = base_params_for_calibration(params)
-    print(f"[real] MC base_params: cph={base_params['customers_per_hour']:.1f}, "
-          f"conv={base_params['conversion_rate']:.2f} (assumed), "
-          f"avg_basket={base_params['avg_basket_size']:.2f}, "
-          f"rev_mean={base_params['rev_per_converting_customer']:.2f}",
-          flush=True)
+    if verbose:
+        print(f"[real] MC base_params: cph={base_params['customers_per_hour']:.1f}, "
+              f"conv={base_params['conversion_rate']:.2f} (assumed), "
+              f"avg_basket={base_params['avg_basket_size']:.2f}, "
+              f"rev_mean={base_params['rev_per_converting_customer']:.2f}",
+              flush=True)
+    return CalibratedStore(shop=shop, item_names=item_names,
+                           init_layout=init_layout,
+                           baseline_layout=baseline_layout,
+                           base_params=base_params)
+
+
+def run_searches(store: CalibratedStore, *, seed: int, n_gens: int,
+                 pop_size: int, mc_iters: int, mc_days: int,
+                 sa_initial_accept: float,
+                 verbose: bool = True) -> Dict[str, Any]:
+    """The GA, random search and simulated annealing at one budget, from
+    the as-built layout, each seeded from ``seed``.
+
+    Returns the three layouts (``'optimized'``, ``'rs'``, ``'sa'``), each on
+    the GA's feasible set, with the search statistics, the evaluation counts
+    and the starts -- after checking that the searches spent equal search
+    budgets and all started as-built, since a comparison that fails either
+    is not the one the paper reports."""
+    shop, item_names = store.shop, store.item_names
+    base_params, init_layout = store.base_params, store.init_layout
 
     # -- 3. Run the GA on the calibrated shop ----------------------
-    print(f"[real] running GA (pop={args.pop_size}, gens={args.n_gens}, "
-          f"mc_iters={args.mc_iters}, mc_days={args.mc_days})…",
-          flush=True)
+    if verbose:
+        print(f"[real] running GA (pop={pop_size}, gens={n_gens}, "
+              f"mc_iters={mc_iters}, mc_days={mc_days})…",
+              flush=True)
     ga_t0 = time.perf_counter()
     ga_out = run_ga_headless(
         shop, item_names, base_params,
-        pop_size=args.pop_size,
-        n_gens=args.n_gens,
+        pop_size=pop_size,
+        n_gens=n_gens,
         mut_rate=0.18,
         elite_frac=0.20,
-        mc_iters=args.mc_iters,
-        mc_days=args.mc_days,
-        rng_seed=args.ga_seed,
+        mc_iters=mc_iters,
+        mc_days=mc_days,
+        rng_seed=seed,
         init_layout=init_layout,
     )
     ga_wall = time.perf_counter() - ga_t0
-    print(f"[real] GA done in {ga_wall:.1f}s; best fitness "
-          f"(MC mean revenue) = {ga_out['best_fit']:.2f}",
-          flush=True)
+    if verbose:
+        print(f"[real] GA done in {ga_wall:.1f}s; best fitness "
+              f"(MC mean revenue) = {ga_out['best_fit']:.2f}",
+              flush=True)
     optimized_layout = chromosome_to_layout(ga_out['best_chrom'], item_names)
 
     # -- 4. Equal-budget comparators on the same store ---------------
@@ -365,17 +453,18 @@ def main() -> int:
     # layout the GA's population is seeded from. Their draws and moves stay
     # inside the zone the GA constrains each item to, and every candidate
     # is mapped through feasible_layout before it is scored.
-    budget = args.pop_size * args.n_gens
-    print(f"[real] running random search and simulated annealing "
-          f"(budget={budget} search evaluations, block={args.pop_size}, "
-          f"{GA_N_FINAL_SEEDS} final-selection seeds)…", flush=True)
+    budget = pop_size * n_gens
+    if verbose:
+        print(f"[real] running random search and simulated annealing "
+              f"(budget={budget} search evaluations, block={pop_size}, "
+              f"{GA_N_FINAL_SEEDS} final-selection seeds)…", flush=True)
     rs_stats: Dict = {}
     rs_t0 = time.perf_counter()
     rs_layout = random_search(
         shop, None, item_names, base_params,
-        seed=args.ga_seed, budget=budget, block=args.pop_size,
+        seed=seed, budget=budget, block=pop_size,
         n_final_seeds=GA_N_FINAL_SEEDS,
-        mc_iters=args.mc_iters, mc_days=args.mc_days, stats=rs_stats,
+        mc_iters=mc_iters, mc_days=mc_days, stats=rs_stats,
         init_layout=init_layout,
         sampler=zone_sampler(shop, item_names))
     rs_wall = time.perf_counter() - rs_t0
@@ -383,16 +472,17 @@ def main() -> int:
     sa_t0 = time.perf_counter()
     sa_layout = simulated_annealing(
         shop, None, item_names, base_params,
-        seed=args.ga_seed, budget=budget, block=args.pop_size,
+        seed=seed, budget=budget, block=pop_size,
         n_final_seeds=GA_N_FINAL_SEEDS,
-        mc_iters=args.mc_iters, mc_days=args.mc_days,
-        initial_accept=args.sa_initial_accept, stats=sa_stats,
+        mc_iters=mc_iters, mc_days=mc_days,
+        initial_accept=sa_initial_accept, stats=sa_stats,
         init_layout=init_layout, start='asbuilt',
         neighbor=zone_neighbor(shop, item_names, step_frac=SA_STEP_FRAC))
     sa_wall = time.perf_counter() - sa_t0
-    print(f"[real] random search done in {rs_wall:.1f}s; simulated "
-          f"annealing done in {sa_wall:.1f}s (T0={sa_stats.get('sa_T0')})",
-          flush=True)
+    if verbose:
+        print(f"[real] random search done in {rs_wall:.1f}s; simulated "
+              f"annealing done in {sa_wall:.1f}s (T0={sa_stats.get('sa_T0')})",
+              flush=True)
 
     # The equal-budget check is on the SEARCH evaluations, which is what
     # the budget buys; the final-selection counts are recorded beside them
@@ -417,32 +507,85 @@ def main() -> int:
     # points of the repair; mapping them keeps the rule uniform.
     rs_layout = feasible_layout(shop, item_names, rs_layout)
     sa_layout = feasible_layout(shop, item_names, sa_layout)
+    return {
+        'optimized':         optimized_layout,
+        'rs':                rs_layout,
+        'sa':                sa_layout,
+        'ga_out':            ga_out,
+        'rs_stats':          rs_stats,
+        'sa_stats':          sa_stats,
+        'budget':            budget,
+        'eval_counts':       eval_counts,
+        'final_eval_counts': final_eval_counts,
+        'starts':            starts,
+        'walls':             {'GA': ga_wall, 'random_search': rs_wall,
+                              'simulated_annealing': sa_wall},
+    }
+
+
+def score_layouts(store: CalibratedStore,
+                  layouts: Sequence[Tuple[str, Dict[str, Tuple[float, float]]]],
+                  *, n_replicates: int, mc_iters: int, mc_days: int,
+                  on_replicate: Optional[Callable[[int, Dict[str, float]],
+                                                  None]] = None
+                  ) -> Dict[str, np.ndarray]:
+    """Monte Carlo revenue of each ``(name, layout)`` under the held-out
+    evaluation seeds ``EVAL_SEED_BASE + r``, r in [0, ``n_replicates``).
+
+    Every layout is scored under the same seed in a replicate, so the
+    differences between them are paired; ``on_replicate(r, {name: revenue})``
+    sees each replicate as it completes. Returns ``{name: revenues}`` in
+    replicate order."""
+    out: Dict[str, List[float]] = {name: [] for name, _ in layouts}
+    for r in range(n_replicates):
+        mc_seed = EVAL_SEED_BASE + r
+        rev = {
+            name: paired_mc_revenue(
+                store.shop, store.item_names, lay, store.base_params,
+                seed=mc_seed, mc_iters=mc_iters, mc_days=mc_days,
+            )
+            for name, lay in layouts
+        }
+        for name in out:
+            out[name].append(rev[name])
+        if on_replicate is not None:
+            on_replicate(r, rev)
+    return {name: np.asarray(v) for name, v in out.items()}
+
+
+def main() -> int:
+    args = parse_args()
+    out_dir = make_run_dir(args.out_root, 'real_data_uci')
+    print(f"output dir: {out_dir}", flush=True)
+
+    wall_t0 = time.perf_counter()
+
+    # -- 1. Calibrate from the UCI dataset --------------------------
+    params, report, reader = calibrate_from_file(args)
+
+    # -- 2. Build the headless shop --------------------------------
+    store = build_store(params, args.max_items_per_category)
+    shop, item_names = store.shop, store.item_names
+
+    # -- 3 + 4. The GA and the equal-budget comparators ---------------
+    searches = run_searches(
+        store, seed=args.ga_seed, n_gens=args.n_gens,
+        pop_size=args.pop_size, mc_iters=args.mc_iters,
+        mc_days=args.mc_days, sa_initial_accept=args.sa_initial_accept)
+    rs_stats, sa_stats = searches['rs_stats'], searches['sa_stats']
+    budget = searches['budget']
+    eval_counts = searches['eval_counts']
+    final_eval_counts = searches['final_eval_counts']
+    starts = searches['starts']
+    ga_wall = searches['walls']['GA']
+    rs_wall = searches['walls']['random_search']
+    sa_wall = searches['walls']['simulated_annealing']
 
     # -- 5. Paired-MC: every layout under the same replicate seeds ----
     print(f"[real] paired-MC over {args.n_mc_replicates} replicates "
           f"(same RNG seed per pair)…", flush=True)
-    baseline_revs: List[float] = []
-    optimized_revs: List[float] = []
-    rs_revs: List[float] = []
-    sa_revs: List[float] = []
-    diffs: List[float] = []
-    for r in range(args.n_mc_replicates):
-        mc_seed = EVAL_SEED_BASE + r
-        rev = {
-            name: paired_mc_revenue(
-                shop, item_names, lay, base_params,
-                seed=mc_seed, mc_iters=args.mc_iters, mc_days=args.mc_days,
-            )
-            for name, lay in (('baseline', baseline_layout),
-                              ('optimized', optimized_layout),
-                              ('rs', rs_layout),
-                              ('sa', sa_layout))
-        }
-        baseline_revs.append(rev['baseline'])
-        optimized_revs.append(rev['optimized'])
-        rs_revs.append(rev['rs'])
-        sa_revs.append(rev['sa'])
-        diffs.append(rev['optimized'] - rev['baseline'])
+
+    def _print_replicate(r: int, rev: Dict[str, float]) -> None:
         print(f"  rep {r:>3d}: baseline={rev['baseline']:>12.2f}  "
               f"optimized={rev['optimized']:>12.2f}  "
               f"diff={rev['optimized'] - rev['baseline']:+10.2f}  "
@@ -450,11 +593,19 @@ def main() -> int:
               f"GA-SA={rev['optimized'] - rev['sa']:+10.2f}",
               flush=True)
 
-    baseline_revs_arr = np.asarray(baseline_revs)
-    optimized_revs_arr = np.asarray(optimized_revs)
-    rs_revs_arr = np.asarray(rs_revs)
-    sa_revs_arr = np.asarray(sa_revs)
-    diffs_arr = np.asarray(diffs)
+    revs = score_layouts(
+        store, (('baseline', store.baseline_layout),
+                ('optimized', searches['optimized']),
+                ('rs', searches['rs']),
+                ('sa', searches['sa'])),
+        n_replicates=args.n_mc_replicates, mc_iters=args.mc_iters,
+        mc_days=args.mc_days, on_replicate=_print_replicate)
+
+    baseline_revs_arr = revs['baseline']
+    optimized_revs_arr = revs['optimized']
+    rs_revs_arr = revs['rs']
+    sa_revs_arr = revs['sa']
+    diffs_arr = optimized_revs_arr - baseline_revs_arr
     mean_diff, ci_lo, ci_hi = bootstrap_ci(diffs_arr, alpha=0.05, n_boot=2000)
     mean_base = float(baseline_revs_arr.mean())
     mean_opt = float(optimized_revs_arr.mean())
@@ -541,7 +692,8 @@ def main() -> int:
                     'optimized_revenue', 'diff',
                     'rs_revenue', 'sa_revenue', 'diff_rs', 'diff_sa'])
         for r, (b, o, d, rs, sa) in enumerate(zip(
-                baseline_revs, optimized_revs, diffs, rs_revs, sa_revs)):
+                baseline_revs_arr, optimized_revs_arr, diffs_arr,
+                rs_revs_arr, sa_revs_arr)):
             w.writerow([r, EVAL_SEED_BASE + r,
                         f"{b:.4f}", f"{o:.4f}", f"{d:.4f}",
                         f"{rs:.4f}", f"{sa:.4f}",

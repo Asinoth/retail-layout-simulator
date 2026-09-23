@@ -37,13 +37,14 @@ Cross-platform driver: `make <target>` (Unix/macOS) or
 
 ```bash
 make deps        # pip install -r requirements.txt
-make test        # 186 pytest cases: MC engine vs closed form, Markov
+make test        # 212 pytest cases: MC engine vs closed form, Markov
                  #   properties, elasticity monotonicity, layout
                  #   feasibility and repair parity, GA determinism,
                  #   fixed-step determinism, fixture obstacles, the
                  #   arrival loop, calibrated rates, worker invariance,
                  #   stocked-product baskets, common search starts,
-                 #   the weight sweep and dataset discovery
+                 #   the weight sweep, dataset discovery and the
+                 #   search-seed replication
 make verify      # architecture invariants (7 shop types x 5 sizes x 3
                  #   seeds, non-overlapping zones, aisle clearances,
                  #   keepouts, flood-fill reachability through item
@@ -122,6 +123,7 @@ one, otherwise from the start and end of the run:
 | Structural sweep (live) | `run_structural_sensitivity` | 4 | 5 min |
 | Queueing (live) | `measure_queueing` | 4 | 4 min |
 | Goodness of fit, in-sample and held-out (live) | `run_validation_gof` | 4 | 2 min |
+| Figure C across ten search seeds | `run_real_data_seeds` | 4 | 6 min |
 
 About three and a half hours in all. Times are machine-dependent; outputs
 are not: they follow from the seeds, not from the host's speed or the
@@ -138,9 +140,10 @@ this is how they map onto the release:
 
 | Recorded commit | Runs | Code relative to this release |
 |---|---|---|
-| `f18e38f` | ABM diagnostics, structural sweep, MC ground truth | identical |
-| `72c4b80` | goodness of fit | differs only in `run_abm_diagnostics.py`, `run_structural_sensitivity.py` and `run_mc_groundtruth.py`, which that run does not use |
-| `1292e1e` | Figures A, B and C, the elasticity and weight sweeps, the GA sensitivity sweep, the paper figures, queueing | differs only in those three files, `run_validation_gof.py` and `make_results_macros.py`, none of which those runs use |
+| `4ac7843` | Figure C across search seeds | identical |
+| `f18e38f` | ABM diagnostics, structural sweep, MC ground truth | differs only in `run_real_data_example.py` (split into reusable steps; its outputs are byte-identical for the same arguments), `make_results_macros.py` and the added `run_real_data_seeds.py`, none of which those runs use |
+| `72c4b80` | goodness of fit | differs only in those files and in `run_abm_diagnostics.py`, `run_structural_sensitivity.py` and `run_mc_groundtruth.py`, none of which that run uses |
+| `1292e1e` | Figures A, B and C, the elasticity and weight sweeps, the GA sensitivity sweep, the paper figures, queueing | differs only in all of the above and `run_validation_gof.py`; of these, only Figure C's runner is used by those runs, and its refactor leaves its outputs byte-identical |
 
 Re-running any runner from this release therefore reproduces its shipped
 artifact (see *Determinism* below).

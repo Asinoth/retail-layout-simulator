@@ -164,6 +164,17 @@ FIGC_COMPARATORS = {'random_search': ('RandSearch', 'diff_rs', 'rs_revenue'),
 FIGC_COMPARATOR_COLUMNS = tuple(c for _, diff, rev in FIGC_COMPARATORS.values()
                                 for c in (rev, diff))
 
+# Figure C over several search seeds (run_real_data_seeds). Figure C's own
+# intervals re-score one search per method, so they say nothing about how
+# much a second search would differ; the across-seed interval does, and
+# with fewer than five seeds its t quantile is too wide to say much.
+MIN_FIGC_SEEDS = 5
+FIGC_SEED_SEARCHES = ('GA', 'random_search', 'simulated_annealing')
+# The across-seed comparisons and the stems their macros use.
+FIGC_SEED_STEMS = {'random_search': 'FigCSeedsGAvsRandSearch',
+                   'simulated_annealing': 'FigCSeedsGAvsSA',
+                   'lift_over_baseline': 'FigCSeedsLift'}
+
 
 @functools.lru_cache(maxsize=None)
 def _script_constants(relpath, names):
@@ -361,6 +372,84 @@ def _figc_big_enough(d):
                 and isinstance(j.get('reader'), dict)
                 and _traceable(j)
                 and _figc_comparators_recorded(d))
+    except Exception:
+        return False
+
+
+def _figc_seeds_big_enough(d):
+    """True if a finished multi-seed real-data run has the design its
+    numbers are quoted at: at least ``MIN_FIGC_SEEDS`` search seeds, each
+    with a recorded result; Figure C's evaluation panel, precision and
+    sheets; every search of every seed from the as-built layout and at the
+    run's one search budget; and a sidecar that names the checkout it
+    started from. A run short of any of these measures a different
+    comparison from the one the across-seed macros describe."""
+    if not (_has_summary(d) and _has_results_csv(d)):
+        return False
+    try:
+        side = json.load(open(os.path.join(d, 'sidecar.json')))
+        s = json.load(open(os.path.join(d, 'summary.json')))
+        design = s['design']
+        seeds = [int(x) for x in design['search_seeds']]
+        k = int(design['n_search_seeds'])
+        budget = int(design['budget_search_evals'])
+        counts = s['evaluation_counts']
+        results = s['results']
+        per_seed = [int(r['search_seed']) for r in results['per_seed']]
+        across = results['across_seeds']
+        sheets = [x for x in str(design.get('sheets', '')).split(',')
+                  if x.strip()]
+        return (k >= MIN_FIGC_SEEDS
+                and seeds == per_seed and len(set(seeds)) == k == len(seeds)
+                and int(design['n_mc_replicates']) >= MIN_FIGC_REPLICATES
+                and int(design['mc_iters']) >= MIN_FIGC_MC_ITERS
+                and len(sheets) >= MIN_FIGC_SHEETS
+                and _starts_asbuilt(s, FIGC_SEED_SEARCHES)
+                and budget > 0
+                and set(counts) == {str(x) for x in seeds}
+                and all(int(counts[str(x)][m]) == budget
+                        for x in seeds for m in FIGC_SEED_SEARCHES)
+                and all(int(across[key]['n_seeds']) == k
+                        for key in FIGC_SEED_STEMS)
+                and _traceable(side))
+    except Exception:
+        return False
+
+
+# The options a multi-seed real-data run shares with Figure C: the store
+# (sheets, items per category, assumed conversion), the search budget and
+# annealing schedule, and the Monte Carlo precision and evaluation panel.
+# Keyed by the name in the seeds run's design block; the value is the name
+# in Figure C's recorded args.
+FIGC_SEEDS_SHARED_DESIGN = {
+    'sheets': 'sheets',
+    'max_items_per_category': 'max_items_per_category',
+    'assumed_conversion': 'assumed_conversion',
+    'n_gens': 'n_gens',
+    'pop_size': 'pop_size',
+    'mc_iters': 'mc_iters',
+    'mc_days': 'mc_days',
+    'n_mc_replicates': 'n_mc_replicates',
+}
+
+
+def _figc_seeds_match_figc(d, figc_dir):
+    """True if the multi-seed run ``d`` searched and scored Figure C's own
+    design (``figc_dir``'s recorded args): the same store, budget, schedule
+    and evaluation panel. The across-seed macros are quoted as the
+    search-to-search spread OF Figure C's comparison; a run at another
+    budget or on another store would pass the size checks and still
+    describe a different comparison."""
+    if not figc_dir:
+        return False
+    try:
+        a = json.load(open(os.path.join(figc_dir, 'sidecar.json')))['args']
+        s = json.load(open(os.path.join(d, 'summary.json')))
+        design = s['design']
+        same = all(design[mine] == a[theirs]
+                   for mine, theirs in FIGC_SEEDS_SHARED_DESIGN.items())
+        return (same and float(s['sa_schedule']['sa_initial_accept'])
+                == float(a['sa_initial_accept']))
     except Exception:
         return False
 
@@ -1272,6 +1361,49 @@ def main():
                     f"{float(cs['span_seconds']) / 86400.0:,.0f}"
     else:
         missing.append('real_data_uci')
+
+    # -- Figure C over several search seeds -----------------------------------
+    # Figure C searches once per method, so its intervals cover evaluation
+    # noise only. Here each search seed runs the three searches again and
+    # scores them on Figure C's evaluation seeds; the macros quote the
+    # runner's own across-seed figures: the mean of the per-seed paired
+    # means, its t-interval over the seeds (the search-to-search
+    # uncertainty), the range, and in how many seeds the GA came out ahead.
+    # Only a run at the design of the Figure C artifact quoted above counts.
+    figc_dir = d
+    d = latest('real_data_seeds_',
+               lambda x: (_figc_seeds_big_enough(x)
+                          and _figc_seeds_match_figc(x, figc_dir)))
+    if d:
+        s = json.load(open(os.path.join(d, 'summary.json')))
+        k = int(s['design']['n_search_seeds'])
+        across = s['results']['across_seeds']
+
+        def pounds(v):
+            return money(v).replace('\\$', '\\pounds ')
+
+        macros['FigCSeedsN'] = str(k)
+        macros['FigCSeedsReps'] = str(int(s['design']['n_mc_replicates']))
+        macros['FigCSeedsSearchEvals'] = \
+            f"{int(s['design']['budget_search_evals']):,}"
+        macros['FigCSeedsLevel'] = level_pct(
+            100.0 * float(across['lift_over_baseline']['ci_level']))
+        for key, stem in FIGC_SEED_STEMS.items():
+            a = across[key]
+            lo, hi = float(a['ci_lo']), float(a['ci_hi'])
+            macros.update({
+                stem: pounds(float(a['mean'])),
+                f'{stem}CI': f"[{pounds(lo)}, {pounds(hi)}]",
+                f'{stem}Pct': f"{float(a['pct']):+.2f}\\%",
+                f'{stem}PctCI': f"[{float(a['pct_ci'][0]):+.2f}\\%, "
+                                f"{float(a['pct_ci'][1]):+.2f}\\%]",
+                f'{stem}Sig': 'yes' if lo > 0 or hi < 0 else 'no',
+                f'{stem}Wins': f"{int(a['n_ga_leads'])}/{k}",
+                f'{stem}Min': pounds(float(a['min'])),
+                f'{stem}Max': pounds(float(a['max'])),
+            })
+    else:
+        missing.append('real_data_seeds')
 
     # -- Realized elasticities at realized scores (audit R2.3) ---------------
     rs = _checked_json(os.path.join(ROOT, 'figs', 'realized_scores.json'),

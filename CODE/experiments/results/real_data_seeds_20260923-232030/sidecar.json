@@ -1,0 +1,861 @@
+{
+  "git_sha": "4ac7843e6179eba884fb0e70c4f9036341f2da35",
+  "git_dirty": false,
+  "git_diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "git_modified": [],
+  "git_untracked_py": [],
+  "git_state_changed_during_run": false,
+  "python": "3.13.2",
+  "platform": "Windows-11-10.0.26200-SP0",
+  "packages": {
+    "numpy": "2.2.4",
+    "scipy": "1.15.3",
+    "pandas": "2.2.3",
+    "matplotlib": "3.10.1",
+    "openpyxl": "3.1.5"
+  },
+  "iso_time": "2026-09-23T23:26:46",
+  "elasticities": {
+    "GA_weights": {
+      "traffic": 0.16,
+      "cross_merch": 0.16,
+      "impulse": 0.16,
+      "flow": 0.16,
+      "revenue_placement": 0.16,
+      "section_compliance": 0.16,
+      "accessibility": 0.04,
+      "overlap_penalty": 0.8,
+      "bottleneck_penalty": 0.2
+    },
+    "ELASTICITY_CONV_BASE": 0.2,
+    "ELASTICITY_CONV_GAIN_MAX": 0.3,
+    "ELASTICITY_IMP_BASE": 0.3,
+    "ELASTICITY_IMP_GAIN_MAX": 0.4,
+    "ELASTICITY_BSK_BASE": 0.1,
+    "ELASTICITY_BSK_GAIN_MAX": 0.2
+  },
+  "experiment": "real_data_uci_search_seeds",
+  "args": {
+    "retail_path": "DATASETS/UCI Online Retail II .xlsx.xlsx",
+    "sheets": "Year 2009-2010,Year 2010-2011",
+    "max_items_per_category": 12,
+    "assumed_conversion": 0.3,
+    "mc_iters": 2000,
+    "mc_days": 30,
+    "n_gens": 25,
+    "pop_size": 30,
+    "n_mc_replicates": 30,
+    "ga_seed": 0,
+    "sa_initial_accept": 0.8,
+    "out_root": "CODE/experiments/results",
+    "n_search_seeds": 10,
+    "workers": 4
+  },
+  "wall_seconds": 375.2589063999985,
+  "search_wall_seconds": 314.5943116000053,
+  "seed_wall_seconds": {
+    "0": {
+      "GA": 34.610838599997805,
+      "random_search": 35.1211900000053,
+      "simulated_annealing": 36.16642370000045,
+      "total": 110.47557940000115
+    },
+    "1": {
+      "GA": 34.11389670000062,
+      "random_search": 34.84564809999574,
+      "simulated_annealing": 35.26936630000273,
+      "total": 108.76641569999629
+    },
+    "2": {
+      "GA": 34.707941599997866,
+      "random_search": 35.974160500001744,
+      "simulated_annealing": 34.62425549999898,
+      "total": 109.79681149999669
+    },
+    "3": {
+      "GA": 34.27130069999839,
+      "random_search": 36.013644799997564,
+      "simulated_annealing": 34.70444320000388,
+      "total": 109.49574699999357
+    },
+    "4": {
+      "GA": 33.65506019999884,
+      "random_search": 33.607569700005115,
+      "simulated_annealing": 33.18910969999706,
+      "total": 105.05574540000089
+    },
+    "5": {
+      "GA": 33.49553829999786,
+      "random_search": 33.701974900002824,
+      "simulated_annealing": 33.14540979999583,
+      "total": 104.88609719999658
+    },
+    "6": {
+      "GA": 33.72896240000409,
+      "random_search": 33.76286889999756,
+      "simulated_annealing": 33.5229771000013,
+      "total": 105.60719059999974
+    },
+    "7": {
+      "GA": 33.7729696000024,
+      "random_search": 33.47778909999761,
+      "simulated_annealing": 33.248195100000885,
+      "total": 104.98403880000114
+    },
+    "8": {
+      "GA": 31.537751700001536,
+      "random_search": 30.451298200001474,
+      "simulated_annealing": 29.794918399995368,
+      "total": 95.88614389999566
+    },
+    "9": {
+      "GA": 31.10929539999779,
+      "random_search": 29.973230499999772,
+      "simulated_annealing": 29.50698310000007,
+      "total": 94.66922290000366
+    }
+  },
+  "csv_path": "results.csv",
+  "provenance": {
+    "source_path": "DATASETS/UCI Online Retail II .xlsx.xlsx",
+    "source_bytes": 45622278,
+    "source_sha256": "bcbe73b35f5b7babf197fb0cb983a11f5d9ff929078d4aa53d171b1f2df2e980",
+    "adapter_name": "uci_online_retail_ii",
+    "adapter_version": "1.1",
+    "schema_version": "1.0.0",
+    "rows_in": 1044848,
+    "rows_kept": 1014977,
+    "currency": "GBP",
+    "seed": 0,
+    "loaded_at": 1790195206.1406515,
+    "loaded_at_iso": "2026-09-23T23:26:46",
+    "python": "3.13.2",
+    "platform": "Windows-11-10.0.26200-SP0",
+    "packages": {
+      "numpy": "2.2.4",
+      "scipy": "1.15.3",
+      "pandas": "2.2.3",
+      "matplotlib": "3.10.1",
+      "openpyxl": "3.1.5"
+    },
+    "extra": {
+      "sheets": "Year 2009-2010,Year 2010-2011",
+      "reader": {
+        "rows_read": 1067371,
+        "rows_per_sheet": [
+          525461,
+          541910
+        ],
+        "rows_after_dedup": 1044848,
+        "cross_sheet_duplicates_dropped": 22523,
+        "read_notes": [
+          "Read sheet 'Year 2009-2010' (525,461 rows).",
+          "Read sheet 'Year 2010-2011' (541,910 rows).",
+          "Dropped 22,523 rows of sheet 'Year 2010-2011' that repeat rows of an earlier sheet.",
+          "Concatenated 2 sheets -> 1,044,848 rows total."
+        ]
+      },
+      "max_items_per_category": 12,
+      "mc_iters": 2000,
+      "mc_days": 30,
+      "n_gens": 25,
+      "pop_size": 30,
+      "n_mc_replicates": 30,
+      "search_seeds": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9
+      ],
+      "shop_dims_m": [
+        42.1,
+        30.1
+      ],
+      "sections": 15,
+      "items_placed": 108
+    }
+  },
+  "reader": {
+    "rows_read": 1067371,
+    "rows_per_sheet": [
+      525461,
+      541910
+    ],
+    "rows_after_dedup": 1044848,
+    "cross_sheet_duplicates_dropped": 22523,
+    "read_notes": [
+      "Read sheet 'Year 2009-2010' (525,461 rows).",
+      "Read sheet 'Year 2010-2011' (541,910 rows).",
+      "Dropped 22,523 rows of sheet 'Year 2010-2011' that repeat rows of an earlier sheet.",
+      "Concatenated 2 sheets -> 1,044,848 rows total."
+    ]
+  },
+  "calibration_summary": {
+    "n_invoices": 39516,
+    "n_unique_products": 4721,
+    "n_unique_customers": 5852,
+    "n_unique_categories": 9,
+    "span_seconds": 63781500.0,
+    "arrivals_per_hour": 4.798792547101072,
+    "visitors_per_hour": 15.995975157003572,
+    "assumed_conversion_rate": 0.3,
+    "conversion_rate_source": "assumption",
+    "currency": "GBP"
+  },
+  "store": {
+    "fingerprint": "3dcefea6d95a1b90ad30f53330112b15e7b185dd94d9e7dd54ddb2eaf79c42ae",
+    "width_m": 42.1,
+    "height_m": 30.1,
+    "sections": 15,
+    "items_placed": 108
+  },
+  "seed_design": {
+    "max_items_per_category": 12,
+    "n_gens": 25,
+    "pop_size": 30,
+    "mc_iters": 2000,
+    "mc_days": 30,
+    "sa_initial_accept": 0.8,
+    "n_mc_replicates": 30,
+    "store_fingerprint": "3dcefea6d95a1b90ad30f53330112b15e7b185dd94d9e7dd54ddb2eaf79c42ae"
+  },
+  "results": {
+    "per_seed": [
+      {
+        "search_seed": 0,
+        "n_replicates": 30,
+        "baseline_mean": 1029303.7504482516,
+        "optimized_mean": 1045784.7510017476,
+        "rs_mean": 1042721.7702509149,
+        "sa_mean": 1040654.7650385014,
+        "random_search": {
+          "paired_mean_diff_GA_minus_X": 3062.980750832877,
+          "pct_diff": 0.2937486142728005,
+          "replicate_se": 4.892942465420573,
+          "ga_leads": true
+        },
+        "simulated_annealing": {
+          "paired_mean_diff_GA_minus_X": 5129.985963246269,
+          "pct_diff": 0.49295752401195936,
+          "replicate_se": 6.404614263032442,
+          "ga_leads": true
+        },
+        "lift_over_baseline": {
+          "paired_mean_diff_GA_minus_X": 16481.00055349594,
+          "pct_diff": 1.6011794911189845,
+          "replicate_se": 5.307348770210538,
+          "ga_leads": true
+        }
+      },
+      {
+        "search_seed": 1,
+        "n_replicates": 30,
+        "baseline_mean": 1029303.7504482516,
+        "optimized_mean": 1045700.3810295337,
+        "rs_mean": 1041662.228447254,
+        "sa_mean": 1037350.9649695155,
+        "random_search": {
+          "paired_mean_diff_GA_minus_X": 4038.1525822797907,
+          "pct_diff": 0.3876642996165112,
+          "replicate_se": 5.759436398258602,
+          "ga_leads": true
+        },
+        "simulated_annealing": {
+          "paired_mean_diff_GA_minus_X": 8349.416060018431,
+          "pct_diff": 0.8048786131185404,
+          "replicate_se": 7.358133194837083,
+          "ga_leads": true
+        },
+        "lift_over_baseline": {
+          "paired_mean_diff_GA_minus_X": 16396.63058128216,
+          "pct_diff": 1.592982690886105,
+          "replicate_se": 5.260070047037952,
+          "ga_leads": true
+        }
+      },
+      {
+        "search_seed": 2,
+        "n_replicates": 30,
+        "baseline_mean": 1029303.7504482516,
+        "optimized_mean": 1045048.401076279,
+        "rs_mean": 1042477.4349824066,
+        "sa_mean": 1039536.1754001282,
+        "random_search": {
+          "paired_mean_diff_GA_minus_X": 2570.9660938722973,
+          "pct_diff": 0.24662079078149893,
+          "replicate_se": 4.880180952275117,
+          "ga_leads": true
+        },
+        "simulated_annealing": {
+          "paired_mean_diff_GA_minus_X": 5512.225676150566,
+          "pct_diff": 0.5302581869292671,
+          "replicate_se": 6.703743617583571,
+          "ga_leads": true
+        },
+        "lift_over_baseline": {
+          "paired_mean_diff_GA_minus_X": 15744.650628027146,
+          "pct_diff": 1.5296408490856568,
+          "replicate_se": 5.2604972621906105,
+          "ga_leads": true
+        }
+      },
+      {
+        "search_seed": 3,
+        "n_replicates": 30,
+        "baseline_mean": 1029303.7504482516,
+        "optimized_mean": 1044210.513096728,
+        "rs_mean": 1040710.6848980181,
+        "sa_mean": 1040752.5493184669,
+        "random_search": {
+          "paired_mean_diff_GA_minus_X": 3499.8281987099867,
+          "pct_diff": 0.3362921366616836,
+          "replicate_se": 5.249484218560749,
+          "ga_leads": true
+        },
+        "simulated_annealing": {
+          "paired_mean_diff_GA_minus_X": 3457.963778261169,
+          "pct_diff": 0.332256094931077,
+          "replicate_se": 5.486416783097101,
+          "ga_leads": true
+        },
+        "lift_over_baseline": {
+          "paired_mean_diff_GA_minus_X": 14906.76264847649,
+          "pct_diff": 1.4482374752821743,
+          "replicate_se": 5.006755351479097,
+          "ga_leads": true
+        }
+      },
+      {
+        "search_seed": 4,
+        "n_replicates": 30,
+        "baseline_mean": 1029303.7504482516,
+        "optimized_mean": 1044972.4223565467,
+        "rs_mean": 1041546.4086728386,
+        "sa_mean": 1044274.345967672,
+        "random_search": {
+          "paired_mean_diff_GA_minus_X": 3426.013683708334,
+          "pct_diff": 0.3289352884499728,
+          "replicate_se": 5.143078959506725,
+          "ga_leads": true
+        },
+        "simulated_annealing": {
+          "paired_mean_diff_GA_minus_X": 698.0763888747703,
+          "pct_diff": 0.06684798794208634,
+          "replicate_se": 2.8506006290564554,
+          "ga_leads": true
+        },
+        "lift_over_baseline": {
+          "paired_mean_diff_GA_minus_X": 15668.671908295142,
+          "pct_diff": 1.5222592846350351,
+          "replicate_se": 5.300432439731883,
+          "ga_leads": true
+        }
+      },
+      {
+        "search_seed": 5,
+        "n_replicates": 30,
+        "baseline_mean": 1029303.7504482516,
+        "optimized_mean": 1045421.9208474052,
+        "rs_mean": 1041710.9867956492,
+        "sa_mean": 1043826.0858613927,
+        "random_search": {
+          "paired_mean_diff_GA_minus_X": 3710.9340517559244,
+          "pct_diff": 0.35623451214342355,
+          "replicate_se": 5.447411654411912,
+          "ga_leads": true
+        },
+        "simulated_annealing": {
+          "paired_mean_diff_GA_minus_X": 1595.8349860125222,
+          "pct_diff": 0.1528832252449025,
+          "replicate_se": 3.688508461863115,
+          "ga_leads": true
+        },
+        "lift_over_baseline": {
+          "paired_mean_diff_GA_minus_X": 16118.170399153472,
+          "pct_diff": 1.565929434545844,
+          "replicate_se": 5.591511262626934,
+          "ga_leads": true
+        }
+      },
+      {
+        "search_seed": 6,
+        "n_replicates": 30,
+        "baseline_mean": 1029303.7504482516,
+        "optimized_mean": 1046244.8560139184,
+        "rs_mean": 1040535.4239545633,
+        "sa_mean": 1045874.1911704425,
+        "random_search": {
+          "paired_mean_diff_GA_minus_X": 5709.432059355154,
+          "pct_diff": 0.5487013635399756,
+          "replicate_se": 6.998006833981607,
+          "ga_leads": true
+        },
+        "simulated_annealing": {
+          "paired_mean_diff_GA_minus_X": 370.6648434760786,
+          "pct_diff": 0.03544067217695332,
+          "replicate_se": 1.5664714768723285,
+          "ga_leads": true
+        },
+        "lift_over_baseline": {
+          "paired_mean_diff_GA_minus_X": 16941.105565666792,
+          "pct_diff": 1.6458800969382563,
+          "replicate_se": 5.529674198304168,
+          "ga_leads": true
+        }
+      },
+      {
+        "search_seed": 7,
+        "n_replicates": 30,
+        "baseline_mean": 1029303.7504482516,
+        "optimized_mean": 1048398.098824927,
+        "rs_mean": 1042071.8781845949,
+        "sa_mean": 1038814.913411782,
+        "random_search": {
+          "paired_mean_diff_GA_minus_X": 6326.220640331972,
+          "pct_diff": 0.6070810250971317,
+          "replicate_se": 6.394065391789345,
+          "ga_leads": true
+        },
+        "simulated_annealing": {
+          "paired_mean_diff_GA_minus_X": 9583.185413144929,
+          "pct_diff": 0.9225113433990714,
+          "replicate_se": 7.361869139625222,
+          "ga_leads": true
+        },
+        "lift_over_baseline": {
+          "paired_mean_diff_GA_minus_X": 19094.34837667524,
+          "pct_diff": 1.8550742060698642,
+          "replicate_se": 6.204685950738563,
+          "ga_leads": true
+        }
+      },
+      {
+        "search_seed": 8,
+        "n_replicates": 30,
+        "baseline_mean": 1029303.7504482516,
+        "optimized_mean": 1048030.6912805936,
+        "rs_mean": 1041261.9728379531,
+        "sa_mean": 1038873.3173643914,
+        "random_search": {
+          "paired_mean_diff_GA_minus_X": 6768.718442640418,
+          "pct_diff": 0.6500495186809058,
+          "replicate_se": 6.693059253562684,
+          "ga_leads": true
+        },
+        "simulated_annealing": {
+          "paired_mean_diff_GA_minus_X": 9157.373916202167,
+          "pct_diff": 0.8814716638823981,
+          "replicate_se": 7.50471882632851,
+          "ga_leads": true
+        },
+        "lift_over_baseline": {
+          "paired_mean_diff_GA_minus_X": 18726.940832341897,
+          "pct_diff": 1.819379442092434,
+          "replicate_se": 6.184173513924735,
+          "ga_leads": true
+        }
+      },
+      {
+        "search_seed": 9,
+        "n_replicates": 30,
+        "baseline_mean": 1029303.7504482516,
+        "optimized_mean": 1046027.1927983824,
+        "rs_mean": 1040079.1122745451,
+        "sa_mean": 1043781.172477316,
+        "random_search": {
+          "paired_mean_diff_GA_minus_X": 5948.080523837389,
+          "pct_diff": 0.571887316420532,
+          "replicate_se": 7.034458867906479,
+          "ga_leads": true
+        },
+        "simulated_annealing": {
+          "paired_mean_diff_GA_minus_X": 2246.020321066511,
+          "pct_diff": 0.2151811491038676,
+          "replicate_se": 4.832590008105564,
+          "ga_leads": true
+        },
+        "lift_over_baseline": {
+          "paired_mean_diff_GA_minus_X": 16723.442350130874,
+          "pct_diff": 1.6247334514080978,
+          "replicate_se": 5.445707515256139,
+          "ga_leads": true
+        }
+      }
+    ],
+    "across_seeds": {
+      "random_search": {
+        "n_seeds": 10,
+        "mean": 4506.132702732414,
+        "ci_lo": 3418.1689771905994,
+        "ci_hi": 5594.096428274229,
+        "ci_level": 0.95,
+        "sd": 1520.8684174771188,
+        "min": 2570.9660938722973,
+        "max": 6768.718442640418,
+        "n_ga_leads": 10,
+        "excludes_zero": true,
+        "pct": 0.4326671913157642,
+        "pct_ci": [
+          0.32820373219522514,
+          0.5371306504363034
+        ],
+        "pct_min": 0.24685750557884623,
+        "pct_max": 0.649914814006389,
+        "pct_of": "mean revenue of the other layout over every seed and replicate",
+        "replicate_se_mean": 5.849212499567379
+      },
+      "simulated_annealing": {
+        "n_seeds": 10,
+        "mean": 4610.074734645342,
+        "ci_lo": 2111.9559772120983,
+        "ci_hi": 7108.193492078585,
+        "ci_level": 0.95,
+        "sd": 3492.129224616672,
+        "min": 370.6648434760786,
+        "max": 9583.185413144929,
+        "n_ga_leads": 10,
+        "excludes_zero": true,
+        "pct": 0.4426916177187963,
+        "pct_ci": [
+          0.2028047834185125,
+          0.68257845201908
+        ],
+        "pct_min": 0.03559383060685529,
+        "pct_max": 0.9202444857481624,
+        "pct_of": "mean revenue of the other layout over every seed and replicate",
+        "replicate_se_mean": 5.37576664004014
+      },
+      "lift_over_baseline": {
+        "n_seeds": 10,
+        "mean": 16680.172384354515,
+        "ci_lo": 15739.367202424623,
+        "ci_hi": 17620.977566284408,
+        "ci_level": 0.95,
+        "sd": 1315.1549583911149,
+        "min": 14906.76264847649,
+        "max": 19094.34837667524,
+        "n_ga_leads": 10,
+        "excludes_zero": true,
+        "pct": 1.6205296422062452,
+        "pct_ci": [
+          1.5291275481674174,
+          1.7119317362450732
+        ],
+        "pct_min": 1.4482374752821743,
+        "pct_max": 1.8550742060698642,
+        "pct_of": "mean revenue of the other layout over every seed and replicate",
+        "replicate_se_mean": 5.509085631150062
+      }
+    },
+    "ci": "t-interval over the per-seed paired means, df = K - 1, 95% two-sided; every seed is scored under the same evaluation seeds"
+  },
+  "evaluation_counts": {
+    "0": {
+      "GA": 750,
+      "random_search": 750,
+      "simulated_annealing": 750
+    },
+    "1": {
+      "GA": 750,
+      "random_search": 750,
+      "simulated_annealing": 750
+    },
+    "2": {
+      "GA": 750,
+      "random_search": 750,
+      "simulated_annealing": 750
+    },
+    "3": {
+      "GA": 750,
+      "random_search": 750,
+      "simulated_annealing": 750
+    },
+    "4": {
+      "GA": 750,
+      "random_search": 750,
+      "simulated_annealing": 750
+    },
+    "5": {
+      "GA": 750,
+      "random_search": 750,
+      "simulated_annealing": 750
+    },
+    "6": {
+      "GA": 750,
+      "random_search": 750,
+      "simulated_annealing": 750
+    },
+    "7": {
+      "GA": 750,
+      "random_search": 750,
+      "simulated_annealing": 750
+    },
+    "8": {
+      "GA": 750,
+      "random_search": 750,
+      "simulated_annealing": 750
+    },
+    "9": {
+      "GA": 750,
+      "random_search": 750,
+      "simulated_annealing": 750
+    }
+  },
+  "final_evaluation_counts": {
+    "0": {
+      "GA": 150,
+      "random_search": 150,
+      "simulated_annealing": 150
+    },
+    "1": {
+      "GA": 150,
+      "random_search": 150,
+      "simulated_annealing": 150
+    },
+    "2": {
+      "GA": 150,
+      "random_search": 150,
+      "simulated_annealing": 150
+    },
+    "3": {
+      "GA": 150,
+      "random_search": 150,
+      "simulated_annealing": 150
+    },
+    "4": {
+      "GA": 150,
+      "random_search": 150,
+      "simulated_annealing": 150
+    },
+    "5": {
+      "GA": 150,
+      "random_search": 150,
+      "simulated_annealing": 150
+    },
+    "6": {
+      "GA": 150,
+      "random_search": 150,
+      "simulated_annealing": 150
+    },
+    "7": {
+      "GA": 150,
+      "random_search": 150,
+      "simulated_annealing": 150
+    },
+    "8": {
+      "GA": 150,
+      "random_search": 150,
+      "simulated_annealing": 150
+    },
+    "9": {
+      "GA": 150,
+      "random_search": 150,
+      "simulated_annealing": 150
+    }
+  },
+  "search_start": {
+    "GA": "asbuilt",
+    "random_search": "asbuilt",
+    "simulated_annealing": "asbuilt"
+  },
+  "sa_schedule": {
+    "sa_initial_accept": 0.8,
+    "sa_T0": {
+      "0": 763.2222690907412,
+      "1": 328.474332105876,
+      "2": 101.61926508483776,
+      "3": 122.02208734195752,
+      "4": 285.13912327421025,
+      "5": 109.52551193583422,
+      "6": 138.43312681531006,
+      "7": 113.44911012005389,
+      "8": 588.5571976588914,
+      "9": 502.33178471171135
+    },
+    "sa_start": "asbuilt"
+  },
+  "design": {
+    "n_search_seeds": 10,
+    "first_search_seed": 0,
+    "search_seeds": [
+      0,
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9
+    ],
+    "search_seed_ranges": {
+      "0": {
+        "GA": [
+          0,
+          31
+        ],
+        "random_search": [
+          0,
+          31
+        ],
+        "simulated_annealing": [
+          0,
+          31
+        ]
+      },
+      "1": {
+        "GA": [
+          1000,
+          1031
+        ],
+        "random_search": [
+          1000,
+          1031
+        ],
+        "simulated_annealing": [
+          1000,
+          1031
+        ]
+      },
+      "2": {
+        "GA": [
+          2000,
+          2031
+        ],
+        "random_search": [
+          2000,
+          2031
+        ],
+        "simulated_annealing": [
+          2000,
+          2031
+        ]
+      },
+      "3": {
+        "GA": [
+          3000,
+          3031
+        ],
+        "random_search": [
+          3000,
+          3031
+        ],
+        "simulated_annealing": [
+          3000,
+          3031
+        ]
+      },
+      "4": {
+        "GA": [
+          4000,
+          4031
+        ],
+        "random_search": [
+          4000,
+          4031
+        ],
+        "simulated_annealing": [
+          4000,
+          4031
+        ]
+      },
+      "5": {
+        "GA": [
+          5000,
+          5031
+        ],
+        "random_search": [
+          5000,
+          5031
+        ],
+        "simulated_annealing": [
+          5000,
+          5031
+        ]
+      },
+      "6": {
+        "GA": [
+          6000,
+          6031
+        ],
+        "random_search": [
+          6000,
+          6031
+        ],
+        "simulated_annealing": [
+          6000,
+          6031
+        ]
+      },
+      "7": {
+        "GA": [
+          7000,
+          7031
+        ],
+        "random_search": [
+          7000,
+          7031
+        ],
+        "simulated_annealing": [
+          7000,
+          7031
+        ]
+      },
+      "8": {
+        "GA": [
+          8000,
+          8031
+        ],
+        "random_search": [
+          8000,
+          8031
+        ],
+        "simulated_annealing": [
+          8000,
+          8031
+        ]
+      },
+      "9": {
+        "GA": [
+          9000,
+          9031
+        ],
+        "random_search": [
+          9000,
+          9031
+        ],
+        "simulated_annealing": [
+          9000,
+          9031
+        ]
+      }
+    },
+    "paired_eval_seeds": [
+      1000000,
+      1000030
+    ],
+    "n_mc_replicates": 30,
+    "budget_search_evals": 750,
+    "block": 30,
+    "n_gens": 25,
+    "pop_size": 30,
+    "n_final_seeds": 5,
+    "mc_iters": 2000,
+    "mc_days": 30,
+    "sheets": "Year 2009-2010,Year 2010-2011",
+    "max_items_per_category": 12,
+    "assumed_conversion": 0.3,
+    "layout": "naive",
+    "rs_sampler": "zone_sampler",
+    "sa_neighbor": "zone_neighbor(step_frac=0.25)",
+    "seeding": "search seed s seeds the GA, random search and annealing as run_real_data_example seeds them from --ga-seed",
+    "ci": "t-interval over the per-seed paired means, df = K - 1, 95% two-sided; every seed is scored under the same evaluation seeds"
+  }
+}
