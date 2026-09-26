@@ -346,3 +346,60 @@ def test_departure_records_complete_history_and_markov_counts():
     occ = sim.analytics['markov_state_occupancy']
     assert occ['shopping'] == 0.5
     assert occ['exiting'] == 0.25
+
+
+# --- exit routes ---------------------------------------------------------------
+
+def test_exits_are_tallied_by_the_route_that_sent_them_out(sim):
+    """Every exit is tallied by how it came about (sim_analytics'
+    ``exit_routes``): paid, unpaid through the spawn-time abandonment
+    draw, unpaid with no route left to walk. The structural sweep reads
+    these to tell a movement-dependent unpaid exit from the draw."""
+    walls = sim.shop.walls
+    drawn = _agent(sim, [5.0, 5.0])
+    drawn.abandon_cart = True
+    drawn.shopping_list = []
+    drawn._finish_shopping(walls)
+    assert drawn.exit_route == 'abandon_draw'
+    stranded = _agent(sim, [5.0, 5.0])
+    stranded.abandon_cart = False
+    stranded._leave_through_door()
+    assert stranded.exit_route == 'no_route'
+    paid = _agent(sim, [5.0, 5.0])
+    paid.abandon_cart = False
+    paid.has_checked_out = True
+    paid._leave_through_door()        # a paid agent is never 'unpaid'
+    assert paid.exit_route is None
+    paid.moving_stalls = 2
+    for c in (drawn, stranded, paid):
+        sim._process_customer_exit(c)
+    ex = sim.analytics['exit_routes']
+    assert ex['paid'] == 1
+    assert ex['unpaid_abandon_draw'] == 1 and ex['unpaid_no_route'] == 1
+    assert ex['unpaid_abandon_drawn'] == 1 and ex['abandon_drawn'] == 1
+    assert ex['moving_stalls'] == 2 and ex['exits_after_moving_stall'] == 1
+    assert sim.analytics['abandoned_carts'] == 2
+    assert sim.analytics['completed_purchases'] == 1
+
+
+def test_the_exit_record_draws_nothing(sim):
+    """Recording an exit route touches no random stream: an agent drawn
+    after one that took each route gets the same draws as without."""
+    walls = sim.shop.walls
+    np.random.seed(7)
+    c = _agent(sim, [5.0, 5.0])
+    c.abandon_cart = True
+    c._finish_shopping(walls)
+    c._leave_through_door()
+    after = np.random.random()
+    np.random.seed(7)
+    _agent(sim, [5.0, 5.0])
+    assert np.random.random() == after
+
+
+def test_structural_runner_reports_post_warmup_route_increments():
+    from experiments.run_structural_sensitivity import _route_increments
+    start = {'paid': 10, 'unpaid_abandon_draw': 1}
+    end = {'paid': 40, 'unpaid_abandon_draw': 3, 'unpaid_no_route': 1}
+    assert _route_increments(start, end) == {
+        'paid': 30, 'unpaid_abandon_draw': 2, 'unpaid_no_route': 1}

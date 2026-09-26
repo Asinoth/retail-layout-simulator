@@ -11,8 +11,33 @@ Run from ``CODE/``:
 """
 
 import os
+import random
 import sys
+
+import numpy as np
+import pytest
 
 _CODE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if _CODE not in sys.path:
     sys.path.insert(0, _CODE)
+
+
+def _seed_global_streams():
+    np.random.seed(0)
+    random.seed(0)
+
+
+# The simulator draws agent decisions from the global numpy stream, and
+# some tests leave it in a state that depends on timing (the threaded
+# loop runs as many ticks as the wall clock allows). Reseeding before
+# every module's fixtures and before every test makes each test's
+# realization independent of which tests ran before it, so a subset
+# (-k, --lf, one file) sees the same numbers as the full suite.
+@pytest.fixture(autouse=True, scope='module')
+def _seeded_global_streams_per_module():
+    _seed_global_streams()
+
+
+@pytest.fixture(autouse=True)
+def _seeded_global_streams_per_test():
+    _seed_global_streams()

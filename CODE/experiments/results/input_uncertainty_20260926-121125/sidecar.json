@@ -1,0 +1,764 @@
+{
+  "git_sha": "81291699f516557f73f311759e422aec7e75b88c",
+  "git_dirty": false,
+  "git_diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "git_modified": [],
+  "git_untracked_py": [],
+  "git_state_changed_during_run": false,
+  "python": "3.13.2",
+  "platform": "Windows-11-10.0.26200-SP0",
+  "packages": {
+    "charset-normalizer": "3.4.1",
+    "colorama": "0.4.6",
+    "contourpy": "1.3.2",
+    "cycler": "0.12.1",
+    "et-xmlfile": "2.0.0",
+    "fonttools": "4.57.0",
+    "iniconfig": "2.3.0",
+    "kiwisolver": "1.4.8",
+    "matplotlib": "3.10.1",
+    "numpy": "2.2.4",
+    "openpyxl": "3.1.5",
+    "packaging": "24.2",
+    "pandas": "2.2.3",
+    "pillow": "11.1.0",
+    "pluggy": "1.6.0",
+    "pygments": "2.19.1",
+    "pyparsing": "3.2.3",
+    "pytest": "9.0.3",
+    "python-dateutil": "2.9.0.post0",
+    "pytz": "2025.1",
+    "reportlab": "4.5.1",
+    "scipy": "1.15.3",
+    "six": "1.17.0",
+    "tzdata": "2025.1"
+  },
+  "requirements_lock": {
+    "path": "requirements-lock.txt",
+    "sha256": "99c94518459504dc1b54070797fa973f89fbbab5c8e21208db4dd60a031a6950",
+    "resolved_on": {
+      "python": "3.13.2",
+      "system": "Windows",
+      "machine": "AMD64"
+    },
+    "same_platform": true,
+    "matches_environment": true,
+    "mismatches": [],
+    "unpinned": [],
+    "exact": true
+  },
+  "hardware": {
+    "cpu_count": 16,
+    "processor": "Intel64 Family 6 Model 165 Stepping 5, GenuineIntel",
+    "machine": "AMD64",
+    "ram_gib": 15.9
+  },
+  "iso_time": "2026-09-26T12:20:11",
+  "elasticities": {
+    "GA_weights": {
+      "traffic": 0.16,
+      "cross_merch": 0.16,
+      "impulse": 0.16,
+      "flow": 0.16,
+      "revenue_placement": 0.16,
+      "section_compliance": 0.16,
+      "accessibility": 0.04,
+      "overlap_penalty": 0.8,
+      "bottleneck_penalty": 0.2
+    },
+    "ELASTICITY_CONV_BASE": 0.2,
+    "ELASTICITY_CONV_GAIN_MAX": 0.3,
+    "ELASTICITY_IMP_BASE": 0.3,
+    "ELASTICITY_IMP_GAIN_MAX": 0.4,
+    "ELASTICITY_BSK_BASE": 0.1,
+    "ELASTICITY_BSK_GAIN_MAX": 0.2,
+    "anchoring": "difference from base_params[\"score_anchor\"]",
+    "objective_constants": {
+      "ABANDON_FLOW_COEF": 0.4,
+      "ABANDON_SECTION_COEF": 0.2,
+      "ABANDON_BOTTLENECK_COEF": 0.5,
+      "ABANDON_FLOOR_FRAC": 0.3,
+      "CONV_CLAMP_LO": 0.01,
+      "CONV_CLAMP_HI": 0.99,
+      "IMPULSE_RATE_CLAMP_HI": 0.99,
+      "ABANDON_RATE_CLAMP_HI": 0.5,
+      "ABANDON_BASE_CAP": 0.95,
+      "NET_BASE_REVENUE_MIN_FRAC": 0.05,
+      "QUEUE_BOTTLENECK_FACTOR": 0.3,
+      "QUEUE_PENALTY_SLOPE": 0.15,
+      "QUEUE_PENALTY_FLOOR": 0.85,
+      "DEFAULT_QUEUE_TIME_S": 5.0,
+      "ASSUMED_CONVERSION_RATE": 0.3,
+      "IMPULSE_RATE_STANDIN": 0.2,
+      "IMPULSE_VALUE_FRAC_OF_GROSS": 0.15,
+      "IMPULSE_VALUE_CV": 0.3,
+      "REV_STD_FRAC_OF_MEAN": 0.35,
+      "ABANDON_RATE_SYNTHETIC": 0.05,
+      "ABANDON_FRAC_OF_NONCONVERTERS": 0.1,
+      "STANDIN_AVG_BASKET": 3.0,
+      "STANDIN_STD_BASKET": 1.0,
+      "HEAT_PRIOR_SYNTH_ENTRANCE": 5.0,
+      "HEAT_PRIOR_SYNTH_CHECKOUT": 3.0,
+      "HEAT_PRIOR_CAL_ENTRANCE": 3.0,
+      "HEAT_PRIOR_CAL_CHECKOUT": 2.0,
+      "HEAT_PRIOR_CAL_WALL": 1.5,
+      "HEAT_PRIOR_WALL_MIN_D": 0.1,
+      "DEFAULT_OP_HOURS_PER_DAY": 10.0,
+      "DEFAULT_WEEKEND_MULTIPLIER": 1.4,
+      "DEFAULT_DAY_NOISE_STD": 0.08,
+      "MC_LAMBDA_FLOOR": 0.1,
+      "MC_LAMBDA_CAP": 1000000.0,
+      "MC_CONV_CLAMP_LO": 0.001,
+      "MC_CONV_CLAMP_HI": 0.999,
+      "MC_SD_FLOOR": 0.01,
+      "MC_SPEND_LAW": "lognormal_moment_matched",
+      "SYNTH_DETOUR_ELASTICITY_RANGE": [
+        0.3,
+        0.5
+      ],
+      "SYNTH_DETOUR_ELASTICITY_DEFAULT": 0.4,
+      "SYNTH_IMPULSE_ELASTICITY_RANGE": [
+        0.4,
+        0.7
+      ],
+      "SYNTH_IMPULSE_ELASTICITY_DEFAULT": 0.5,
+      "SYNTH_PERIMETER_ELASTICITY_RANGE": [
+        0.15,
+        0.3
+      ],
+      "SYNTH_PERIMETER_ELASTICITY_DEFAULT": 0.2,
+      "SYNTH_AFFINITY_RANGE": [
+        0.1,
+        0.3
+      ],
+      "SYNTH_AFFINITY_DENSITY": 0.15,
+      "SYNTH_DAILY_CUSTOMERS": 200.0
+    }
+  },
+  "experiment": "input_uncertainty_uci",
+  "args": {
+    "retail_path": "DATASETS/UCI Online Retail II .xlsx.xlsx",
+    "sheets": "Year 2009-2010,Year 2010-2011",
+    "max_items_per_category": 12,
+    "assumed_conversion": 0.3,
+    "exclude_anonymous": false,
+    "mc_iters": 2000,
+    "mc_days": 30,
+    "n_gens": 25,
+    "pop_size": 30,
+    "n_mc_replicates": 30,
+    "ga_seed": 0,
+    "sa_initial_accept": 0.8,
+    "out_root": "CODE/experiments/results",
+    "n_boot": 200,
+    "boot_seed": 20251,
+    "workers": 4
+  },
+  "wall_seconds": 525.3280362000005,
+  "timing": {
+    "calibration_full_seconds": 5.648912199998449,
+    "search_seconds": 87.23426230000041,
+    "search_walls": {
+      "GA": 29.87873280000349,
+      "random_search": 28.739251299997704,
+      "simulated_annealing": 28.61068200000227
+    },
+    "bootstrap_seconds": 372.26079390000086,
+    "replicate_seconds_mean": {
+      "resample": 0.7345618855000066,
+      "calibrate": 6.41086186049999,
+      "rekey_and_score": 0.07995749400008208
+    }
+  },
+  "csv_path": "results.csv",
+  "provenance": {
+    "source_path": "DATASETS/UCI Online Retail II .xlsx.xlsx",
+    "source_bytes": 45622278,
+    "source_sha256": "bcbe73b35f5b7babf197fb0cb983a11f5d9ff929078d4aa53d171b1f2df2e980",
+    "adapter_name": "uci_online_retail_ii",
+    "adapter_version": "1.2",
+    "schema_version": "1.0.0",
+    "rows_in": 1044848,
+    "rows_kept": 1008725,
+    "currency": "GBP",
+    "seed": 20251,
+    "loaded_at": 1790414410.8234472,
+    "loaded_at_iso": "2026-09-26T12:20:10",
+    "python": "3.13.2",
+    "platform": "Windows-11-10.0.26200-SP0",
+    "packages": {
+      "numpy": "2.2.4",
+      "scipy": "1.15.3",
+      "pandas": "2.2.3",
+      "matplotlib": "3.10.1",
+      "openpyxl": "3.1.5"
+    },
+    "extra": {
+      "sheets": "Year 2009-2010,Year 2010-2011",
+      "reader": {
+        "rows_read": 1067371,
+        "rows_per_sheet": [
+          525461,
+          541910
+        ],
+        "rows_after_dedup": 1044848,
+        "cross_sheet_duplicates_dropped": 22523,
+        "read_notes": [
+          "Read sheet 'Year 2009-2010' (525,461 rows).",
+          "Read sheet 'Year 2010-2011' (541,910 rows).",
+          "Dropped 22,523 rows of sheet 'Year 2010-2011' that repeat rows of an earlier sheet.",
+          "Concatenated 2 sheets -> 1,044,848 rows total."
+        ]
+      },
+      "reader_version": "1.1",
+      "cleaning": {
+        "cancellation_lines": 19165,
+        "reversal_pairs": 6430,
+        "cancellation_lines_anonymous": 719,
+        "cancellation_lines_unmatched": 12016,
+        "reversal_matching": true,
+        "reversed_purchase_lines_removed": 6430,
+        "reversed_units_removed": 407272.0,
+        "reversed_revenue_removed": 712074.331
+      },
+      "exclude_anonymous": false,
+      "anonymous": {
+        "calibration": "included",
+        "n_anonymous_invoices": 2922,
+        "anonymous_invoice_frac": 0.07445534462988916,
+        "anonymous_revenue_frac": 0.13494565908113132
+      }
+    }
+  },
+  "reader": {
+    "rows_read": 1067371,
+    "rows_per_sheet": [
+      525461,
+      541910
+    ],
+    "rows_after_dedup": 1044848,
+    "cross_sheet_duplicates_dropped": 22523,
+    "read_notes": [
+      "Read sheet 'Year 2009-2010' (525,461 rows).",
+      "Read sheet 'Year 2010-2011' (541,910 rows).",
+      "Dropped 22,523 rows of sheet 'Year 2010-2011' that repeat rows of an earlier sheet.",
+      "Concatenated 2 sheets -> 1,044,848 rows total."
+    ]
+  },
+  "base_params": {
+    "customers_per_hour": 15.886275054069369,
+    "conversion_rate": 0.3,
+    "rev_per_converting_customer": 471.8050238832972,
+    "rev_per_customer_gross": 486.39693183845077,
+    "rev_std": 1095.0476978103086,
+    "impulse_rate": 0.2,
+    "avg_impulse_value": 72.95953977576761,
+    "avg_basket_size": 275.579411389986,
+    "std_basket_size": 968.7794665821398,
+    "basket_sizes_observed": {
+      "n": 39245,
+      "mean": 275.579411389986,
+      "std": 968.7794665821398,
+      "sha256": "f2d54233649965ccd1f733ef3aea5fb5d6b023b6ecc5dbc2c00719501d437634"
+    },
+    "abandonment_rate": 0.06999999999999999,
+    "avg_queue_time": 5.0,
+    "score_anchor": {
+      "score": 0.44002271956643996,
+      "breakdown": {
+        "traffic": 0.14335363175662838,
+        "cross_merch": 0.7919934129634081,
+        "impulse": 0.0,
+        "flow": 0.6457370024554974,
+        "revenue_placement": 0.033092263777525235,
+        "bottleneck_penalty": 0.0,
+        "section_compliance": 1.0,
+        "accessibility": 0.5438627453487618,
+        "overlap_penalty": 0.0,
+        "composite": 0.44002271956643996
+      },
+      "source": "as_built_repaired"
+    }
+  },
+  "summary": {
+    "experiment": "input_uncertainty_uci",
+    "design": {
+      "sheets": "Year 2009-2010,Year 2010-2011",
+      "max_items_per_category": 12,
+      "assumed_conversion": 0.3,
+      "exclude_anonymous": false,
+      "adapter_version": "1.2",
+      "horizon_days": 30,
+      "ga": {
+        "seed": 0,
+        "n_gens": 25,
+        "pop_size": 30,
+        "mc_iters": 2000,
+        "mc_days": 30,
+        "mut_rate": 0.18,
+        "elite_frac": 0.2,
+        "start": "asbuilt",
+        "n_search_evals": 750,
+        "n_final_evals": 150
+      },
+      "searches": {
+        "seed": 0,
+        "budget_search_evals": 750,
+        "evaluation_counts": {
+          "GA": 750,
+          "random_search": 750,
+          "simulated_annealing": 750
+        },
+        "final_evaluation_counts": {
+          "GA": 150,
+          "random_search": 150,
+          "simulated_annealing": 150
+        },
+        "starts": {
+          "GA": "asbuilt",
+          "random_search": "asbuilt",
+          "simulated_annealing": "asbuilt"
+        },
+        "sa_initial_accept": 0.8,
+        "sa_T0": 22.35921875841494,
+        "rs_sampler": "zone_sampler",
+        "sa_neighbor": "zone_neighbor(step_frac=0.25)",
+        "operators": {
+          "space": "region: each item's zone less the aisles the shared repair keeps (_feasibility.AislePlan.move_box / position_bounds)",
+          "GA": "initial noise N(0, max(0.15 x side, 0.3 m)) and mutation N(0, max(0.12 x side, 0.2 m)) per axis, side = the side of the item's move box (its zone less the aisle rule), clipped 0.05 m inside that box, i.e. into the region (HeadlessShop._ga_move_boxes)",
+          "random_search": "zone_sampler: uniform over each item's region",
+          "simulated_annealing": "zone_neighbor(step_frac=0.25): one item, step uniform in +/- 0.25 x its room in its region"
+        }
+      },
+      "n_boot": 200,
+      "boot_seed": 20251,
+      "replicate_rng": "numpy default_rng([boot_seed, b])",
+      "clusters": {
+        "rule": "one per identified customer, one per anonymous invoice; copies relabelled as distinct invoices and customers",
+        "n_clusters": 8760,
+        "n_customers": 5838,
+        "n_anonymous_invoices": 2922
+      },
+      "layouts": "fixed: the repaired as-built layout and the GA, random-search and annealing layouts of the full-data searches",
+      "rekey": "same fixtures; each replicate calibration re-seeded onto them and the base parameters re-anchored at the as-built layout",
+      "scoring": "experiments.closed_form.expected_revenue",
+      "scales": {
+        "whole": "whole invoices, every invoice a buyer (Figure C)",
+        "stocked": "each invoice cut to the stocked products, buyers the invoices holding one (placed_invoice_sample)"
+      },
+      "ci_level": 0.95
+    },
+    "point": {
+      "anchor_score": 0.44002271956643996,
+      "whole": {
+        "level_asbuilt": 769612.7302862497,
+        "level_ga": 783565.3300685766,
+        "level_rs": 781299.7477283261,
+        "level_sa": 779439.1670657992,
+        "lift": 13952.599782326957,
+        "pct_lift": 1.8129377585967725,
+        "ga_minus_rs": {
+          "gbp": 2265.5823402504902,
+          "frac_of_asbuilt": 0.00294379530261646,
+          "pct": 0.28997607471880044
+        },
+        "ga_minus_sa": {
+          "gbp": 4126.163002777379,
+          "frac_of_asbuilt": 0.005361349728769033,
+          "pct": 0.5293758868072194
+        }
+      },
+      "stocked": {
+        "level_asbuilt": 17020.223750043366,
+        "level_ga": 17328.789813005562,
+        "level_rs": 17278.685758280702,
+        "level_sa": 17237.538441019675,
+        "lift": 308.56606296219616,
+        "pct_lift": 1.8129377585967985,
+        "ga_minus_rs": {
+          "gbp": 50.10405472485945,
+          "frac_of_asbuilt": 0.0029437953026165,
+          "pct": 0.2899760747188043
+        },
+        "ga_minus_sa": {
+          "gbp": 91.25137198588709,
+          "frac_of_asbuilt": 0.005361349728769258,
+          "pct": 0.5293758868072417
+        }
+      },
+      "stocked_invoice_share": 0.7949038094024716
+    },
+    "input_uncertainty": {
+      "level": 0.95,
+      "n_boot": 200,
+      "whole": {
+        "pct_lift": {
+          "estimate": 1.8129377585967725,
+          "boot_mean": 1.685176399334453,
+          "boot_bias": -0.12776135926231946,
+          "boot_se": 0.22608014005000324,
+          "ci": [
+            1.2931041822519755,
+            1.9592168702656794
+          ],
+          "method": "percentile, customer-clustered bootstrap",
+          "pct_of": "asbuilt_level",
+          "covers": "input"
+        },
+        "level_gbp": {
+          "estimate": 769612.7302862497,
+          "se": 43183.855153612545,
+          "rse": 0.05611114974352198,
+          "ci": [
+            684973.9294715747,
+            854251.5311009246
+          ],
+          "method": "delta: the as-built level is proportional to the total over the calendar span, SE of the total clustered by customer",
+          "boot_ci": [
+            693596.7301161481,
+            868455.1718603105
+          ],
+          "boot_se": 46348.402601982,
+          "covers": "input"
+        },
+        "lift_gbp": {
+          "estimate": 13952.599782326957,
+          "se": 2090.923785299407,
+          "ci": [
+            9854.464468721959,
+            18050.735095931956
+          ],
+          "method": "delta: lift = level x fraction; var = f^2 var(L) + L^2 var_boot(f) + 2 L f cov_boot(L, f)",
+          "boot_ci": [
+            9452.002227975334,
+            16263.89482479799
+          ],
+          "boot_se": 2082.9851190220243,
+          "covers": "input"
+        },
+        "ga_minus_rs": {
+          "pct": {
+            "estimate": 0.28997607471880044,
+            "boot_mean": 0.16459243664306755,
+            "boot_bias": -0.12538363807573288,
+            "boot_se": 0.2213583696731268,
+            "ci": [
+              -0.36779024078036276,
+              0.39579740615898573
+            ],
+            "method": "percentile, customer-clustered bootstrap",
+            "pct_of": "comparator_level",
+            "covers": "input"
+          },
+          "gbp": {
+            "estimate": 2265.5823402504902,
+            "se": 1766.0522176882066,
+            "ci": [
+              -1195.816401235486,
+              5726.981081736467
+            ],
+            "method": "delta: margin = level x fraction of the as-built level; var = f^2 var(L) + L^2 var_boot(f) + 2 L f cov_boot(L, f)",
+            "boot_ci": [
+              -2770.669039920136,
+              3133.4644150326526
+            ],
+            "boot_se": 1732.9206769831292,
+            "covers": "input"
+          },
+          "n_boot_ga_ahead": 168
+        },
+        "ga_minus_sa": {
+          "pct": {
+            "estimate": 0.5293758868072194,
+            "boot_mean": 0.4725970454660283,
+            "boot_bias": -0.056778841341191044,
+            "boot_se": 0.16124261802585965,
+            "ci": [
+              0.2694598278034236,
+              0.8814992038257613
+            ],
+            "method": "percentile, customer-clustered bootstrap",
+            "pct_of": "comparator_level",
+            "covers": "input"
+          },
+          "gbp": {
+            "estimate": 4126.163002777379,
+            "se": 1295.661247851914,
+            "ci": [
+              1586.7136208234033,
+              6665.612384731355
+            ],
+            "method": "delta: margin = level x fraction of the as-built level; var = f^2 var(L) + L^2 var_boot(f) + 2 L f cov_boot(L, f)",
+            "boot_ci": [
+              2133.4910880728717,
+              7006.561296644257
+            ],
+            "boot_se": 1286.3027953741682,
+            "covers": "input"
+          },
+          "n_boot_ga_ahead": 199
+        }
+      },
+      "stocked": {
+        "pct_lift": {
+          "estimate": 1.8129377585967985,
+          "boot_mean": 1.6851763993344526,
+          "boot_bias": -0.12776135926234589,
+          "boot_se": 0.22608014005000035,
+          "ci": [
+            1.293104182251964,
+            1.9592168702656751
+          ],
+          "method": "percentile, customer-clustered bootstrap",
+          "pct_of": "asbuilt_level",
+          "covers": "input"
+        },
+        "level_gbp": {
+          "estimate": 17020.223750043366,
+          "se": 452.74310923435155,
+          "rse": 0.026600303020881146,
+          "ci": [
+            16132.863561695352,
+            17907.583938391377
+          ],
+          "method": "delta: the as-built level is proportional to the total over the calendar span, SE of the total clustered by customer",
+          "boot_ci": [
+            16257.483710506227,
+            17869.95815270115
+          ],
+          "boot_se": 453.2292123505968,
+          "covers": "input"
+        },
+        "lift_gbp": {
+          "estimate": 308.56606296219616,
+          "se": 40.33934359363171,
+          "ci": [
+            229.50240235869143,
+            387.6297235657009
+          ],
+          "method": "delta: lift = level x fraction; var = f^2 var(L) + L^2 var_boot(f) + 2 L f cov_boot(L, f)",
+          "boot_ci": [
+            217.7550410010101,
+            336.8841430802407
+          ],
+          "boot_se": 40.06325945923334,
+          "covers": "input"
+        },
+        "ga_minus_rs": {
+          "pct": {
+            "estimate": 0.2899760747188043,
+            "boot_mean": 0.16459243664306564,
+            "boot_bias": -0.12538363807573868,
+            "boot_se": 0.2213583696731262,
+            "ci": [
+              -0.36779024078038147,
+              0.39579740615898423
+            ],
+            "method": "percentile, customer-clustered bootstrap",
+            "pct_of": "comparator_level",
+            "covers": "input"
+          },
+          "gbp": {
+            "estimate": 50.10405472485945,
+            "se": 38.592585238224274,
+            "ci": [
+              -25.536022412352267,
+              125.74413186207117
+            ],
+            "method": "delta: margin = level x fraction of the as-built level; var = f^2 var(L) + L^2 var_boot(f) + 2 L f cov_boot(L, f)",
+            "boot_ci": [
+              -63.8212777325123,
+              68.05458352514316
+            ],
+            "boot_se": 38.17776554271144,
+            "covers": "input"
+          },
+          "n_boot_ga_ahead": 168
+        },
+        "ga_minus_sa": {
+          "pct": {
+            "estimate": 0.5293758868072417,
+            "boot_mean": 0.47259704546602743,
+            "boot_bias": -0.05677884134121425,
+            "boot_se": 0.16124261802585818,
+            "ci": [
+              0.26945982780342653,
+              0.8814992038257393
+            ],
+            "method": "percentile, customer-clustered bootstrap",
+            "pct_of": "comparator_level",
+            "covers": "input"
+          },
+          "gbp": {
+            "estimate": 91.25137198588709,
+            "se": 27.861114361096412,
+            "ci": [
+              36.644591268986446,
+              145.85815270278772
+            ],
+            "method": "delta: margin = level x fraction of the as-built level; var = f^2 var(L) + L^2 var_boot(f) + 2 L f cov_boot(L, f)",
+            "boot_ci": [
+              46.88350074322799,
+              148.57644871156367
+            ],
+            "boot_se": 27.69847900219781,
+            "covers": "input"
+          },
+          "n_boot_ga_ahead": 199
+        }
+      },
+      "scale_ratio": 0.022115309531993924
+    },
+    "uncertainty_layers": {
+      "input": "this runner: customer-clustered bootstrap of the invoices, each replicate recalibrated and re-keyed onto the same fixtures, the layouts held fixed and scored in closed form",
+      "monte_carlo": "not here (closed-form scoring has none); Figure C's paired held-out replicates cover the evaluation noise of its Monte Carlo lift and margins",
+      "search_seed": "not here (the layouts are fixed, from one search per method at --ga-seed); run_real_data_seeds covers the search-to-search spread"
+    },
+    "totals": {
+      "whole": {
+        "total": 19088647.59,
+        "se": 1071085.96332381
+      },
+      "stocked": {
+        "total": 422151.3499999999,
+        "se": 11229.353830674052
+      }
+    },
+    "absent_fixtures": {
+      "max": 0,
+      "mean": 0.0,
+      "full_data": 0
+    },
+    "anonymous": {
+      "customer_id_available": true,
+      "anonymous_invoice_frac_all": 0.07445534462988916,
+      "anonymous_revenue_frac_all": 0.13494565908113132,
+      "n_with_placed": 31196,
+      "n_anonymous_with_placed": 1980,
+      "invoice_share": 0.06346967559943582,
+      "purchase_share": 0.18308715536078904,
+      "revenue_share": 0.1684770876606222,
+      "mean_size_anonymous": 15.487878787878788,
+      "mean_size_identified": 4.683324205914567,
+      "mean_revenue_anonymous": 35.92062121212121,
+      "mean_revenue_identified": 12.014941128148958
+    },
+    "legacy_floor_bias": {
+      "meaning": "how far the former floored-normal spend law raised each layout's expected revenue over horizon_days above the exact mean, and the lift's bias (GA minus as-built); frac_of_* divide by the exact quantity",
+      "horizon_days": 30,
+      "current_inputs": {
+        "inputs": "this run's calibration (adapter 1.2 cleaning: reversal pairs removed)",
+        "asbuilt": 99.15858861704156,
+        "spend_cv": 2.3209750688902644,
+        "ga": 94.08514559662379,
+        "rs": 94.79340222001805,
+        "sa": 95.56233402785949,
+        "lift": -5.07344302041777,
+        "frac_of_asbuilt_level": 0.00012884218869425474,
+        "frac_of_lift": -0.00036361990593638616
+      },
+      "adapter_1_1_inputs": {
+        "inputs": "the same rows cleaned as adapter 1.1 cleaned them (cancellation lines dropped, the purchases they reverse kept) -- the inputs of the numbers published before adapter 1.2 -- re-keyed onto this run's fixtures and scored at this run's layouts (the published layouts were not stored)",
+        "cleaning": {
+          "cancellation_lines": 19165,
+          "reversal_pairs": 0,
+          "cancellation_lines_anonymous": 0,
+          "cancellation_lines_unmatched": 19165,
+          "reversal_matching": false,
+          "reversed_purchase_lines_removed": 0,
+          "reversed_units_removed": 0.0,
+          "reversed_revenue_removed": 0.0
+        },
+        "n_absent_fixtures": 0,
+        "asbuilt": 1039.105957914656,
+        "spend_cv": 3.02015165213725,
+        "ga": 1007.1000085882907,
+        "rs": 1011.7680103471466,
+        "sa": 1016.4951085502672,
+        "lift": -32.00594932636534,
+        "frac_of_asbuilt_level": 0.0013082962348344564,
+        "frac_of_lift": -0.002223192093468484
+      }
+    },
+    "feasibility": {
+      "invariants": {
+        "baseline": {
+          "n_outside_zone": 0,
+          "n_overlap": 0,
+          "n_clearance": 0,
+          "n_unshoppable": 0,
+          "min_clearance_kept_apart_m": 1.6000000000000005,
+          "required_clearance_m": 1.6
+        },
+        "optimized": {
+          "n_outside_zone": 0,
+          "n_overlap": 0,
+          "n_clearance": 0,
+          "n_unshoppable": 0,
+          "min_clearance_kept_apart_m": 1.6000000000000005,
+          "required_clearance_m": 1.6
+        },
+        "rs": {
+          "n_outside_zone": 0,
+          "n_overlap": 0,
+          "n_clearance": 0,
+          "n_unshoppable": 0,
+          "min_clearance_kept_apart_m": 1.6000000000000005,
+          "required_clearance_m": 1.6
+        },
+        "sa": {
+          "n_outside_zone": 0,
+          "n_overlap": 0,
+          "n_clearance": 0,
+          "n_unshoppable": 0,
+          "min_clearance_kept_apart_m": 1.6000000000000005,
+          "required_clearance_m": 1.6
+        }
+      },
+      "repair_stats": {
+        "calls": 2110,
+        "aisle_clip_calls": 0,
+        "aisle_clip_items": 0,
+        "aisle_clip_max_m": 0.0,
+        "snap_zones": 18781,
+        "reach_single_file": 0,
+        "reach_as_built_zone": 0,
+        "reach_as_built_store": 0
+      },
+      "aisle_rule": {
+        "n_items": 108,
+        "n_zones": 15,
+        "n_zones_narrowed": 15,
+        "n_pairs_kept_apart": 105,
+        "min_aisle_m": 1.6,
+        "n_items_narrowed": 108,
+        "per_axis": {
+          "x": {
+            "n_items_narrowed": 96,
+            "zone_room_median_m": 1.9916666666666667,
+            "region_room_median_m": 0.49166666666666714,
+            "share_kept_median": 0.2468619246861928,
+            "share_kept_min": 0.2468619246861918
+          },
+          "y": {
+            "n_items_narrowed": 12,
+            "zone_room_median_m": 1.5000000000000007,
+            "region_room_median_m": 0.0,
+            "share_kept_median": 0.0,
+            "share_kept_min": 0.0
+          }
+        },
+        "area_share_kept_median_narrowed": 0.2468619246861927,
+        "area_share_kept_geomean_unpinned": 0.2878492878622345,
+        "n_items_pinned": 12
+      }
+    },
+    "store": {
+      "fingerprint": "8311616908a9a61c66e1b4e5e9eb0f0d6e4ed1666ffe391bb62ea09db7bf45e9",
+      "width_m": 42.1,
+      "height_m": 30.1,
+      "sections": 15,
+      "items_placed": 108
+    }
+  }
+}

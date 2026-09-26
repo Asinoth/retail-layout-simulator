@@ -8,13 +8,15 @@ calibrated against. We compare three primary distributions:
     per visit)
   * per-visit revenue (one unit of each stocked product on an invoice vs.
     one unit of each item a visit bought)
-  * inter-arrival time
+  * inter-arrival time -- informational, a test of the data: the
+    dataset's gaps, time-rescaled by the calibrated hour-of-day rate,
+    against Exp(1) (``_arrival_row``)
 
 Test choice:
   - **Kolmogorov-Smirnov 2-sample** for continuous-ish distributions
-    (basket size, revenue, inter-arrival). KS makes no distributional
-    assumption -- appropriate when the simulator's distribution is itself
-    empirical and may not match any known family.
+    (basket size, revenue, rescaled inter-arrival). KS makes no
+    distributional assumption -- appropriate when the simulator's
+    distribution is itself empirical and may not match any known family.
   - **Chi-square with a cluster permutation null** for the per-category
     purchases. Items bought on one trip are not independent draws -- a
     shopper who came for one department buys several of its products --
@@ -326,6 +328,23 @@ def cluster_permutation_chi2(sim_counts, ref_counts,
     inflates the item-level statistic -- and below 1 when a basket's
     purchases tend to avoid sharing a category. When the test cannot run,
     the numbers are NaN and ``reason`` says why.
+
+    Effect sizes go with the p-value, since a chi-square grows with the
+    sample and a tiny departure is significant on enough purchases. The
+    one to read is ``share_tv_distance``, the total-variation distance
+    between the two sides' category shares -- half the summed absolute
+    share differences, the share of one side's purchases that would have
+    to change category to match the other -- which does not depend on how
+    many purchases either side holds. ``cramers_v`` is sqrt(chi2 / N) over
+    the N purchases of the 2 x K table (min(2, K) - 1 = 1). In a two-sample
+    table it depends on the split as well as on the shares: with p the
+    first side's share of the purchases, chi2 / N = p (1 - p) sum_k
+    (s1_k - s2_k)^2 / m_k (m_k the pooled share), so the same share
+    difference gives a smaller V the more one side outweighs the other,
+    and V is not to be read against conventional benchmarks.
+    ``cramers_v_balanced`` = sqrt(chi2 / (4 N p (1 - p))) removes that
+    factor: it equals V at an even split and changes with the split only
+    through the pooled shares. ``sim_share_of_items`` is p.
     """
     if int(n_perm) < 1:
         raise ValueError("n_perm must be at least 1")
@@ -345,7 +364,11 @@ def cluster_permutation_chi2(sim_counts, ref_counts,
            'n_ref_clusters': int(ref.shape[0]),
            'n_items_sim': int(round(sim.sum())),
            'n_items_ref': int(round(ref.sum())),
-           'clustering_inflation': float('nan'), 'reason': ''}
+           'clustering_inflation': float('nan'),
+           'cramers_v': float('nan'), 'share_tv_distance': float('nan'),
+           'cramers_v_balanced': float('nan'),
+           'sim_share_of_items': float('nan'),
+           'reason': ''}
     if min(sim.shape[0], ref.shape[0]) < MIN_CATEGORY_CLUSTERS:
         out['reason'] = (f"Insufficient baskets (need >= "
                          f"{MIN_CATEGORY_CLUSTERS} on each side).")
@@ -375,12 +398,21 @@ def cluster_permutation_chi2(sim_counts, ref_counts,
         null[start:start + b] = pearson_chi2_two_rows(chosen @ pooled, col)
     tol = 1e-9 * max(abs(observed), 1.0)
     reached = int(np.count_nonzero(null >= observed - tol))
+    sim_tot = sim[:, used].sum(axis=0)
+    ref_tot = ref[:, used].sum(axis=0)
+    share = float(sim_tot.sum() / col.sum())
     out.update({
         'statistic': observed,
         'p_value': (1.0 + reached) / (1.0 + n_perm),
         'naive_p_value': float(sp_stats.chi2.sf(observed, df)),
         'df': df,
         'clustering_inflation': float(null.mean() / df),
+        'cramers_v': float(np.sqrt(observed / col.sum())),
+        'cramers_v_balanced': float(np.sqrt(
+            observed / (4.0 * col.sum() * share * (1.0 - share)))),
+        'sim_share_of_items': share,
+        'share_tv_distance': float(0.5 * np.abs(
+            sim_tot / sim_tot.sum() - ref_tot / ref_tot.sum()).sum()),
     })
     return out
 
@@ -559,6 +591,12 @@ def _item_field_map(shop, field: str) -> Dict[str, str]:
             if value is not None:
                 out.setdefault(f"F{fid}:{name}", str(value))
     return out
+
+
+def item_product_map(shop) -> Dict[str, str]:
+    """Item key -> product id over every floor, keyed like the live
+    counters (see ``_item_field_map``)."""
+    return _item_field_map(shop, 'product_id')
 
 
 def item_category_map(shop) -> Dict[str, str]:
@@ -915,38 +953,197 @@ def validate_against_simulation(params: CalibratedParams,
             f"fell in a category section"
             + (f"; busiest {top}." if top else "."))
 
-    # -- Inter-arrival time (currently informational only) --
-    # The simulator drives spawn via a Poisson process with an hour-of-day
-    # rate, not the dataset's empirical inter-arrival, so this test measures
-    # how well a homogeneous Poisson approximates the data, not the
-    # simulator itself. We report it for transparency.
-    obs_ia = params.inter_arrival_seconds
+    # -- Inter-arrival time (informational: a test of the data, not the
+    # simulator) --
+    # The simulator draws its arrivals from a Poisson process whose rate
+    # follows the hour-of-day profile, not from the dataset's empirical
+    # gaps, so this row asks whether the dataset's own arrivals are
+    # consistent with that process. It says nothing about the simulator's
+    # output.
+    obs_ia = np.asarray(params.inter_arrival_seconds, dtype=np.float64)
     if (not parametric) and obs_ia.size > 100:
-        # The reference is stamped at the source's own resolution. Invoice
-        # times in Online Retail II carry the minute only, so a share of the
-        # observed gaps is exactly zero; a continuous exponential reference
-        # has no mass there, and the KS distance would report the timestamp
-        # resolution instead of the arrival process.
-        step = _timestamp_resolution_s(obs_ia)
-        mean_gap = max(float(obs_ia.mean()), 1e-6)
-        times = np.cumsum(np.random.default_rng(0).exponential(
-            mean_gap, size=obs_ia.size + 1))
-        if step > 0:
-            times = np.floor(times / step) * step
-        sim_ia = np.diff(times)
-        note = ("Informational: tests whether the dataset's inter-arrival "
-                "times are approximately Poisson (the family the simulator "
-                "assumes)")
-        note += (f", against a reference stamped at the source's {step:g} s "
-                 f"resolution." if step > 0 else ".")
-        note += (" The reference rate is constant, while the data's rate (and "
-                 "the simulator's) varies by hour of day, so a rejection can "
-                 "come from that variation too.")
-        t = _ks_safe(obs_ia, sim_ia,
-                     name="Inter-arrival vs. Poisson reference", note=note)
+        t = _arrival_row(params, obs_ia)
         if t: res.tests.append(t)
 
     return res
+
+
+# --- The arrival row: time-rescaled gaps ----------------------------------
+
+# Name of the arrival row. The paper-macro generator finds it by the
+# 'inter-arrival' in it.
+ARRIVAL_TEST_NAME = "Inter-arrival (time-rescaled) vs. Exp(1)"
+# Seed of the arrival row's reference realisation: fixed, so a given
+# calibration always gets the same p-value.
+ARRIVAL_REFERENCE_SEED = 0
+# The null the arrival row tests, recorded with it.
+ARRIVAL_NULL = ("non-homogeneous Poisson process whose rate follows the "
+                "calibrated hour-of-day profile and is the same on every "
+                "trading day (the live simulator's arrival law)")
+
+
+def hourly_arrival_rates(params: CalibratedParams) -> Optional[np.ndarray]:
+    """Invoices per second in each hour of a trading day, from the
+    calibrated hour-of-day profile: n_invoices x share_h / (trading days x
+    3600). The rate a non-homogeneous Poisson process with that profile and
+    the same volume on every trading day runs at. None when the params
+    carry no profile or no trading-day count."""
+    hod = np.asarray(getattr(params, 'dwell_hour_distribution', ()),
+                     dtype=np.float64)
+    extra = getattr(params, 'calibration_extra', None) or {}
+    days = int(extra.get('n_trading_days') or 0)
+    if hod.size != 24 or hod.sum() <= 0 or days <= 0 or params.n_invoices <= 0:
+        return None
+    return float(params.n_invoices) * hod / hod.sum() / (days * 3600.0)
+
+
+def cumulative_intensity(t, rates: np.ndarray) -> np.ndarray:
+    """Integrated rate from midnight to time of day ``t`` (seconds), for a
+    rate that is constant within each hour (``rates``, 24 values per
+    second)."""
+    rates = np.asarray(rates, dtype=np.float64)
+    t = np.clip(np.asarray(t, dtype=np.float64), 0.0, 86400.0)
+    h = np.minimum((t // 3600.0).astype(np.int64), 23)
+    cum = np.concatenate([[0.0], np.cumsum(rates * 3600.0)])
+    return cum[h] + rates[h] * (t - 3600.0 * h)
+
+
+def time_rescaled_gaps(starts, gaps, rates: np.ndarray) -> np.ndarray:
+    """Each gap mapped through the integrated rate over it (the
+    time-rescaling theorem): the expected number of arrivals the hourly
+    rate puts inside the gap. Under a Poisson process with that rate the
+    rescaled gaps are independent Exp(1) -- a gap in a busy hour is divided
+    by a short local mean gap, one in a quiet hour by a long one, and a gap
+    that spans an hour boundary by the rates of both hours."""
+    starts = np.asarray(starts, dtype=np.float64)
+    gaps = np.asarray(gaps, dtype=np.float64)
+    return (cumulative_intensity(starts + gaps, rates)
+            - cumulative_intensity(starts, rates))
+
+
+def nhpp_reference_gaps(rates: np.ndarray, n_days: int, step: float,
+                        rng: np.random.Generator):
+    """Same-day gaps, and their start times, of a Poisson process running
+    at ``rates`` (per second, per hour of day) for ``n_days`` days, with
+    every arrival stamped down to ``step`` seconds as the source's
+    timestamps are. Within an hour a Poisson count of arrivals is placed
+    uniformly, which is exactly a Poisson process at that hour's rate."""
+    rates = np.asarray(rates, dtype=np.float64)
+    counts = rng.poisson(rates * 3600.0, size=(int(n_days), 24)).ravel()
+    day = np.repeat(np.repeat(np.arange(int(n_days)), 24), counts)
+    hour = np.repeat(np.tile(np.arange(24), int(n_days)), counts)
+    t = hour * 3600.0 + rng.random(int(counts.sum())) * 3600.0
+    if step > 0:
+        t = np.floor(t / step) * step
+    order = np.lexsort((t, day))
+    day, t = day[order], t[order]
+    same = day[1:] == day[:-1]
+    return t[:-1][same], np.diff(t)[same]
+
+
+def _homogeneous_reference_gaps(obs_ia: np.ndarray, step: float
+                                ) -> np.ndarray:
+    """Gaps of a constant-rate Poisson process at the data's mean gap,
+    stamped at ``step``: the reference the arrival row used before it
+    rescaled by the hourly rate, kept as a record beside it."""
+    mean_gap = max(float(obs_ia.mean()), 1e-6)
+    times = np.cumsum(np.random.default_rng(ARRIVAL_REFERENCE_SEED)
+                      .exponential(mean_gap, size=obs_ia.size + 1))
+    if step > 0:
+        times = np.floor(times / step) * step
+    return np.diff(times)
+
+
+def _cv(x: np.ndarray) -> Optional[float]:
+    x = np.asarray(x, dtype=np.float64)
+    if x.size < 2 or x.mean() <= 0:
+        return None
+    return float(x.std(ddof=1) / x.mean())
+
+
+def _arrival_row(params: CalibratedParams, obs_ia: np.ndarray
+                 ) -> Optional[GoodnessOfFit]:
+    """The arrival row: the dataset's same-day gaps, time-rescaled by the
+    calibrated hour-of-day rate, against an equally rescaled Poisson
+    reference at the same rates and timestamp resolution (review R47).
+
+    A gap measured in seconds mixes the process's variation over the day
+    with its randomness: a constant-rate reference then rejects a process
+    that is exactly Poisson at an hourly rate. Rescaling each gap by the
+    rate integrated over it removes the hour-of-day variation, so under the
+    null of ``ARRIVAL_NULL`` the rescaled gaps are Exp(1). The reference is
+    a realisation of that null -- an NHPP at the calibrated hourly rates
+    over as many days as the data trade on -- with each arrival stamped
+    down to the source's resolution (60 s on Online Retail II, where 7.6%
+    of the gaps are zero) and rescaled the same way, so the KS distance
+    does not report the timestamp resolution. What is left for the test to
+    see is what the null leaves out: a rate that differs between days
+    (weekdays, seasons), which makes the rescaled gaps over-dispersed
+    (coefficient of variation above 1), and arrivals that come in bursts.
+
+    Falls back to the former constant-rate reference, labelled as such,
+    when the params carry no gap start times or no hourly profile."""
+    step = _timestamp_resolution_s(obs_ia)
+    homogeneous = _ks_safe(obs_ia, _homogeneous_reference_gaps(obs_ia, step),
+                           name="Inter-arrival vs. Poisson reference")
+    starts = np.asarray(getattr(params, 'inter_arrival_start_s', ()),
+                        dtype=np.float64)
+    rates = hourly_arrival_rates(params)
+    extra_days = int((getattr(params, 'calibration_extra', None) or {})
+                     .get('n_trading_days') or 0)
+    if rates is None or starts.size != obs_ia.size:
+        if homogeneous is not None:
+            homogeneous.note = (
+                "Informational: tests whether the dataset's inter-arrival "
+                "times are those of a constant-rate Poisson process"
+                + (f", against a reference stamped at the source's {step:g} s "
+                   f"resolution." if step > 0 else ".")
+                + " The calibration carries no gap start times or no "
+                "hour-of-day profile, so the gaps could not be rescaled by "
+                "the hourly rate; a rejection can come from the rate's "
+                "variation over the day alone.")
+            homogeneous.extra = {'null': 'homogeneous Poisson process',
+                                 'rescaled': False,
+                                 'timestamp_step_s': float(step)}
+        return homogeneous
+
+    obs_rescaled = time_rescaled_gaps(starts, obs_ia, rates)
+    rng = np.random.default_rng(ARRIVAL_REFERENCE_SEED)
+    ref_starts, ref_gaps = nhpp_reference_gaps(rates, extra_days, step, rng)
+    ref_rescaled = time_rescaled_gaps(ref_starts, ref_gaps, rates)
+    note = ("Informational, a test of the data rather than the simulator: "
+            "the dataset's same-day inter-arrival gaps, each divided by the "
+            "local mean gap the calibrated hour-of-day rate implies (the "
+            "rate integrated over the gap), against a Poisson reference at "
+            "the same hourly rates over the same number of trading days. "
+            f"Null: {ARRIVAL_NULL}; under it the rescaled gaps are Exp(1).")
+    note += (f" Both sides are stamped at the source's {step:g} s resolution "
+             f"before rescaling." if step > 0 else "")
+    note += (f" Rescaled data: mean {obs_rescaled.mean():.3f}, coefficient "
+             f"of variation {_cv(obs_rescaled) or float('nan'):.3f} (Exp(1): "
+             f"1 and 1); a CV above 1 points to a rate that varies between "
+             f"days or to bursts, which the null leaves out.")
+    t = _ks_safe(obs_rescaled, ref_rescaled, name=ARRIVAL_TEST_NAME, note=note)
+    if t is None:
+        return None
+    t.extra = {
+        'null': ARRIVAL_NULL,
+        'rescaled': True,
+        'rescaling': 'rate integrated over each gap (time-rescaling)',
+        'timestamp_step_s': float(step),
+        'n_trading_days': int(extra_days),
+        'reference_seed': int(ARRIVAL_REFERENCE_SEED),
+        'n_reference_gaps': int(ref_rescaled.size),
+        'rescaled_mean': _json_float(obs_rescaled.mean()),
+        'rescaled_cv': _cv(obs_rescaled),
+        'reference_rescaled_mean': _json_float(ref_rescaled.mean()),
+        'reference_rescaled_cv': _cv(ref_rescaled),
+        'homogeneous_statistic': (None if homogeneous is None
+                                  else _json_float(homogeneous.statistic)),
+        'homogeneous_p_value': (None if homogeneous is None
+                                else _json_float(homogeneous.p_value)),
+    }
+    return t
 
 
 
@@ -1035,6 +1232,15 @@ def _category_basket_test(params: CalibratedParams, sim, pids
                  f"chi-square({r['df']}) tail, which treats every purchase as "
                  f"independent; the reassigned statistics average "
                  f"{r['clustering_inflation']:.2f} x its null mean).")
+    if np.isfinite(r['share_tv_distance']):
+        note += (f" Effect size: the category shares differ by a "
+                 f"total-variation distance of "
+                 f"{r['share_tv_distance']:.3f} (Cramer's V = "
+                 f"{r['cramers_v']:.3f} at a {100 * r['sim_share_of_items']:.0f}"
+                 f"% simulated share of the purchases, "
+                 f"{r['cramers_v_balanced']:.3f} balanced; V shrinks as "
+                 f"the split grows uneven, so it is not read against "
+                 f"conventional benchmarks).")
     if UNREFERENCED_CATEGORY in labels:
         note += (f" Categories no reference invoice touches are pooled into "
                  f"one column: {', '.join(unreferenced)}.")
@@ -1059,6 +1265,14 @@ def _category_basket_test(params: CalibratedParams, sim, pids
              'n_items_observed': int(r['n_items_ref']),
              'n_items_simulated': int(r['n_items_sim']),
              'clustering_inflation': _json_float(r['clustering_inflation']),
+             # Effect sizes beside the p-value (review R29): a chi-square
+             # grows with the purchases counted. The share distance is the
+             # one to read; V also depends on the split between the sides.
+             'share_tv_distance': _json_float(r['share_tv_distance']),
+             'effect_size_primary': 'share_tv_distance',
+             'cramers_v': _json_float(r['cramers_v']),
+             'cramers_v_balanced': _json_float(r['cramers_v_balanced']),
+             'sim_share_of_items': _json_float(r['sim_share_of_items']),
              'items_left_out': int(left_out),
              'visits_without_placed_item': int(empty)}
     return GoodnessOfFit(name=name, test=CATEGORY_TEST_KIND,

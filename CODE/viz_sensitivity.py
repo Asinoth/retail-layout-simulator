@@ -22,6 +22,45 @@ from sim_calibration import _calib, mc_engine
 from retail_literature import DEFAULT_WEEKEND_MULTIPLIER
 
 
+def interpretation_lines(pct):
+    """The INTERPRETATION block of the Sensitivity report.
+
+    It names no "largest" or "top" driver. Revenue is visitors (customers
+    per hour x operating hours) x conversion x spend per converter, plus a
+    small impulse term, so a +/-pct change in any of those four moves it
+    by about +/-pct on every store: which of them comes first is decided by
+    the impulse share and by clamps, not by the store, and the Optimize
+    report's tornado says the same (review R42). The tab is for exploring
+    the engine's local response; it feeds nothing else."""
+    p = f"{pct * 100:.0f}"
+    return [
+        "INTERPRETATION",
+        "-" * 44,
+        "  Revenue is the product of visitors",
+        "  (customers/hr x op. hours), conversion",
+        "  and spend per converter, plus a small",
+        "  impulse term. A +/-" + p + "% change in any of",
+        "  those four moves it by about +/-" + p + "% on",
+        "  any store, so their order above is set by",
+        "  the impulse share and the clamps and is",
+        "  not a finding about this store. The",
+        "  impulse bars are small because impulse",
+        "  spend is a small share of revenue.",
+        "",
+        # With a transactional calibration the visitor rate is derived as
+        # buyers / assumed conversion, so moving the conversion alone is a
+        # change in how many visitors buy, not in the assumed rate.
+        "  Conversion is varied at a fixed visitor",
+        "  rate. On a transactional calibration the",
+        "  visitor rate is buyers / assumed conversion,",
+        "  so this bar varies only one of the rate's",
+        "  two uses, not the assumption itself.",
+        "",
+        "  For exploration only: the optimizer's",
+        "  fitness does not read these swings.",
+    ]
+
+
 class SensitivityMixin:
     """Sensitivity analysis tab."""
 
@@ -298,21 +337,7 @@ class SensitivityMixin:
             lines.append("  than shown with no influence on revenue.")
             lines.append("")
 
-        lines.append("INTERPRETATION")
-        lines.append("-" * 44)
-        if sorted_t:
-            top = sorted_t[0][0]
-            lines.append(f"  '{top}' has the largest impact on")
-            lines.append(f"  projected revenue. A +/-{pct*100:.0f}% change")
-            lines.append(f"  in this parameter swings revenue by")
-            lines.append(f"  ${sorted_t[0][1]['swing']:,.2f}.")
-            lines.append("")
-            if len(sorted_t) >= 3:
-                top3 = [s[0] for s in sorted_t[:3]]
-                lines.append(f"  Top 3 drivers: {', '.join(top3)}")
-                lines.append(f"  Together they account for"
-                             f" {sum(tornado[k]['swing'] for k in top3)/total_swing*100:.0f}%"
-                             f" of total sensitivity.")
+        lines.extend(interpretation_lines(pct))
 
         self._sa_text.config(state=tk.NORMAL)
         self._sa_text.delete('1.0', tk.END)

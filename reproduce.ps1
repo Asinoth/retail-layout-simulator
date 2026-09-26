@@ -9,7 +9,7 @@
   Full paper-grade regen:  .\reproduce.ps1 paper-grade                     (HOURS)
 
 .PARAMETER Target
-  deps | test | verify | smoke | figures-headless | macros | paper |
+  deps | deps-lock | test | verify | smoke | figures-headless | macros | paper |
   experiments-paper | paper-grade | help
 
 .PARAMETER Retail
@@ -24,8 +24,8 @@
   for any value; only wall time changes.
 #>
 param(
-  [ValidateSet('help','deps','test','verify','smoke','figures-headless','macros',
-               'paper','experiments-paper','paper-grade')]
+  [ValidateSet('help','deps','deps-lock','lock','test','verify','smoke','figures-headless',
+               'macros','paper','experiments-paper','paper-grade')]
   [string]$Target = 'help',
   [string]$Retail = $env:RETAIL,
   [int]$Workers = $(if ($env:WORKERS) { [int]$env:WORKERS } else { 1 })
@@ -53,7 +53,11 @@ function Invoke-Native($exe, [string[]]$argv) {
 }
 
 function Do-Deps    { Invoke-Native $PY @('-m','pip','install','-r',(Join-Path $Root 'requirements.txt')) }
-function Do-Test    { Invoke-In $Code @('-m','pytest','-q','tests/') }
+# The environment the experiments ran in, every package pinned.
+function Do-DepsLock { Invoke-Native $PY @('-m','pip','install','-r',(Join-Path $Root 'requirements-lock.txt')) }
+# The whole resolved environment, pinned; every sidecar checks against it.
+function Do-Lock    { Invoke-In $Code @('environment_lock.py') }
+function Do-Test    { Invoke-In $Code @('-m','pytest','-q','-rfE','tests/') }
 function Do-Smoke {
   Invoke-In $Code @('-m','experiments.run_synthetic_gt','--n-scenarios','3',
     '--n-seeds','2','--mc-iters','200','--n-gens','8','--pop-size','16',
@@ -100,27 +104,47 @@ function Do-ExperimentsPaper {
   Invoke-In $Code @('-m','experiments.run_mc_groundtruth','--n-scenarios','6',
     '--normal-budget','750','--big-budget','7500','--mc-iters','1000',
     '--workers',"$Workers")
-  Invoke-In $Code @('-m','experiments.run_ga_sensitivity','--n-scenarios','3',
-    '--n-seeds','2','--n-gens','25','--mc-iters','800')
+  Invoke-In $Code @('-m','experiments.run_ga_sensitivity','--n-scenarios','10',
+    '--n-seeds','3','--n-gens','25','--pop-size','30','--mc-iters','800',
+    '--workers',"$Workers")
   Invoke-In $Code @('-m','experiments.run_elasticity_lhs','--n-scenarios','12',
     '--n-seeds','3','--n-draws','256','--n-gens','15','--pop-size','24',
     '--mc-iters','500','--workers',"$Workers")
+  Invoke-In $Code @('-m','experiments.run_objective_alignment',
+    '--workers',"$Workers")
   Invoke-In $Code @('-m','experiments.make_paper_figures')
+  Invoke-In $Code (@('-m','experiments.run_live_protocol_study',
+    '--workers',"$Workers") + $RetailArg)
   Invoke-In $Code (@('-m','experiments.run_abm_diagnostics','--reps','10',
     '--workers',"$Workers") + $RetailArg)
   Invoke-In $Code (@('-m','experiments.run_structural_sensitivity',
     '--workers',"$Workers") + $RetailArg)
+  Invoke-In $Code (@('-m','experiments.run_structural_exit_check') + $RetailArg)
   Invoke-In $Code (@('-m','experiments.measure_queueing',
     '--workers',"$Workers") + $RetailArg)
   Invoke-In $Code (@('-m','experiments.run_validation_gof',
     '--workers',"$Workers") + $RetailArg)
+  Invoke-In $Code (@('-m','experiments.make_heatmap_figure') + $RetailArg)
+  Invoke-In $Code (@('-m','experiments.profile_uci') + $RetailArg)
   Invoke-In $Code (@('-m','experiments.run_real_data_example') + $RetailArg)
+  Invoke-In $Code (@('-m','experiments.run_real_data_example',
+    '--exclude-anonymous') + $RetailArg)
+  Invoke-In $Code @('-m','experiments.run_figc_rescore')
+  Invoke-In $Code (@('-m','experiments.make_layout_figure') + $RetailArg)
   Invoke-In $Code (@('-m','experiments.run_real_data_seeds',
+    '--workers',"$Workers") + $RetailArg)
+  Invoke-In $Code (@('-m','experiments.run_real_data_budget',
+    '--workers',"$Workers") + $RetailArg)
+  Invoke-In $Code (@('-m','experiments.run_input_uncertainty',
+    '--workers',"$Workers") + $RetailArg)
+  Invoke-In $Code (@('-m','experiments.run_heldout_transfer',
     '--workers',"$Workers") + $RetailArg)
 }
 
 switch ($Target) {
   'deps'              { Do-Deps }
+  'deps-lock'         { Do-DepsLock }
+  'lock'              { Do-Lock }
   'test'              { Do-Test }
   'verify'            { Do-Verify }
   'smoke'             { Do-Smoke }
@@ -129,12 +153,13 @@ switch ($Target) {
   'paper'             { Do-Paper }
   'experiments-paper' { Do-ExperimentsPaper }
   # restyle_figures, macros and the paper read what the experiment runs
-  # write, so they run after them. The figures CODE/make_gui_figures.py
-  # draws (the GUI screenshots and the emergent heat map) are the only
-  # ones not regenerated here: they need a display.
+  # write, so they run after them. The GUI screenshots
+  # CODE/make_gui_figures.py draws are the only figures not regenerated
+  # here: they need a display. The emergent heat map comes from a seeded
+  # headless run (experiments.make_heatmap_figure, in experiments-paper).
   'paper-grade'       { Do-ExperimentsPaper; Do-FiguresHeadless; Do-Macros; Do-Paper }
   default {
-    Write-Host 'Targets: deps test verify smoke figures-headless macros paper experiments-paper paper-grade'
+    Write-Host 'Targets: deps deps-lock lock test verify smoke figures-headless macros paper experiments-paper paper-grade'
     Write-Host 'Options: -Retail <workbook path> (default: discovered), -Workers <n> (default: 1)'
   }
 }

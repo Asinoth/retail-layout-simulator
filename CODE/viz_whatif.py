@@ -68,19 +68,18 @@ class WhatIfMixin:
         self._ab_days = tk.IntVar(value=30)
         tk.Entry(ctrl, textvariable=self._ab_days, **ent_kw).grid(row=0, column=8, padx=3)
 
-        tk.Label(ctrl, text="Significance:", **lbl_kw).grid(row=0, column=9, padx=3)
-        self._ab_alpha = tk.DoubleVar(value=0.05)
-        tk.Entry(ctrl, textvariable=self._ab_alpha, **ent_kw).grid(row=0, column=10, padx=3)
-
+        # No significance level: the comparison reports the paired lift with
+        # its Monte Carlo interval, and no test decides anything
+        # (layout_comparison).
         self._ab_progress = tk.StringVar(value="")
         tk.Label(ctrl, textvariable=self._ab_progress, fg='#4ECDC4',
-                 bg='#002747', font=('Arial', 10, 'bold')).grid(row=0, column=12, padx=8)
+                 bg='#002747', font=('Arial', 10, 'bold')).grid(row=0, column=10, padx=8)
 
         tk.Button(
             ctrl, text="Run A/B Comparison", command=self._run_ab_comparison,
             bg='#27ae60', fg='white', font=('Arial', 11, 'bold'),
             relief=tk.RAISED, bd=3
-        ).grid(row=0, column=11, padx=10)
+        ).grid(row=0, column=9, padx=10)
 
         body = tk.Frame(tab, bg='#002747')
         body.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
@@ -209,6 +208,56 @@ class WhatIfMixin:
                 except Exception:
                     pass
 
+    def _whatif_comparison(self, n_iter, n_days, seed):
+        """The What-If comparison of snapshots A and B, without any Tk.
+
+        Both layouts are differenced against the same anchor: the layout on
+        the floor as the comparison starts, which reproduces the calibrated
+        conversion, basket and spend, as it does in the Optimize pipeline
+        and the GA tab. The anchor and both layouts are scored here, before
+        any Monte Carlo run, so a simulation still adding to the heat map
+        cannot score them under different analytics. A floor with no
+        movable items scores zero, so its anchor is zero -- stated
+        explicitly, since the objective refuses parameters without one.
+
+        Both layouts are projected under snapshot A's calibrated inputs, so
+        they differ by the layout alone even if the simulation ran between
+        the two snapshots, through the same score -> driver transform as
+        the Optimize pipeline and the headless experiments (the band
+        midpoints; ``_opt_layout_drivers``), and compared under common
+        random numbers (``layout_comparison.paired_comparison``). Both
+        arms run ``mc_engine`` itself, so a day's spend is the engine's
+        law (retail_literature MC_SPEND_LAW, the moment-matched lognormal
+        of ``sim_calibration.lognormal_spend_total``), not a zero-floored
+        normal.
+
+        Returns the comparison with each arm's score and drivers added."""
+        from layout_objective import make_anchor
+        from layout_comparison import paired_comparison
+
+        params = self._snapshots['A']['params']
+        names_now = self._ga_get_movable_items()
+        anchor = (self._ga_score_anchor(names_now, params,
+                                        source='floor_at_whatif_start')
+                  if names_now
+                  else make_anchor(0.0, {}, source='empty_floor_at_whatif_start'))
+        ab_scores = {label: self._ab_layout_score(self._snapshots[label],
+                                                  with_breakdown=True)
+                     for label in ('A', 'B')}
+        drivers = {label: self._opt_layout_drivers(*ab_scores[label], params,
+                                                   anchor=anchor)
+                   for label in ('A', 'B')}
+        kws = {label: self._opt_layout_mc_kwargs(*ab_scores[label], params,
+                                                 n_days=n_days, n_iter=n_iter,
+                                                 anchor=anchor)
+               for label in ('A', 'B')}
+        result = paired_comparison(kws['A'], kws['B'], seed)
+        result['scores'] = {label: float(ab_scores[label][0])
+                            for label in ('A', 'B')}
+        result['drivers'] = drivers
+        result['anchor'] = anchor
+        return result
+
     def _run_ab_comparison(self):
         if 'A' not in self._snapshots or 'B' not in self._snapshots:
             messagebox.showwarning("Missing Snapshots",
@@ -218,234 +267,74 @@ class WhatIfMixin:
 
         n_iter = max(500, self._ab_iters.get())
         n_days = max(1, self._ab_days.get())
-        alpha = max(0.001, min(self._ab_alpha.get(), 0.5))
 
-        from retail_literature import DEFAULT_WEEKEND_MULTIPLIER as _WKND
-
-        # Both layouts are drawn from the same random stream, restarted per
-        # label, so two identical layouts compare exactly equal instead of
-        # differing by Monte Carlo noise. The binomial draws consume a
-        # parameter-dependent number of variates, so once the layouts differ
-        # the two streams drift apart and the draws are close to
-        # independent; the interval below is valid either way.
-        ab_seed = int(np.random.randint(0, 2**31 - 1))
-
-        results = {}
-        for label in ['A', 'B']:
-            self._ab_progress.set(f"Running MC for layout {label}...")
-            self.tk_root.update_idletasks()
-
-            snap = self._snapshots[label]
-            p = snap['params']
-            score, score_bkd = self._ab_layout_score(snap, with_breakdown=True)
-
-            # The same score -> parameter transform as the optimize pipeline
-            # and the GA fitness: conversion, the impulse component of the
-            # score, layout-induced abandonment, and basket size as a
-            # revenue-per-converter multiplier. Evaluated at the midpoint of
-            # each cited elasticity band (the pipeline uses its
-            # sensitivity-derived weights instead), so a layout pair gets
-            # comparable lifts here and in the Optimize report.
-            mid_weights = {'Conversion rate': 0.5, 'Impulse rate': 0.5,
-                           'Basket size': 0.5}
-            conv_adj, imp_adj, _bsk_adj, rev_mult = self._opt_layout_revenue_params(
-                score, score_bkd, p, mid_weights, p['conversion_rate'])
-            rev_mean = p['rev_per_converting_customer'] * rev_mult
-            rev_sd   = max(p['rev_std'] * rev_mult, 0.01)
-
-            day_mult = np.ones(7)
-            day_mult[5] = _WKND
-            day_mult[6] = _WKND
-
-            rs = np.random.RandomState(ab_seed)
-            daily_rev = np.zeros((n_iter, n_days))
-            for d in range(n_days):
-                dow = d % 7
-                lam = max(p['customers_per_hour'] * 10.0 * day_mult[dow], 0.1)
-                n_cust = rs.poisson(lam, n_iter)
-                n_conv = rs.binomial(n_cust, conv_adj)
-                # A day's spend is the sum of n independent per-customer
-                # draws, N(n*mu, sqrt(n)*sigma), as in mc_engine; scaling a
-                # single draw by n would inflate the spread by sqrt(n).
-                nc = n_conv.astype(np.float64)
-                base = np.where(
-                    n_conv > 0,
-                    rs.normal(nc * rev_mean, np.sqrt(nc) * rev_sd, n_iter),
-                    0.0
-                )
-                base = np.maximum(base, 0.0)
-                n_imp = rs.binomial(np.maximum(n_conv, 0), imp_adj)
-                ni = n_imp.astype(np.float64)
-                imp_std = p.get('impulse_value_std', p['avg_impulse_value'] * 0.3)
-                imp = np.where(
-                    n_imp > 0,
-                    rs.normal(ni * max(p['avg_impulse_value'], 0.01),
-                              np.sqrt(ni) * max(imp_std, 0.01), n_iter),
-                    0.0
-                )
-                imp = np.maximum(imp, 0.0)
-                daily_rev[:, d] = base + imp
-
-            totals = daily_rev.sum(axis=1)
-            results[label] = {
-                'totals': totals,
-                'daily_rev': daily_rev,
-                'mean': totals.mean(),
-                'std': totals.std(),
-                'median': np.median(totals),
-                'p5': np.percentile(totals, 5),
-                'p95': np.percentile(totals, 95),
-                'daily_means': daily_rev.mean(axis=0),
-                'score': score,
-                'conv_adj': conv_adj,
-                'imp_adj': imp_adj,
-            }
-
-        self._ab_progress.set("Running statistical tests...")
+        self._ab_progress.set("Running paired Monte Carlo...")
         self.tk_root.update_idletasks()
-
-        t_stat, p_value = sp_stats.ttest_ind(
-            results['A']['totals'], results['B']['totals'],
-            equal_var=False
-        )
-
-        ks_stat, ks_p = sp_stats.ks_2samp(
-            results['A']['totals'], results['B']['totals']
-        )
-
-        pooled_std = np.sqrt(
-            (results['A']['std'] ** 2 + results['B']['std'] ** 2) / 2
-        )
-        cohens_d = (results['B']['mean'] - results['A']['mean']) / max(pooled_std, 1e-6)
-
-        significant = p_value < alpha
-
-        n_b_wins = np.sum(results['B']['totals'] > results['A']['totals'])
-        p_b_better = n_b_wins / n_iter * 100
-
-        # Iteration i of A and of B come from the same stream position, and
-        # the pairs are independent across iterations, so the bootstrap of
-        # the paired differences is an interval for the mean lift under the
-        # model. The verdict below only names a direction when that interval
-        # stays on one side of zero.
-        diffs = results['B']['totals'] - results['A']['totals']
-        rng_bs = np.random.default_rng(ab_seed)
-        boots = np.array([
-            rng_bs.choice(diffs, size=diffs.size, replace=True).mean()
-            for _ in range(2000)])
-        lift_mean = float(diffs.mean())
-        lift_ci95 = (float(np.percentile(boots, 2.5)),
-                     float(np.percentile(boots, 97.5)))
-
-        test_results = {
-            't_stat': t_stat, 'p_value': p_value,
-            'ks_stat': ks_stat, 'ks_p': ks_p,
-            'cohens_d': cohens_d, 'significant': significant,
-            'alpha': alpha, 'p_b_better': p_b_better,
-            'lift_mean': lift_mean, 'lift_ci95': lift_ci95,
-        }
-
-        self._display_ab_results(results, test_results, n_days, n_iter)
+        # The seed is printed with the result, so a comparison can be
+        # reproduced exactly.
+        seed = int(np.random.randint(0, 2**31 - 1))
+        result = self._whatif_comparison(n_iter, n_days, seed)
+        self._display_ab_results(result)
         self._ab_progress.set("Done.")
 
-    def _display_ab_results(self, results, tests, n_days, n_iter):
-        ra = results['A']
-        rb = results['B']
-        delta = rb['mean'] - ra['mean']
-        pct = delta / max(ra['mean'], 1e-6) * 100
+    def _display_ab_results(self, result):
+        from layout_comparison import comparison_lines
+        ra = result['A']
+        rb = result['B']
+        p = result['paired']
+        n_days = result['n_days']
+        da, db = result['drivers']['A'], result['drivers']['B']
+        winner = result['direction']
+        lvl = int(round(p['level'] * 100))
 
-        sig_str = "YES" if tests['significant'] else "NO"
-        effect = ("Large" if abs(tests['cohens_d']) >= 0.8 else
-                  "Medium" if abs(tests['cohens_d']) >= 0.5 else
-                  "Small" if abs(tests['cohens_d']) >= 0.2 else "Negligible")
-
-        lines= [
+        lines = [
             "=" * 52,
             "   WHAT-IF A/B COMPARISON REPORT",
             "=" * 52,
             "",
-            f"  MC iterations:     {n_iter:,}",
+            f"  MC iterations:     {result['n_iter']:,} paired draws",
             f"  Projection:        {n_days} days",
-            f"  Significance:      alpha = {tests['alpha']}",
-            f"  Elasticities:      band midpoints (the Optimize report",
-            f"                     uses its sensitivity-derived weights)",
-            f"  Random numbers:    one stream shared by A and B",
+            "  Elasticities:      midpoints of the cited bands",
+            "                     (as in the Optimize pipeline and",
+            "                     the headless experiments)",
+            "  Anchor:            the layout on the floor at the start;",
+            "                     it reproduces the calibrated inputs",
+            "  Inputs:            snapshot A's calibration, for both",
+            f"  Random numbers:    common to A and B (seed {result['seed']})",
             "",
             "REVENUE SUMMARY ({}-day total)".format(n_days),
             "-" * 52,
             f"  {'Metric':<22s} {'Layout A':>12s} {'Layout B':>12s}",
             f"  {'Mean':.<22s} ${ra['mean']:>11,.2f} ${rb['mean']:>11,.2f}",
+            f"  {'Exact mean (model)':.<22s} ${ra['exact_mean']:>11,.2f} "
+            f"${rb['exact_mean']:>11,.2f}",
             f"  {'Median':.<22s} ${ra['median']:>11,.2f} ${rb['median']:>11,.2f}",
             f"  {'Std Dev':.<22s} ${ra['std']:>11,.2f} ${rb['std']:>11,.2f}",
             f"  {'5th pct':.<22s} ${ra['p5']:>11,.2f} ${rb['p5']:>11,.2f}",
             f"  {'95th pct':.<22s} ${ra['p95']:>11,.2f} ${rb['p95']:>11,.2f}",
+            "  (the spread of simulated outcomes, not the",
+            "   uncertainty of the lift)",
             "",
-            f"  Delta (B - A):     ${delta:>+12,.2f}  ({pct:+.1f}%)",
-            f"  Daily delta:       ${delta / n_days:>+12,.2f}",
-            f"  Annual projection: ${delta / n_days * 365:>+12,.0f}",
-            "",
-            "STATISTICAL TESTS",
+            "PAIRED LIFT",
             "-" * 52,
-            f"  Welch's t-test:",
-            f"    t-statistic:     {tests['t_stat']:.4f}",
-            f"    p-value:         {tests['p_value']:.6f}",
-            f"    p < alpha:       {sig_str} (alpha={tests['alpha']})",
-            "",
-            f"  KS test:",
-            f"    KS statistic:    {tests['ks_stat']:.4f}",
-            f"    p-value:         {tests['ks_p']:.6f}",
-            "",
-            f"  Effect Size:",
-            f"    Cohen's d:       {tests['cohens_d']:.4f}  ({effect})",
-            f"    P(B > A):        {tests['p_b_better']:.1f}%",
+        ]
+        lines += comparison_lines(result, 'A', 'B')
+        lines += [
+            f"  Daily delta:       ${p['lift_mean'] / n_days:>+12,.2f}",
+            f"  Annual projection: ${p['lift_mean'] / n_days * 365:>+12,.0f}",
             "",
             "LAYOUT QUALITY SCORES",
             "-" * 52,
-            f"  Layout A score:    {ra['score']:.4f}",
-            f"  Layout B score:    {rb['score']:.4f}",
-            f"  Conv rate A:       {ra['conv_adj']:.4f}",
-            f"  Conv rate B:       {rb['conv_adj']:.4f}",
-            f"  Impulse rate A:    {ra['imp_adj']:.4f}",
-            f"  Impulse rate B:    {rb['imp_adj']:.4f}",
-            "",
-            "VERDICT",
-            "-" * 52,]
-
-        # Both layouts are simulated under parameters that differ by
-        # construction, so p shrinks with the MC iteration count and says
-        # nothing about a real-world effect; the verdict reports magnitude
-        # and only names a direction the paired-lift interval supports.
-        # With thousands of iterations that interval excludes zero even for
-        # changes too small to matter, so a winner is also
-        # required to move the mean by at least a small effect (|d| >= 0.2)
-        # relative to the spread of simulated outcomes.
-        lift_mean = tests.get('lift_mean', delta)
-        lift_ci = tests.get('lift_ci95')
-        ahead = None
-        if lift_ci and lift_ci[0] > 0:
-            ahead = 'B'
-        elif lift_ci and lift_ci[1] < 0:
-            ahead = 'A'
-        winner = ahead if (ahead and abs(tests['cohens_d']) >= 0.2) else None
-        if winner:
-            lines.append(f"  Layout {winner} projects higher mean revenue")
-        elif ahead:
-            lines.append(f"  No practically relevant difference")
-            lines.append(f"  (Layout {ahead} is ahead beyond MC noise, but by")
-            lines.append(f"  less than 0.2 SD of the simulated outcomes)")
-        else:
-            lines.append(f"  No difference distinguishable from MC noise")
-        lines.append(f"  ({pct:+.1f}% B vs A, d={tests['cohens_d']:.3f}, {effect})")
-        lines.append(f"  Paired lift (B - A):  ${lift_mean:+,.2f}")
-        if lift_ci:
-            lines.append(f"  95% CI (MC precision under the model):")
-            lines.append(f"    ${lift_ci[0]:+,.2f}  to  ${lift_ci[1]:+,.2f}")
-        lines.append(f"  The interval covers MC precision under the")
-        lines.append(f"  model only, not real-world uncertainty")
-        lines.append(f"  about the change.")
-        lines.append(f"  p-values compare two simulated distributions")
-        lines.append(f"  and shrink as MC iterations grow; read the")
-        lines.append(f"  effect size, not p.")
+            f"  Layout A score:    {result['scores']['A']:.4f}",
+            f"  Layout B score:    {result['scores']['B']:.4f}",
+            f"  Anchor score:      {result['anchor']['score']:.4f}",
+            f"  Conv rate A:       {da['conv']:.4f}",
+            f"  Conv rate B:       {db['conv']:.4f}",
+            f"  Impulse rate A:    {da['imp_rate']:.4f}",
+            f"  Impulse rate B:    {db['imp_rate']:.4f}",
+            f"  Spend mult. A:     {da['rev_mult']:.4f}",
+            f"  Spend mult. B:     {db['rev_mult']:.4f}",
+        ]
 
         self._ab_text.config(state=tk.NORMAL)
         self._ab_text.delete('1.0', tk.END)
@@ -455,22 +344,24 @@ class WhatIfMixin:
         self._ab_fig.clear()
         wc = 'white'
 
+        # Spread of each layout's simulated totals. These overlap heavily
+        # whatever the lift, because a month's revenue varies far more than
+        # the layouts differ; the lift is read off the paired panel below.
         ax1 = self._ab_fig.add_subplot(2, 2, 1)
-        bins= np.linspace(
+        bins = np.linspace(
             min(ra['totals'].min(), rb['totals'].min()),
             max(ra['totals'].max(), rb['totals'].max()),
             50)
         ax1.hist(ra['totals'], bins=bins, alpha=0.6, color='#e74c3c',
                  label=f"A (mean=${ra['mean']:,.0f})", edgecolor='white', linewidth=0.3)
         ax1.hist(rb['totals'], bins=bins, alpha=0.6, color='#3498db',
-                 label=f"B (mean=${rb['mean']:,.0f})", edgecolor='white', linewidth=0.3)
+                 label=f"B (mean=${rb['mean']:,.0f})", edgecolor='white',
+                 linewidth=0.3, hatch='//')
         ax1.axvline(ra['mean'], color='#e74c3c', linewidth=2, linestyle='--')
-        ax1.axvline(rb['mean'], color='#3498db', linewidth=2, linestyle='--')
-        ax1.set_xlabel(f"{n_days}-Day Total Revenue ($)", color=wc, fontsize=9)
-        ax1.set_ylabel("Frequency", color=wc, fontsize=9)
-        # No significance marker: p here only tracks the MC iteration count.
-        title1 = f"Revenue Distributions"
-        ax1.set_title(title1, color=wc, fontsize=10)
+        ax1.axvline(rb['mean'], color='#3498db', linewidth=2, linestyle=':')
+        ax1.set_xlabel(f"Simulated {n_days}-day total ($)", color=wc, fontsize=9)
+        ax1.set_ylabel("Draws", color=wc, fontsize=9)
+        ax1.set_title("Spread of simulated outcomes", color=wc, fontsize=10)
         ax1.legend(fontsize=7)
         ax1.set_facecolor('#001a33')
         ax1.tick_params(colors=wc, labelsize=7)
@@ -478,54 +369,50 @@ class WhatIfMixin:
 
         ax2 = self._ab_fig.add_subplot(2, 2, 2)
         days = np.arange(1, n_days + 1)
-        ax2.plot(days, ra['daily_means'], color='#e74c3c', linewidth=1.5, label='A daily')
-        ax2.plot(days, rb['daily_means'], color='#3498db', linewidth=1.5, label='B daily')
-        cum_a = np.cumsum(ra['daily_means'])
-        cum_b = np.cumsum(rb['daily_means'])
-        ax2t = ax2.twinx()
-        ax2t.plot(days, cum_a, color='#e74c3c', linewidth=1, linestyle=':', alpha=0.6,
-                  label='A cumul.')
-        ax2t.plot(days, cum_b, color='#3498db', linewidth=1, linestyle=':', alpha=0.6,
-                  label='B cumul.')
-        ax2t.set_ylabel("Cumulative ($)", color=wc, fontsize=8)
-        ax2t.tick_params(colors=wc, labelsize=7)
+        ax2.plot(days, ra['daily_means'], color='#e74c3c', linewidth=1.5,
+                 marker='o', markersize=2.5, label='A daily')
+        ax2.plot(days, rb['daily_means'], color='#3498db', linewidth=1.5,
+                 linestyle='--', marker='s', markersize=2.5, label='B daily')
         ax2.set_xlabel("Day", color=wc, fontsize=9)
-        ax2.set_ylabel("Daily Revenue ($)", color=wc, fontsize=9)
-        ax2.set_title("Daily & Cumulative Revenue", color=wc, fontsize=10)
-        ax2.legend(fontsize=6, loc='upper left')
-        ax2t.legend(fontsize=6, loc='lower right')
+        ax2.set_ylabel("Mean daily revenue ($)", color=wc, fontsize=9)
+        ax2.set_title("Mean daily revenue", color=wc, fontsize=10)
+        ax2.legend(fontsize=7, loc='upper left')
         ax2.set_facecolor('#001a33')
         ax2.tick_params(colors=wc, labelsize=7)
         ax2.grid(True, alpha=0.15, color='white')
 
+        # The paired differences: what the lift and its interval come from.
         ax3 = self._ab_fig.add_subplot(2, 2, 3)
-        diff = rb['totals'] - ra['totals']
-        # Coloured by the verdict, not the sign of the mean difference.
+        diff = p['diffs']
         lift_color = {'B': '#2ecc71', 'A': '#e74c3c'}.get(winner, '#95a5a6')
         ax3.hist(diff, bins=50, color=lift_color,
                  alpha=0.7, edgecolor='white', linewidth=0.3)
         ax3.axvline(0, color='white', linewidth=1.5, linestyle='--')
-        ax3.axvline(diff.mean(), color='#f39c12', linewidth=2,
-                    label=f'Mean diff: ${diff.mean():+,.0f}')
-        pct_positive = (diff > 0).sum() / len(diff) * 100
-        ax3.set_xlabel("Revenue Difference B - A ($)", color=wc, fontsize=9)
-        ax3.set_ylabel("Frequency", color=wc, fontsize=9)
-        ax3.set_title(f"Lift Distribution (B>A in {pct_positive:.1f}% of sims)",
-                      color=wc,fontsize=10)
+        ax3.axvline(p['lift_mean'], color='#f39c12', linewidth=2,
+                    label=f"Mean: ${p['lift_mean']:+,.0f}")
+        ax3.axvspan(*p['lift_ci'], color='#f39c12', alpha=0.25,
+                    label=f"{lvl}% interval of the mean")
+        ax3.axvline(result['exact']['lift'], color='white', linewidth=1.2,
+                    linestyle=':', label=f"Exact: ${result['exact']['lift']:+,.0f}")
+        ax3.set_xlabel("Paired difference B - A ($)", color=wc, fontsize=9)
+        ax3.set_ylabel("Paired draws", color=wc, fontsize=9)
+        ax3.set_title("Paired differences (common random numbers)",
+                      color=wc, fontsize=10)
         ax3.legend(fontsize=7)
         ax3.set_facecolor('#001a33')
         ax3.tick_params(colors=wc, labelsize=7)
         ax3.grid(True, alpha=0.15, color='white')
 
         ax4 = self._ab_fig.add_subplot(2, 2, 4)
-        metrics = ['Mean\nRevenue', 'Median\nRevenue', 'P5\n(Worst)', 'P95\n(Best)',
+        metrics = ['Mean\nRevenue', 'Median\nRevenue', 'P5', 'P95',
                    'Std Dev']
         a_vals = [ra['mean'], ra['median'], ra['p5'], ra['p95'], ra['std']]
         b_vals = [rb['mean'], rb['median'], rb['p5'], rb['p95'], rb['std']]
         x = np.arange(len(metrics))
         w = 0.35
         ax4.bar(x - w / 2, a_vals, w, color='#e74c3c', alpha=0.8, label='Layout A')
-        ax4.bar(x + w / 2, b_vals, w, color='#3498db', alpha=0.8, label='Layout B')
+        ax4.bar(x + w / 2, b_vals, w, color='#3498db', alpha=0.8,
+                label='Layout B', hatch='//')
         ax4.set_xticks(x)
         ax4.set_xticklabels(metrics, fontsize=7, color=wc)
         ax4.set_ylabel("$ Revenue", color=wc, fontsize=9)
@@ -537,6 +424,3 @@ class WhatIfMixin:
 
         self._ab_fig.tight_layout(pad=2.0)
         self._ab_canvas_fig.draw_idle()
-        
-        
-

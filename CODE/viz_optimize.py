@@ -15,10 +15,10 @@ from matplotlib.colors import LinearSegmentedColormap
 from drag import DraggableRectangle
 from simulation import CustomerFlowSimulation
 from sim_calibration import transient_occupancy_distribution, _calib, mc_engine
-from retail_literature import DEFAULT_WEEKEND_MULTIPLIER
+from retail_literature import (DEFAULT_OP_HOURS_PER_DAY,
+                               DEFAULT_WEEKEND_MULTIPLIER)
 
 import copy
-from scipy import stats as sp_stats
 
 
 class OptimizeMixin:
@@ -31,7 +31,9 @@ class OptimizeMixin:
           Phase 2 -- Run all analytical engines (MC, Sensitivity, Markov, GA)
           Phase 3 -- Apply GA-optimized layout
           Phase 4 -- POST-window: collect post-optimization data
-          Phase 5 -- A/B test PRE vs POST, build sectioned report
+          Phase 5 -- Re-score the as-built and applied layouts under the
+                     analytics the POST window added to, compare them
+                     under common random numbers, build the report
         """
         sim       = self.customer_simulation
         analytics = sim.analytics
@@ -254,15 +256,12 @@ class OptimizeMixin:
         mc_chunks   = 8
         chunk_iters = max(1, mc_iters // mc_chunks)
 
-        # Iteration counts for the analytical engines further down. Defined
-        # here (rather than near each phase) so closures like _make_kw can
-        # see them. Values mirror the proven old-codebase defaults.
+        # Iteration counts for the analytical engines further down, defined
+        # in one place. Values mirror the proven old-codebase defaults.
         sa_days      = mc_days
         sa_iters     = 300
         pop_size     = 40
         n_gens       = 20
-        ga_mc_iters  = 300
-        ga_mc_days   = 14
         import time as _time
         print('[opt]    cph=%.2f, conv=%.3f, baskets_n=%d'
               % (base_params['customers_per_hour'],
@@ -291,7 +290,7 @@ class OptimizeMixin:
                 std_bsk=base_params['std_basket_size'],
                 observed_baskets=base_params['basket_sizes_observed'],
                 n_days=mc_days, n_iter=chunk_iters,
-                op_hours=10.0, wknd_mult=DEFAULT_WEEKEND_MULTIPLIER,
+                op_hours=DEFAULT_OP_HOURS_PER_DAY, wknd_mult=DEFAULT_WEEKEND_MULTIPLIER,
                 monthly_growth=0.0,
             )
             print('[opt]    MC chunk %d/%d END in %.3fs'
@@ -323,104 +322,21 @@ class OptimizeMixin:
         progress.pump_events()
 
         # -- 2. SENSITIVITY ANALYSIS -----------------------------
+        # A diagnostic for the report's Sec. 3; the optimizer's fitness does
+        # not read it (_opt_sensitivity_tornado).
         progress.update_status("Phase 2b: Sensitivity analysis...", pct=12)
         progress.pump_events()
-        sa_pct = 0.20
-        sa_param_defs = {
-            'Customers/hr':    ('customers_per_hour',          None,   None),
-            'Conversion rate': ('conversion_rate',             0.001,  0.999),
-            'Revenue/customer':('rev_per_converting_customer', 0.01,   None),
-            'Impulse rate':    ('impulse_rate',                0.0,    0.999),
-            'Impulse value':   ('avg_impulse_value',           0.01,   None),
-            'Basket size':     ('avg_basket_size',             0.5,    None),
-        }
-        tornado = {}
-        sa_labels = list(sa_param_defs.items())
-        total_sa = len(sa_labels) * 2
-        sa_done = 0
-        # Common random numbers: each low/high pair replays one stream, so a
-        # swing reflects the parameter change rather than MC noise.
-        sa_seed = int(np.random.randint(0, 2**31 - 1))
-        for label, (pkey, lo_clamp, hi_clamp) in sa_labels:
-            bval = base_params[pkey]
-            lo_val = bval * (1.0 - sa_pct)
-            hi_val = bval * (1.0 + sa_pct)
-            if lo_clamp is not None:
-                lo_val = max(lo_clamp, lo_val)
-            if hi_clamp is not None:
-                hi_val = min(hi_clamp, hi_val)
+        n_sa_runs = 2 * len(self._OPT_TORNADO_PARAMS)
 
-            def _make_kw(override_key, override_val):
-                kw = dict(
-                    cph=base_params['customers_per_hour'],
-                    conv=base_params['conversion_rate'],
-                    rev_mean=base_params['rev_per_converting_customer'],
-                    rev_std=base_params['rev_std'],
-                    imp_rate=base_params['impulse_rate'],
-                    imp_val=base_params['avg_impulse_value'],
-                    avg_bsk=base_params['avg_basket_size'],
-                    std_bsk=base_params['std_basket_size'],
-                    observed_baskets=base_params['basket_sizes_observed'],
-                    n_days=sa_days, n_iter=sa_iters,
-                    op_hours=10.0, wknd_mult=DEFAULT_WEEKEND_MULTIPLIER,
-                    monthly_growth=0.0,
-                )
-                key_map = {
-                    'customers_per_hour': 'cph',
-                    'conversion_rate': 'conv',
-                    'rev_per_converting_customer': 'rev_mean',
-                    'impulse_rate': 'imp_rate',
-                    'avg_impulse_value': 'imp_val',
-                    'avg_basket_size': 'avg_bsk',
-                }
-                kw[key_map[override_key]] = override_val
-                if override_key == 'rev_per_converting_customer':
-                    base_rm = base_params['rev_per_converting_customer']
-                    kw['rev_std'] = base_params['rev_std'] * (
-                        override_val / max(base_rm, 1e-6)
-                    )
-                if override_key == 'avg_basket_size':
-                    # mc_engine never turns basket size into revenue, so
-                    # perturb it through the channel the GA fitness uses:
-                    # revenue per converter scales with basket size at a
-                    # fixed average item price.
-                    base_bsk = base_params['avg_basket_size']
-                    ratio = override_val / base_bsk if base_bsk > 0 else 1.0
-                    kw['rev_mean'] = base_params['rev_per_converting_customer'] * ratio
-                    kw['rev_std'] = base_params['rev_std'] * ratio
-                return kw
-
-            sa_done += 1
+        def _tornado_step(done, label, side):
             progress.update_status(
-                f"Phase 2b: Sensitivity {sa_done}/{total_sa} — {label} (low)…",
-                pct=12 + 18.0 * sa_done / max(total_sa, 1))
-            progress.pump_events()
-            lo_res = mc_engine(**_make_kw(pkey, lo_val),
-                               rng=np.random.RandomState(sa_seed))
+                f"Phase 2b: Sensitivity {done}/{n_sa_runs} — {label} ({side})…",
+                pct=12 + 18.0 * done / max(n_sa_runs, 1))
             progress.pump_events()
 
-            sa_done += 1
-            progress.update_status(
-                f"Phase 2b: Sensitivity {sa_done}/{total_sa} — {label} (high)…",
-                pct=12 + 18.0 * sa_done / max(total_sa, 1))
-            progress.pump_events()
-            hi_res = mc_engine(**_make_kw(pkey, hi_val),
-                               rng=np.random.RandomState(sa_seed))
-            progress.pump_events()
-
-            tornado[label] = {
-                'baseline': bval,
-                'lo_val': lo_val, 'hi_val': hi_val,
-                'lo_rev': lo_res['mean'], 'hi_rev': hi_res['mean'],
-                'swing': abs(hi_res['mean'] - lo_res['mean']),
-            }
-        pipe['tornado'] = tornado
-
-        total_swing = sum(v['swing'] for v in tornado.values()) or 1.0
-        sa_weights = {lbl: d['swing'] / total_swing for lbl, d in tornado.items()}
-        pipe['sa_weights'] = sa_weights
-        pipe['top_drivers'] = sorted(sa_weights.items(),
-                                     key=lambda kv: kv[1], reverse=True)
+        pipe['tornado'] = self._opt_sensitivity_tornado(
+            base_params, n_days=sa_days, n_iter=sa_iters,
+            seed=int(np.random.randint(0, 2**31 - 1)), on_step=_tornado_step)
 
         # -- 3. MARKOV CHAIN ANALYSIS ----------------------------
         progress.update_status("Phase 2c: Markov chain analysis...", pct=32)
@@ -444,6 +360,11 @@ class OptimizeMixin:
         progress.pump_events()
         item_names = self._ga_get_movable_items()
         if len(item_names) < 2:
+            # No GA, no projection and no re-scored comparison: the report
+            # says why and prints no lift (``pipe['mc_baseline']`` is still
+            # the Phase-2a run on the raw calibrated parameters, which no
+            # layout was compared against).
+            pipe['not_optimized_reason'] = self._OPT_TOO_FEW_ITEMS
             progress.close()
             messagebox.showinfo("Optimization",
                                 "Not enough movable items to optimize.",
@@ -458,7 +379,6 @@ class OptimizeMixin:
         mut_rate    = 0.18
         elite_frac  = 0.20
         n_elite     = max(1, int(pop_size * elite_frac))
-        # (rest of the GA loop unchanged -- uses pop_size / n_gens / ga_mc_iters / ga_mc_days)
 
         accessible_floors = (
             self._ga_accessible_floors()
@@ -472,6 +392,18 @@ class OptimizeMixin:
         pipe['ga_item_source_map']  = item_source_map
 
         current_chrom = self._ga_encode(item_names)
+        # The elasticities act on the score difference from the layout on
+        # the floor as the optimization starts (the PRE layout), so that
+        # layout reproduces the calibrated conversion, basket and spend in
+        # the fitness and the MC projection, which run while the
+        # simulation is stopped. The re-scored comparison of Phase 5
+        # re-anchors at the same PRE layout, re-scored under the analytics
+        # the live POST window has since added to (``_ab_arm_scores``).
+        from layout_objective import SCORE_ANCHOR_KEY
+        score_anchor = self._ga_score_anchor(
+            item_names, base_params, source='floor_at_optimize_start')
+        base_params[SCORE_ANCHOR_KEY] = score_anchor
+        pipe['score_anchor'] = score_anchor
 
         # Pre-fetch per-item size to avoid dict lookups in seeding loop
         item_sizes = []
@@ -485,8 +417,16 @@ class OptimizeMixin:
         # other candidate, so the whole population is scored on one feasible
         # set; ``current_chrom`` itself stays unrepaired because the report
         # compares against the store as the user built it.
+        # Whether the candidates are held to the shared repair's aisle and
+        # reach rules on this floor (``_ga_repair_note``); the report says so
+        # when they are not.
+        pipe['ga_repair_note'] = self._ga_repair_note(item_names)
         population = [self._ga_resolve_overlaps(
             self._ga_repair(current_chrom.copy(), item_names), item_names)]
+        # Each item's move box: its section less the aisles the shared
+        # repair keeps (``_ga_move_boxes``), as in the GA tab and the
+        # headless GA, so the seeds start inside the feasible set's space.
+        boxes = self._ga_move_boxes(item_names)
         for _ in range(pop_size - 1):
             noisy = current_chrom.copy()
             for i, (w, h) in enumerate(item_sizes):
@@ -494,7 +434,7 @@ class OptimizeMixin:
                 # tab does. Shop-scale noise clipped only to the shop bounds
                 # pushes nearly every item out of its section, so the seeds
                 # would be infeasible and carried forward as elites.
-                bounds = self._ga_get_section_bounds(item_names[i])
+                bounds = boxes[i]
                 if bounds:
                     sx, sy, sw, sh = bounds
                     pad = 0.05
@@ -520,35 +460,26 @@ class OptimizeMixin:
             noisy = self._ga_resolve_overlaps(noisy, item_names)
             population.append(noisy)
 
-        # Pre-compute a base expected daily revenue once (no per-chrom MC).
-        cph_base   = base_params['customers_per_hour']
-        rev_base   = base_params['rev_per_converting_customer']
-        impv_base  = base_params['avg_impulse_value']
-        # 30 days @ 10 op hours, weekend mult from retail_literature
-        # -> effective 10*(5 + 2*wknd)/7 ~ 11.14 at the cited 1.4
-        op_eff_hours = 10.0 * ((5 + 2 * DEFAULT_WEEKEND_MULTIPLIER) / 7.0)
-        base_daily_cust = cph_base * op_eff_hours
+        # The fitness is the exact expected revenue of the Monte Carlo
+        # projection over the same horizon (experiments.closed_form): the
+        # layout reaches the engine only through deterministic drivers, so
+        # that mean has a closed form, and it is the quantity the headless
+        # experiments score layouts with. The projection below therefore
+        # converges to exactly the lift the GA reports.
+        from experiments.closed_form import expected_revenue
+        ga_horizon_days = mc_days
 
         def _fast_fitness(chromosome):
-            """Analytic surrogate of MC mean revenue -- O(score) only.
+            """Exact expected ``ga_horizon_days`` revenue of one layout.
 
-            The score -> conversion / impulse / basket transform (cited per
-            retail_literature.py) is _opt_layout_revenue_params, shared with
-            the MC projection and the A/B comparison.
-            """
+            The score -> driver transform is ``layout_objective.
+            layout_drivers`` at the band-midpoint elasticities, anchored at
+            the PRE layout -- the transform the MC projection and the
+            re-scored comparison use (``_opt_layout_drivers``)."""
             score, bkd = self._ga_compute_layout_score(
                 chromosome, item_names, base_params)
-            final_conv, imp_adj, _bsk_adj, rev_mult = \
-                self._opt_layout_revenue_params(
-                    score, bkd, base_params, sa_weights, markov_p_purchase)
-
-            # Analytic expected 30-day revenue (matches _mc_engine mean
-            # structure).
-            exp_converters = base_daily_cust * final_conv
-            rev_adj   = rev_base * rev_mult
-            base_rev  = exp_converters * rev_adj
-            imp_rev   = exp_converters * imp_adj * impv_base
-            return (base_rev + imp_rev) * 30.0
+            return expected_revenue(base_params, ga_horizon_days,
+                                    score=score, breakdown=bkd)
 
         # Elite-fitness cache keyed by chromosome bytes
         fit_cache = {}
@@ -648,12 +579,11 @@ class OptimizeMixin:
         pipe['ga_history_worst']     = history_worst
         pipe['ga_pop_size']  = pop_size
         pipe['ga_n_gens']    = n_gens
-        # The pipeline GA uses the ANALYTIC surrogate fitness (score ->
-        # cited elasticities -> expected revenue), not per-chromosome MC --
-        # record that honestly so the report doesn't claim MC evaluations.
-        pipe['ga_fitness_kind'] = 'analytic_surrogate'
-        pipe['ga_mc_iters']  = 0
-        pipe['ga_mc_days']   = 30
+        # The pipeline GA scores each chromosome by the closed-form mean of
+        # the MC projection, not by per-chromosome MC -- recorded so the
+        # report does not claim MC evaluations.
+        pipe['ga_fitness_kind'] = 'closed_form'
+        pipe['ga_horizon_days'] = ga_horizon_days
 
         # -- APPLY BEST LAYOUT -----------------------------------
         # From here on the store is being modified. Closing the progress
@@ -753,66 +683,47 @@ class OptimizeMixin:
         pipe['ga_best_breakdown'] = applied_breakdown
 
         # -- MC PROJECTION: CURRENT vs APPLIED LAYOUT (chunked so the bar moves) --
-        # Both layouts go through the GA fitness's score -> parameter
-        # transform (conversion, layout-induced abandonment, impulse, and
-        # basket size as a revenue-per-converter multiplier, since
-        # mc_engine does not turn basket size into revenue). Each chunk
-        # pair replays one random stream, so the lift reflects the layout
-        # change, not how each side was built or MC noise.
-        def _layout_mc_kwargs(score, bkd):
-            conv, imp, bsk, rev_mult = self._opt_layout_revenue_params(
-                score, bkd, base_params, sa_weights, markov_p_purchase)
-            return dict(
-                cph=base_params['customers_per_hour'],
-                conv=conv,
-                rev_mean=base_params['rev_per_converting_customer'] * rev_mult,
-                rev_std=base_params['rev_std'] * rev_mult,
-                imp_rate=imp,
-                imp_val=base_params['avg_impulse_value'],
-                avg_bsk=bsk,
-                std_bsk=base_params['std_basket_size'],
-                observed_baskets=base_params['basket_sizes_observed'],
-                n_days=mc_days, n_iter=opt_chunk_iters,
-                op_hours=10.0, wknd_mult=DEFAULT_WEEKEND_MULTIPLIER,
-                monthly_growth=0.0,
-            )
-
-        def _summarize(totals_list, daily_list):
-            t = np.concatenate(totals_list)
-            return {
-                'mean':   float(np.mean(t)),
-                'std':    float(np.std(t)),
-                'median': float(np.median(t)),
-                'p5':     float(np.percentile(t, 5)),
-                'p95':    float(np.percentile(t, 95)),
-                'totals': t,
-                'daily_means': np.mean(daily_list, axis=0),
-            }
-
+        # Both layouts go through the fitness's score -> driver transform
+        # (conversion, layout-induced abandonment, impulse, and basket size
+        # as a spend-per-converter multiplier, since mc_engine does not
+        # turn basket size into revenue) and are compared under common
+        # random numbers (layout_comparison), so the paired lift reflects
+        # the layout change and its interval is Monte Carlo precision.
+        # Both arms run mc_engine itself, so a day's spend is the engine's
+        # law (MC_SPEND_LAW: sim_calibration.lognormal_spend_total, the
+        # moment-matched lognormal), not a zero-floored normal.
+        from layout_comparison import paired_comparison
         opt_chunks  = 4
         opt_chunk_iters = max(1, mc_iters // opt_chunks)
-        cur_kw = _layout_mc_kwargs(current_score, current_breakdown)
-        opt_kw = _layout_mc_kwargs(applied_score, applied_breakdown)
+        cur_kw = self._opt_layout_mc_kwargs(
+            current_score, current_breakdown, base_params,
+            n_days=mc_days, n_iter=opt_chunk_iters)
+        opt_kw = self._opt_layout_mc_kwargs(
+            applied_score, applied_breakdown, base_params,
+            n_days=mc_days, n_iter=opt_chunk_iters)
         proj_seed = int(np.random.randint(0, 2**31 - 1))
-        cur_totals, cur_daily, opt_totals, opt_daily = [], [], [], []
-        for ci in range(opt_chunks):
-            pct_now = 96 + 3.0 * ci / opt_chunks   # 96 .. 99
+
+        def _projection_chunk_done(ci):
             progress.update_status(
-                f"Phase 2e: MC projection, current vs optimized layout {ci+1}/{opt_chunks}…",
-                pct=pct_now)
+                f"Phase 2e: MC projection, current vs optimized layout "
+                f"{ci + 1}/{opt_chunks}…",
+                pct=96 + 3.0 * (ci + 1) / opt_chunks)     # 96 .. 99
             progress.pump_events()
-            r_cur = mc_engine(**cur_kw, rng=np.random.RandomState(proj_seed + ci))
-            r_opt = mc_engine(**opt_kw, rng=np.random.RandomState(proj_seed + ci))
-            cur_totals.append(r_cur['totals']); cur_daily.append(r_cur['daily_means'])
-            opt_totals.append(r_opt['totals']); opt_daily.append(r_opt['daily_means'])
-            progress.pump_events()
+
+        progress.update_status(
+            "Phase 2e: MC projection, current vs optimized layout…", pct=96)
+        progress.pump_events()
+        projection = paired_comparison(cur_kw, opt_kw, proj_seed,
+                                       n_chunks=opt_chunks,
+                                       between_chunks=_projection_chunk_done)
 
         # The Phase 2a run on the raw calibrated parameters is kept for
         # reference; the baseline the report compares against must be the
         # current layout under the same model as the optimized projection.
         pipe['mc_calibrated_baseline'] = mc_baseline
-        pipe['mc_baseline']  = _summarize(cur_totals, cur_daily)
-        pipe['mc_optimized'] = _summarize(opt_totals, opt_daily)
+        pipe['projection']   = projection
+        pipe['mc_baseline']  = projection['A']
+        pipe['mc_optimized'] = projection['B']
 
         progress.update_status("Phase 2 complete.", pct=100)
         progress.pump_events()
@@ -823,7 +734,8 @@ class OptimizeMixin:
         messagebox.showinfo(
             "Optimization",
             f"Phase 2 complete. {len(changes)} items moved.\n"
-            f"GA projected lift: {improvement:+.1f}%\n\n"
+            f"Projected {ga_horizon_days}-day lift under the layout model: "
+            f"{improvement:+.2f}%\n\n"
             f"Phase 4/5: Collecting POST-optimization data for {dur // 60} min...",
             parent=self.tk_root
         )
@@ -834,80 +746,178 @@ class OptimizeMixin:
         self._schedule_window_end('post_window_start',
                                   self._finalize_optimization_metrics)
 
-    def _opt_layout_revenue_params(self, score, bkd, p, sa_weights,
-                                   markov_p_purchase):
-        """Layout score -> (conversion, impulse rate, basket size, revenue
-        multiplier) for the calibrated parameters ``p``.
+    #: Why the report prints no lift when the GA was skipped (read by
+    #: ``_show_optimization_results`` from ``pipe['not_optimized_reason']``).
+    _OPT_TOO_FEW_ITEMS = ("fewer than two movable items, no layout was "
+                          "optimized")
 
-        The single score-to-parameter transform behind the pipeline GA
-        fitness, the MC projection and the A/B comparison, so the lifts the
-        report shows side by side all come from the same model.
+    #: The tornado's bars: label -> (base_params key, lower clamp, upper
+    #: clamp). Basket size has no bar: mc_engine never prices it, and
+    #: perturbing it through spend per converter only repeated the
+    #: Revenue/customer bar.
+    _OPT_TORNADO_PARAMS = {
+        'Customers/hr':    ('customers_per_hour',          None,   None),
+        'Conversion rate': ('conversion_rate',             0.001,  0.999),
+        'Revenue/customer':('rev_per_converting_customer', 0.01,   None),
+        'Impulse rate':    ('impulse_rate',                0.0,    0.999),
+        'Impulse value':   ('avg_impulse_value',           0.01,   None),
+    }
+    _OPT_TORNADO_ENGINE_KEYS = {
+        'customers_per_hour': 'cph',
+        'conversion_rate': 'conv',
+        'rev_per_converting_customer': 'rev_mean',
+        'impulse_rate': 'imp_rate',
+        'avg_impulse_value': 'imp_val',
+    }
 
-        score-to-parameter elasticities cited per retail_literature.py:
-          conversion lift ~ Hui (2009) detour-distance elasticity
-          impulse lift    ~ Hui, Inman (2013) in-zone gap
-          basket lift     ~ Hui, Inman (2013) per-meter unplanned
+    def _opt_sensitivity_tornado(self, base_params, n_days, n_iter, seed,
+                                 pct=0.20, on_step=None):
+        """One-at-a-time +/-``pct`` tornado over the engine's revenue
+        inputs, at the calibrated values ``base_params``.
 
-        ``markov_p_purchase`` is the chain's P(Purchase | Enter), which the
-        report shows as a flow diagnostic; it does not rescale the
-        conversion. ``p['conversion_rate']`` already is the purchase
-        probability per visitor, while the chain's absorption share comes
-        from the live agents' list-driven behaviour (or a prior), so a
-        P / conversion factor would move the conversion level -- by up to
-        about 3x in a calibrated session -- for reasons unrelated to the
-        layout.
-        """
-        from retail_literature import (
-            ELASTICITY_CONV_BASE, ELASTICITY_CONV_GAIN_MAX,
-            ELASTICITY_IMP_BASE,  ELASTICITY_IMP_GAIN_MAX,
-            ELASTICITY_BSK_BASE,  ELASTICITY_BSK_GAIN_MAX,
-            ABANDON_FLOW_COEF, ABANDON_SECTION_COEF,
-            ABANDON_BOTTLENECK_COEF, ABANDON_FLOOR_FRAC,
-        )
-        conv_weight    = sa_weights.get('Conversion rate', 0.15)
-        impulse_weight = sa_weights.get('Impulse rate',    0.10)
-        basket_weight  = sa_weights.get('Basket size',     0.10)
-        conv_base  = p['conversion_rate']
-        bsk_base   = p['avg_basket_size']
-        imp_base   = p['impulse_rate']
-        aband_base = p.get('abandonment_rate', 0.0)
+        A diagnostic the report shows in its Sec. 3, and nothing more: the
+        optimizer's fitness runs at the midpoints of the cited elasticity
+        bands, as every headless experiment does. (These swings once set
+        the elasticities inside their bands, but revenue is a product of
+        the drivers, so each swing is about the same share of revenue on
+        any store and the weights encoded that identity rather than
+        anything about the store.) Every low/high run replays one stream
+        (common random numbers), so a swing reflects the parameter change
+        rather than Monte Carlo noise.
 
-        # Conversion: midpoint of 50-75% lift band, modulated by the
-        # SA-derived weight on conversion-rate sensitivity.
-        conv_adj = conv_base * (1.0 + score *
-            (ELASTICITY_CONV_BASE + conv_weight * ELASTICITY_CONV_GAIN_MAX))
-        conv_adj = min(max(conv_adj, 0.01), 0.99)
+        'Conversion rate' moves the conversion at a fixed visitor rate. On
+        a transactional calibration the visitor rate is itself derived as
+        buyers / assumed conversion, so this bar varies only one of the
+        rate's two uses; it is the sensitivity to a change in how many
+        visitors buy, not to the assumed rate.
 
-        # Impulse: midpoint of Hui Inman 2013 50-70% in-zone gap.
-        imp_adj = imp_base * (1.0 + bkd.get('impulse', 0) *
-            (ELASTICITY_IMP_BASE + impulse_weight * ELASTICITY_IMP_GAIN_MAX))
-        imp_adj = min(max(imp_adj, 0.0), 0.99)
+        ``on_step(done, label, side)`` is called before each run (the GUI
+        updates its progress bar there). Returns label -> ``{'baseline',
+        'lo_val', 'hi_val', 'lo_rev', 'hi_rev', 'swing'}``."""
+        def _kw(override_key, override_val):
+            kw = dict(
+                cph=base_params['customers_per_hour'],
+                conv=base_params['conversion_rate'],
+                rev_mean=base_params['rev_per_converting_customer'],
+                rev_std=base_params['rev_std'],
+                imp_rate=base_params['impulse_rate'],
+                imp_val=base_params['avg_impulse_value'],
+                avg_bsk=base_params['avg_basket_size'],
+                std_bsk=base_params['std_basket_size'],
+                observed_baskets=base_params['basket_sizes_observed'],
+                n_days=n_days, n_iter=n_iter,
+                op_hours=DEFAULT_OP_HOURS_PER_DAY,
+                wknd_mult=DEFAULT_WEEKEND_MULTIPLIER,
+                monthly_growth=0.0,
+            )
+            kw[self._OPT_TORNADO_ENGINE_KEYS[override_key]] = override_val
+            if override_key == 'rev_per_converting_customer':
+                # Keep the calibrated coefficient of variation of spend.
+                base_rm = base_params['rev_per_converting_customer']
+                kw['rev_std'] = base_params['rev_std'] * (
+                    override_val / max(base_rm, 1e-6))
+            return kw
 
-        # Basket: conservative 10-30% lift band (largest standing
-        # uncertainty; flagged in retail_literature.py).
-        bsk_adj = bsk_base * (1.0 + score *
-            (ELASTICITY_BSK_BASE + basket_weight * ELASTICITY_BSK_GAIN_MAX))
+        tornado = {}
+        done = 0
+        for label, (pkey, lo_clamp, hi_clamp) in self._OPT_TORNADO_PARAMS.items():
+            bval = base_params[pkey]
+            lo_val = bval * (1.0 - pct)
+            hi_val = bval * (1.0 + pct)
+            if lo_clamp is not None:
+                lo_val = max(lo_clamp, lo_val)
+            if hi_clamp is not None:
+                hi_val = min(hi_clamp, hi_val)
+            res = {}
+            for side, val in (('low', lo_val), ('high', hi_val)):
+                done += 1
+                if on_step is not None:
+                    on_step(done, label, side)
+                res[side] = mc_engine(**_kw(pkey, val),
+                                      rng=np.random.RandomState(seed))
+            tornado[label] = {
+                'baseline': bval,
+                'lo_val': lo_val, 'hi_val': hi_val,
+                'lo_rev': res['low']['mean'], 'hi_rev': res['high']['mean'],
+                'swing': abs(res['high']['mean'] - res['low']['mean']),
+            }
+        return tornado
 
-        # Abandonment recovery: see ABANDON_* in retail_literature.py.
-        # RELATIVE to the baseline abandonment rate: the calibrated
-        # conversion is already net of baseline abandonment, so only the
-        # layout-induced change may move it.
-        abandon_adj = aband_base * max(ABANDON_FLOOR_FRAC,
-            1.0 - bkd.get('flow', 0) * ABANDON_FLOW_COEF
-                - bkd.get('section_compliance', 0) * ABANDON_SECTION_COEF
-                + bkd.get('bottleneck_penalty', 0) * ABANDON_BOTTLENECK_COEF)
-        abandon_adj = min(max(abandon_adj, 0.0), 0.5)
+    def _opt_layout_drivers(self, score, bkd, p, anchor=None):
+        """Revenue drivers of a layout scored ``(score, bkd)`` under the
+        calibrated parameters ``p``: ``layout_objective.layout_drivers`` at
+        the midpoints of the cited elasticity bands, queue channel
+        included.
 
-        final_conv = conv_adj * (1.0 - abandon_adj) \
-            / max(1.0 - min(aband_base, 0.95), 1e-6)
-        final_conv = min(max(final_conv, 0.01), 0.99)
+        The one transform behind the pipeline GA fitness, its MC
+        projection, the re-scored comparison after the POST window and the
+        What-If tab, and the one the headless experiments and the closed
+        form use, so a layout pair gets the same projected lift in every
+        one of them. (The pipeline once set the elasticities inside their
+        bands from the tornado's swing weights; those weights encode the
+        product form of revenue, not the store, and made the same layout
+        pair project a different lift here than in What-If.)
 
-        # Basket-size lift enters MULTIPLICATIVELY on revenue-per-customer
-        # (more items at the same average item price => proportionally
-        # higher spend); adding the basket-size COUNT as dollars would be a
-        # unit error that inflates the projected lift.
-        rev_mult = bsk_adj / max(bsk_base, 1e-9)
-        return final_conv, imp_adj, bsk_adj, rev_mult
+        ``anchor`` is the layout the elasticities are differenced against
+        (``layout_objective.make_anchor``); by default the one ``p``
+        carries. The pipeline and the What-If tab pass the layout that was
+        on the floor when they started, which therefore reproduces the
+        calibrated conversion, basket and spend. ``rev_mult`` scales both
+        the mean and the SD of spend per converter.
+
+        The Markov chain's P(Purchase | Enter) is a flow diagnostic in the
+        report and does not enter: ``p['conversion_rate']`` already is the
+        purchase probability per visitor, while the chain's absorption
+        share comes from the live agents' list-driven behaviour (or a
+        prior), so a P / conversion factor would move the conversion level
+        -- by up to about 3x in a calibrated session -- for reasons
+        unrelated to the layout."""
+        from layout_objective import layout_drivers
+        return layout_drivers(score, bkd, p, anchor=anchor)
+
+    def _opt_layout_mc_kwargs(self, score, bkd, p, n_days, n_iter,
+                              anchor=None):
+        """``mc_engine`` keyword arguments for a layout scored
+        ``(score, bkd)``: ``_opt_layout_drivers`` through
+        ``layout_objective.layout_mc_kwargs``, as ``_ga_fitness`` builds
+        them, so ``experiments.closed_form.mc_expected_total`` of the
+        result is the layout's exact expected revenue."""
+        from layout_objective import layout_mc_kwargs
+        return layout_mc_kwargs(
+            self._opt_layout_drivers(score, bkd, p, anchor=anchor), p,
+            n_days=n_days, n_iter=n_iter)
+
+    def _ab_arm_scores(self, pipe):
+        """Scores of the Phase-5 comparison's arms -- A the as-built (PRE)
+        layout, B the applied one -- and the anchor they share.
+
+        The traffic, revenue-placement and bottleneck criteria read the heat
+        map and the bottleneck counts, and the live POST window has added to
+        both since ``pipe['score_anchor']`` was scored at optimize start. So
+        the PRE snapshot no longer scores that anchor, and differencing
+        against it would move the PRE arm off the calibrated conversion,
+        basket and spend and give both arms the same analytics-drift
+        offset. Both arms are therefore scored now, under one state of the
+        analytics, and anchored at the PRE layout scored under that same
+        state: arm A reproduces the calibrated inputs exactly and arm B
+        differs from it by the layout alone. ``pipe['score_anchor']`` is
+        left as it was for the GA and the projection.
+
+        Returns ``(scores, anchor)``: ``scores`` maps 'A' / 'B' to
+        ``(score, breakdown)`` for each snapshot that carries parameters.
+        Without a PRE snapshot (the A/B then does not run) the anchor falls
+        back to ``pipe['score_anchor']``."""
+        from layout_objective import make_anchor
+        scores = {}
+        for label, snap_key in (('A', 'pre_snapshot'), ('B', 'post_snapshot')):
+            snap = pipe.get(snap_key)
+            if snap and snap.get('params'):
+                scores[label] = self._ab_layout_score(snap, with_breakdown=True)
+        if 'A' in scores:
+            anchor = make_anchor(*scores['A'], source='pre_snapshot_at_ab')
+        else:
+            anchor = pipe.get('score_anchor')
+        return scores, anchor
 
     def _finalize_optimization_metrics(self):
         """Public entry point for the POST-window callback.
@@ -922,9 +932,15 @@ class OptimizeMixin:
     def _finalize_optimization_metrics_inner(self):
         """
         Phase 5: POST window done.
-          - Collect post revenue
-          - Run A/B test (PRE vs POST) with statistical tests
+          - Record the live PRE / POST window revenues (descriptive only)
+          - Re-score the as-built and applied layouts under the analytics
+            the POST window added to, and compare them under common
+            random numbers (paired lift with its interval)
           - Build comprehensive sectioned report
+
+        The comparison is a model projection of two layouts, not a
+        measurement of the two windows: each window is one short live run
+        that starts from an empty store, and no lift is computed from them.
         """
         # Bail silently if the user closed the window before the
         # measurement-duration after-callback fired.
@@ -940,132 +956,49 @@ class OptimizeMixin:
 
         self._stop_simulation()
 
+        # The live windows' revenues are kept as a description of what the
+        # two short runs saw. No lift is taken between them: each window
+        # is one run of measurement_duration simulated seconds that starts
+        # from an empty store, so its revenue is dominated by which few
+        # customers happened to finish inside it, and the comparison below
+        # is what estimates the layout effect.
         pre  = A.get('pre_window_revenue', 0.0)
         post = A.get('post_window_revenue', 0.0)
         A['pre_optimization_revenue']  = pre
         A['post_optimization_revenue'] = post
-        if pre > 0:
-            A['optimization_impact'] = (post - pre) / pre * 100.0
-            A.pop('optimization_impact_note', None)
-        else:
-            # A silent 0% would have masked a real failure: PRE collected no
-            # revenue (no customers spawned in the measurement window).
-            # Surface the cause explicitly so reports + the user know.
-            A['optimization_impact'] = 0.0
-            A['optimization_impact_note'] = (
-                "PRE-window revenue was $0 — no customers spawned during "
-                "the measurement window. The live A/B lift is not "
-                "computable; see the MC-projected lift instead.")
 
         performance_data = self._analyze_current_performance()
 
-        # -- A/B STATISTICAL COMPARISON (MC-based) ---------------
-        ab_results = {}
+        # -- RE-SCORED COMPARISON: AS-BUILT vs APPLIED LAYOUT ------
+        # Both arms scored under one state of the analytics and anchored at
+        # the as-built (PRE) layout scored under it (see _ab_arm_scores),
+        # and projected under the PRE snapshot's calibrated inputs, so the
+        # arms differ by the layout alone; common random numbers pair the
+        # draws (layout_comparison). Both arms run mc_engine itself, so a
+        # day's spend is the engine's law (MC_SPEND_LAW:
+        # sim_calibration.lognormal_spend_total), not a zero-floored normal.
+        from layout_comparison import paired_comparison
         mc_ab_iters = 1000
         mc_ab_days  = 30
-        for label, snap_key in [('A', 'pre_snapshot'), ('B', 'post_snapshot')]:
-            snap = pipe.get(snap_key)
-            if not snap or not snap.get('params'):
-                continue
-            p = snap['params']
-            score, score_bkd = self._ab_layout_score(snap, with_breakdown=True)
+        ab_scores, ab_anchor = self._ab_arm_scores(pipe)
+        pipe['ab_score_anchor'] = ab_anchor
+        comparison = None
+        if 'A' in ab_scores and 'B' in ab_scores:
+            p = pipe['pre_snapshot']['params']
+            drivers = {label: self._opt_layout_drivers(*ab_scores[label], p,
+                                                       anchor=ab_anchor)
+                       for label in ('A', 'B')}
+            kws = {label: self._opt_layout_mc_kwargs(
+                       *ab_scores[label], p, n_days=mc_ab_days,
+                       n_iter=mc_ab_iters, anchor=ab_anchor)
+                   for label in ('A', 'B')}
+            comparison = paired_comparison(
+                kws['A'], kws['B'], int(np.random.randint(0, 2**31 - 1)))
+            comparison['scores'] = {label: float(ab_scores[label][0])
+                                    for label in ('A', 'B')}
+            comparison['drivers'] = drivers
 
-            # Same score -> parameter transform and SA weights as the GA
-            # fitness and the MC projection, so PRE and POST are evaluated
-            # on the same footing as the other lifts in the report:
-            # conversion, layout-induced abandonment, the IMPULSE
-            # component driving the impulse lift, and basket size as a
-            # revenue-per-converter multiplier.
-            conv_adj, imp_adj, _bsk_adj, rev_mult = self._opt_layout_revenue_params(
-                score, score_bkd, p, pipe.get('sa_weights', {}),
-                pipe.get('markov_p_purchase', p['conversion_rate']))
-            rev_mean = p['rev_per_converting_customer'] * rev_mult
-            rev_sd   = max(p['rev_std'] * rev_mult, 0.01)
-            imp_val  = max(p['avg_impulse_value'], 0.01)
-            imp_sd   = max(p['avg_impulse_value'] * 0.3, 0.01)
-
-            day_mult = np.ones(7)
-            day_mult[5] = DEFAULT_WEEKEND_MULTIPLIER
-            day_mult[6] = DEFAULT_WEEKEND_MULTIPLIER
-            daily_rev = np.zeros((mc_ab_iters, mc_ab_days))
-            for d in range(mc_ab_days):
-                dow = d % 7
-                lam = max(p['customers_per_hour'] * 10.0 * day_mult[dow], 0.1)
-                n_cust = np.random.poisson(lam, mc_ab_iters)
-                n_conv = np.random.binomial(n_cust, conv_adj)
-                # A day's revenue is a sum of n i.i.d. customer spends,
-                # N(n*mu, sqrt(n)*sigma) as in mc_engine. Scaling a single
-                # per-customer draw by n would make the spread grow like n.
-                nc_f = n_conv.astype(np.float64)
-                base = np.where(
-                    n_conv > 0,
-                    np.random.normal(nc_f * rev_mean, np.sqrt(nc_f) * rev_sd,
-                                     mc_ab_iters),
-                    0.0)
-                base = np.maximum(base, 0.0)
-                n_imp = np.random.binomial(np.maximum(n_conv, 0), imp_adj)
-                ni_f = n_imp.astype(np.float64)
-                imp = np.where(
-                    n_imp > 0,
-                    np.random.normal(ni_f * imp_val, np.sqrt(ni_f) * imp_sd,
-                                     mc_ab_iters),
-                    0.0)
-                imp = np.maximum(imp, 0.0)
-                daily_rev[:, d] = base + imp
-            totals = daily_rev.sum(axis=1)
-            ab_results[label] = {
-                'totals': totals, 'daily_rev': daily_rev,
-                'mean': totals.mean(), 'std': totals.std(),
-                'median': np.median(totals),
-                'p5': np.percentile(totals, 5),
-                'p95': np.percentile(totals, 95),
-                'daily_means': daily_rev.mean(axis=0),
-                'score': score, 'conv_adj': conv_adj, 'imp_adj': imp_adj,
-            }
-
-        ab_tests = {}
-        if 'A' in ab_results and 'B' in ab_results:
-            t_stat, p_value = sp_stats.ttest_ind(
-                ab_results['A']['totals'], ab_results['B']['totals'], equal_var=False)
-            ks_stat, ks_p = sp_stats.ks_2samp(
-                ab_results['A']['totals'], ab_results['B']['totals'])
-            pooled_std = np.sqrt(
-                (ab_results['A']['std'] ** 2 + ab_results['B']['std'] ** 2) / 2)
-            cohens_d = (ab_results['B']['mean'] - ab_results['A']['mean']) / max(pooled_std, 1e-6)
-            n_b_wins = np.sum(ab_results['B']['totals'] > ab_results['A']['totals'])
-
-            # PRIMARY metric: effect size + bootstrap CI on the mean lift
-            # (audit #1). The Welch p-value on two simulated distributions
-            # shrinks toward 0 as MC iterations grow BY CONSTRUCTION (the
-            # parameter shift is deterministic), so it must not be read as
-            # real-world statistical significance; it is retained only as
-            # a distribution-separation diagnostic.
-            diffs = ab_results['B']['totals'] - ab_results['A']['totals']
-            rng_bs = np.random.default_rng(0)
-            boots = np.array([
-                rng_bs.choice(diffs, size=diffs.size, replace=True).mean()
-                for _ in range(2000)])
-            lift_mean = float(diffs.mean())
-            lift_lo, lift_hi = (float(np.percentile(boots, 2.5)),
-                                float(np.percentile(boots, 97.5)))
-            ab_tests = {
-                't_stat': t_stat, 'p_value': p_value,
-                'ks_stat': ks_stat, 'ks_p': ks_p,
-                'cohens_d': cohens_d,
-                'significant': p_value < 0.05,
-                'alpha': 0.05,
-                'p_b_better': n_b_wins / mc_ab_iters * 100,
-                'lift_mean': lift_mean,
-                'lift_ci95': (lift_lo, lift_hi),
-                'primary_metric': 'cohens_d + lift_ci95',
-                'p_value_caveat': (
-                    'p-value compares two SIMULATED distributions whose '
-                    'parameters differ by construction; report effect size '
-                    'and the lift CI, not p, as the substantive result.'),
-            }
-
-        pipe['ab_results'] = ab_results
-        pipe['ab_tests']   = ab_tests
+        pipe['ab_comparison'] = comparison
         pipe['performance_data'] = performance_data
         pipe['real_pre_rev']  = pre
         pipe['real_post_rev'] = post

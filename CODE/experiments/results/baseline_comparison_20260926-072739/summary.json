@@ -1,0 +1,890 @@
+{
+  "comparison_family": [
+    "random_valid",
+    "perimeter_only",
+    "popularity_rank",
+    "greedy_swap",
+    "random_search",
+    "simulated_annealing",
+    "oracle"
+  ],
+  "sensitivity_methods": [
+    "simulated_annealing_popstart"
+  ],
+  "equal_budget_methods": [
+    "GA",
+    "random_search",
+    "simulated_annealing"
+  ],
+  "search_start": {
+    "GA": "asbuilt",
+    "random_search": "asbuilt",
+    "simulated_annealing": "asbuilt",
+    "simulated_annealing_popstart": "popularity"
+  },
+  "paired_diff_GA_minus_X": {
+    "random_valid": {
+      "mean_diff_GA_minus_X": 726.578269628436,
+      "ci_lo": 698.5608271324406,
+      "ci_hi": 754.7065125440961,
+      "n": 300
+    },
+    "perimeter_only": {
+      "mean_diff_GA_minus_X": 658.4219112882114,
+      "ci_lo": 630.643628155292,
+      "ci_hi": 685.7908081989891,
+      "n": 300
+    },
+    "popularity_rank": {
+      "mean_diff_GA_minus_X": 703.4899013354543,
+      "ci_lo": 680.9120158903634,
+      "ci_hi": 726.3229979550586,
+      "n": 300
+    },
+    "greedy_swap": {
+      "mean_diff_GA_minus_X": 593.1788006820104,
+      "ci_lo": 570.6432229474165,
+      "ci_hi": 615.0076925797114,
+      "n": 300
+    },
+    "random_search": {
+      "mean_diff_GA_minus_X": 255.08310583939019,
+      "ci_lo": 238.90680720226715,
+      "ci_hi": 270.249689910026,
+      "n": 300
+    },
+    "simulated_annealing": {
+      "mean_diff_GA_minus_X": -11.288562320062338,
+      "ci_lo": -23.35103674754303,
+      "ci_hi": 0.899171671751907,
+      "n": 300
+    },
+    "oracle": {
+      "mean_diff_GA_minus_X": 319.7119538354302,
+      "ci_lo": 298.77761008068603,
+      "ci_hi": 340.3125270909782,
+      "n": 300
+    }
+  },
+  "sensitivity_paired_diff_GA_minus_X": {
+    "simulated_annealing_popstart": {
+      "mean_diff_GA_minus_X": -10.962351938120166,
+      "ci_lo": -23.920399644482266,
+      "ci_hi": 2.9783557281215605,
+      "n": 300
+    }
+  },
+  "sa_start_effect": {
+    "mean_diff_popstart_minus_asbuilt": -0.3262103819421706,
+    "ci_lo": -14.046424518405178,
+    "ci_hi": 13.46302153310749,
+    "n": 300
+  },
+  "sa_start_effect_closed_form": {
+    "mean_diff_popstart_minus_asbuilt": -0.3666618694043185,
+    "ci_lo": -14.118861360913122,
+    "ci_hi": 13.345104274644077,
+    "n": 300
+  },
+  "n_scenarios": 30,
+  "n_seeds_per_scenario": 10,
+  "inference": {
+    "mc": {
+      "alpha_family": 0.05,
+      "n_comparisons": 7,
+      "alpha_per_comparison": 0.0071428571428571435,
+      "level_per_comparison": 0.9928571428571429,
+      "equivalence_level": 0.9857142857142858,
+      "schemes": {
+        "cluster_bootstrap": "scenarios resampled, all seeds carried (4000 resamples; the manuscript scheme)",
+        "crossed_bootstrap": "scenarios and seeds resampled independently (4000 resamples)",
+        "twoway_cluster_t": "Cameron-Gelbach-Miller two-way variance, t on min(G) - 1 df",
+        "g1_t": "t on G - 1 df over scenario means"
+      },
+      "comparisons": {
+        "random_valid": {
+          "n_runs": 300,
+          "n_scenarios": 30,
+          "mean": 726.578269628436,
+          "cluster_bootstrap": {
+            "lo": 609.112573002868,
+            "hi": 839.3343945906649,
+            "excludes_zero": true
+          },
+          "win_runs": 300,
+          "win_scenarios": 30,
+          "crossed_bootstrap": {
+            "lo": 607.4930691704335,
+            "hi": 848.4371704313662,
+            "excludes_zero": true
+          },
+          "twoway_cluster_t": {
+            "mean": 726.578269628436,
+            "lo": 580.0553383941965,
+            "hi": 873.1012008626756,
+            "se": 42.32820309175178,
+            "df": 9,
+            "var_scenario": 1936.6487274937285,
+            "var_seed": 56.4618389662528,
+            "var_cell": 201.43378948339617,
+            "excludes_zero": true
+          },
+          "g1_t": {
+            "mean": 726.578269628436,
+            "lo": 599.2000902420803,
+            "hi": 853.9564490147918,
+            "df": 29,
+            "se": 44.00737128588492,
+            "excludes_zero": true
+          }
+        },
+        "perimeter_only": {
+          "n_runs": 300,
+          "n_scenarios": 30,
+          "mean": 658.4219112882114,
+          "cluster_bootstrap": {
+            "lo": 548.1838995973231,
+            "hi": 781.0040517139721,
+            "excludes_zero": true
+          },
+          "win_runs": 300,
+          "win_scenarios": 30,
+          "crossed_bootstrap": {
+            "lo": 539.1012045520886,
+            "hi": 784.2081999233337,
+            "excludes_zero": true
+          },
+          "twoway_cluster_t": {
+            "mean": 658.4219112882114,
+            "lo": 510.05476621682476,
+            "hi": 806.789056359598,
+            "se": 42.86096787597924,
+            "df": 9,
+            "var_scenario": 1987.6899253341737,
+            "var_seed": 55.73682642601528,
+            "var_cell": 206.3641844944644,
+            "excludes_zero": true
+          },
+          "g1_t": {
+            "mean": 658.4219112882114,
+            "lo": 529.376095314325,
+            "hi": 787.4677272620978,
+            "df": 29,
+            "se": 44.583516296207215,
+            "excludes_zero": true
+          }
+        },
+        "popularity_rank": {
+          "n_runs": 300,
+          "n_scenarios": 30,
+          "mean": 703.4899013354543,
+          "cluster_bootstrap": {
+            "lo": 613.6114245747874,
+            "hi": 795.9509486805741,
+            "excludes_zero": true
+          },
+          "win_runs": 300,
+          "win_scenarios": 30,
+          "crossed_bootstrap": {
+            "lo": 608.7011786104347,
+            "hi": 801.3790515097644,
+            "excludes_zero": true
+          },
+          "twoway_cluster_t": {
+            "mean": 703.4899013354543,
+            "lo": 585.9165206974931,
+            "hi": 821.0632819734155,
+            "se": 33.96512676825639,
+            "df": 9,
+            "var_scenario": 1230.7190504223868,
+            "var_seed": 55.83534162093504,
+            "var_cell": 132.92455565959497,
+            "excludes_zero": true
+          },
+          "g1_t": {
+            "mean": 703.4899013354542,
+            "lo": 601.9471161429562,
+            "hi": 805.0326865279521,
+            "df": 29,
+            "se": 35.081605585012596,
+            "excludes_zero": true
+          }
+        },
+        "greedy_swap": {
+          "n_runs": 300,
+          "n_scenarios": 30,
+          "mean": 593.1788006820104,
+          "cluster_bootstrap": {
+            "lo": 501.1397395502599,
+            "hi": 687.1527851918153,
+            "excludes_zero": true
+          },
+          "win_runs": 300,
+          "win_scenarios": 30,
+          "crossed_bootstrap": {
+            "lo": 499.4368793069418,
+            "hi": 690.1649991751201,
+            "excludes_zero": true
+          },
+          "twoway_cluster_t": {
+            "mean": 593.1788006820104,
+            "lo": 473.43544020856586,
+            "hi": 712.922161155455,
+            "se": 34.59200029861532,
+            "df": 9,
+            "var_scenario": 1278.1527979254147,
+            "var_seed": 55.965381855680185,
+            "var_cell": 137.51169512169255,
+            "excludes_zero": true
+          },
+          "g1_t": {
+            "mean": 593.1788006820103,
+            "lo": 489.69771003551176,
+            "hi": 696.6598913285088,
+            "df": 29,
+            "se": 35.75126288574174,
+            "excludes_zero": true
+          }
+        },
+        "random_search": {
+          "n_runs": 300,
+          "n_scenarios": 30,
+          "mean": 255.08310583939019,
+          "cluster_bootstrap": {
+            "lo": 202.60584833840156,
+            "hi": 312.08494858486716,
+            "excludes_zero": true
+          },
+          "win_runs": 294,
+          "win_scenarios": 30,
+          "crossed_bootstrap": {
+            "lo": 193.73367410132803,
+            "hi": 322.6372173027437,
+            "excludes_zero": true
+          },
+          "twoway_cluster_t": {
+            "mean": 255.08310583939019,
+            "lo": 178.96887541740244,
+            "hi": 331.1973362613779,
+            "se": 21.988221067757504,
+            "df": 9,
+            "var_scenario": 442.6218762277121,
+            "var_seed": 103.07975659384391,
+            "var_cell": 62.219767096981116,
+            "excludes_zero": true
+          },
+          "g1_t": {
+            "mean": 255.08310583939019,
+            "lo": 194.1874871473098,
+            "hi": 315.97872453147056,
+            "df": 29,
+            "se": 21.038580660959813,
+            "excludes_zero": true
+          }
+        },
+        "simulated_annealing": {
+          "n_runs": 300,
+          "n_scenarios": 30,
+          "mean": -11.288562320062338,
+          "cluster_bootstrap": {
+            "lo": -27.286686169854622,
+            "hi": 7.764502942482434,
+            "excludes_zero": false
+          },
+          "win_runs": 126,
+          "win_scenarios": 9,
+          "crossed_bootstrap": {
+            "lo": -44.337014196845026,
+            "hi": 31.228218232298502,
+            "excludes_zero": false
+          },
+          "twoway_cluster_t": {
+            "mean": -11.288562320062338,
+            "lo": -50.88118944604398,
+            "hi": 28.304064805919303,
+            "se": 11.437696119014925,
+            "df": 9,
+            "var_scenario": 46.82974129437911,
+            "var_seed": 121.53398111166725,
+            "var_cell": 37.54282989511728,
+            "excludes_zero": false
+          },
+          "g1_t": {
+            "mean": -11.28856232006234,
+            "lo": -31.09609992482319,
+            "hi": 8.51897528469851,
+            "df": 29,
+            "se": 6.843225942081637,
+            "excludes_zero": false
+          }
+        },
+        "oracle": {
+          "n_runs": 300,
+          "n_scenarios": 30,
+          "mean": 319.7119538354302,
+          "cluster_bootstrap": {
+            "lo": 238.39814036781036,
+            "hi": 400.8503300347947,
+            "excludes_zero": true
+          },
+          "win_runs": 287,
+          "win_scenarios": 30,
+          "crossed_bootstrap": {
+            "lo": 237.39975560724284,
+            "hi": 406.8014739090147,
+            "excludes_zero": true
+          },
+          "twoway_cluster_t": {
+            "mean": 319.7119538354302,
+            "lo": 213.2111262630534,
+            "hi": 426.21278140780703,
+            "se": 30.766437860272465,
+            "df": 9,
+            "var_scenario": 1001.6008935479642,
+            "var_seed": 55.656435515154214,
+            "var_cell": 110.68363045311158,
+            "excludes_zero": true
+          },
+          "g1_t": {
+            "mean": 319.71195383543017,
+            "lo": 228.10742158359358,
+            "hi": 411.31648608726675,
+            "df": 29,
+            "se": 31.648078828705607,
+            "excludes_zero": true
+          }
+        }
+      },
+      "equivalence": {
+        "with": "simulated_annealing",
+        "margin_frac": 0.001,
+        "margin": 64.70632376271759,
+        "reference_mean": 64706.323762717584,
+        "schemes": {
+          "cluster_bootstrap": {
+            "lo": -26.330676581841765,
+            "hi": 6.461052028491108,
+            "equivalent_at_margin": true,
+            "smallest_margin": 26.330676581841765,
+            "smallest_margin_frac": 0.00040692586212126835
+          },
+          "crossed_bootstrap": {
+            "lo": -41.79189501458149,
+            "hi": 27.860758938014435,
+            "equivalent_at_margin": true,
+            "smallest_margin": 41.79189501458149,
+            "smallest_margin_frac": 0.0006458703351442923
+          },
+          "twoway_cluster_t": {
+            "lo": -45.9254597732201,
+            "hi": 23.348335133095418,
+            "equivalent_at_margin": true,
+            "smallest_margin": 45.9254597732201,
+            "smallest_margin_frac": 0.0007097522638070404
+          },
+          "g1_t": {
+            "lo": -29.127146143564932,
+            "hi": 6.550021503440252,
+            "equivalent_at_margin": true,
+            "smallest_margin": 29.127146143564932,
+            "smallest_margin_frac": 0.0004501437332520408
+          }
+        }
+      }
+    },
+    "closed_form": {
+      "alpha_family": 0.05,
+      "n_comparisons": 7,
+      "alpha_per_comparison": 0.0071428571428571435,
+      "level_per_comparison": 0.9928571428571429,
+      "equivalence_level": 0.9857142857142858,
+      "schemes": {
+        "cluster_bootstrap": "scenarios resampled, all seeds carried (4000 resamples; the manuscript scheme)",
+        "crossed_bootstrap": "scenarios and seeds resampled independently (4000 resamples)",
+        "twoway_cluster_t": "Cameron-Gelbach-Miller two-way variance, t on min(G) - 1 df",
+        "g1_t": "t on G - 1 df over scenario means"
+      },
+      "comparisons": {
+        "random_valid": {
+          "n_runs": 300,
+          "n_scenarios": 30,
+          "mean": 726.610837001626,
+          "cluster_bootstrap": {
+            "lo": 609.0990974627825,
+            "hi": 839.4133532577788,
+            "excludes_zero": true
+          },
+          "win_runs": 300,
+          "win_scenarios": 30,
+          "crossed_bootstrap": {
+            "lo": 607.5248577380553,
+            "hi": 848.295927557489,
+            "excludes_zero": true
+          },
+          "twoway_cluster_t": {
+            "mean": 726.610837001626,
+            "lo": 580.1005262283114,
+            "hi": 873.1211477749406,
+            "se": 42.32455723626254,
+            "df": 9,
+            "var_scenario": 1936.7929238662275,
+            "var_seed": 55.969291278795964,
+            "var_cell": 201.39406989935958,
+            "excludes_zero": true
+          },
+          "g1_t": {
+            "mean": 726.6108370016258,
+            "lo": 599.2279156274072,
+            "hi": 853.9937583758443,
+            "df": 29,
+            "se": 44.009009576065516,
+            "excludes_zero": true
+          }
+        },
+        "perimeter_only": {
+          "n_runs": 300,
+          "n_scenarios": 30,
+          "mean": 658.4034681398988,
+          "cluster_bootstrap": {
+            "lo": 548.2939736429258,
+            "hi": 780.8916834238573,
+            "excludes_zero": true
+          },
+          "win_runs": 300,
+          "win_scenarios": 30,
+          "crossed_bootstrap": {
+            "lo": 539.0528346489359,
+            "hi": 784.0278197276122,
+            "excludes_zero": true
+          },
+          "twoway_cluster_t": {
+            "mean": 658.4034681398988,
+            "lo": 510.04417241857425,
+            "hi": 806.7627638612233,
+            "se": 42.858700320445315,
+            "df": 9,
+            "var_scenario": 1987.1800139614522,
+            "var_seed": 55.969291278795914,
+            "var_cell": 206.28111208250849,
+            "excludes_zero": true
+          },
+          "g1_t": {
+            "mean": 658.4034681398987,
+            "lo": 529.3742055904144,
+            "hi": 787.432730689383,
+            "df": 29,
+            "se": 44.57779732065563,
+            "excludes_zero": true
+          }
+        },
+        "popularity_rank": {
+          "n_runs": 300,
+          "n_scenarios": 30,
+          "mean": 703.5211736113034,
+          "cluster_bootstrap": {
+            "lo": 613.6137532473805,
+            "hi": 795.9323693998452,
+            "excludes_zero": true
+          },
+          "win_runs": 300,
+          "win_scenarios": 30,
+          "crossed_bootstrap": {
+            "lo": 608.683710150801,
+            "hi": 801.4114652455339,
+            "excludes_zero": true
+          },
+          "twoway_cluster_t": {
+            "mean": 703.5211736113034,
+            "lo": 585.8673224540197,
+            "hi": 821.1750247685871,
+            "se": 33.98837345364611,
+            "df": 9,
+            "var_scenario": 1232.3061610842894,
+            "var_seed": 55.96929127879595,
+            "var_cell": 133.06592233856955,
+            "excludes_zero": true
+          },
+          "g1_t": {
+            "mean": 703.5211736113034,
+            "lo": 601.9129357416178,
+            "hi": 805.129411480989,
+            "df": 29,
+            "se": 35.104218565356064,
+            "excludes_zero": true
+          }
+        },
+        "greedy_swap": {
+          "n_runs": 300,
+          "n_scenarios": 30,
+          "mean": 593.1231892209282,
+          "cluster_bootstrap": {
+            "lo": 500.9919979001257,
+            "hi": 687.142766538059,
+            "excludes_zero": true
+          },
+          "win_runs": 300,
+          "win_scenarios": 30,
+          "crossed_bootstrap": {
+            "lo": 499.4121494169908,
+            "hi": 690.1970401790121,
+            "excludes_zero": true
+          },
+          "twoway_cluster_t": {
+            "mean": 593.1231892209282,
+            "lo": 473.3061704460518,
+            "hi": 712.9402079958047,
+            "se": 34.6132790398754,
+            "df": 9,
+            "var_scenario": 1279.7802248045145,
+            "var_seed": 55.969291278795936,
+            "var_cell": 137.67043019103286,
+            "excludes_zero": true
+          },
+          "g1_t": {
+            "mean": 593.1231892209282,
+            "lo": 489.5762401200226,
+            "hi": 696.6701383218339,
+            "df": 29,
+            "se": 35.77401605641327,
+            "excludes_zero": true
+          }
+        },
+        "random_search": {
+          "n_runs": 300,
+          "n_scenarios": 30,
+          "mean": 255.1466560622471,
+          "cluster_bootstrap": {
+            "lo": 202.73353000204693,
+            "hi": 312.24299982246566,
+            "excludes_zero": true
+          },
+          "win_runs": 294,
+          "win_scenarios": 30,
+          "crossed_bootstrap": {
+            "lo": 193.86114664343074,
+            "hi": 322.88311777052854,
+            "excludes_zero": true
+          },
+          "twoway_cluster_t": {
+            "mean": 255.1466560622471,
+            "lo": 179.01317237701028,
+            "hi": 331.28013974748393,
+            "se": 21.99378303700097,
+            "df": 9,
+            "var_scenario": 443.33231818278426,
+            "var_seed": 102.65624398747553,
+            "var_cell": 62.262069891588105,
+            "excludes_zero": true
+          },
+          "g1_t": {
+            "mean": 255.14665606224713,
+            "lo": 194.20218590279333,
+            "hi": 316.0911262217009,
+            "df": 29,
+            "se": 21.055458156563212,
+            "excludes_zero": true
+          }
+        },
+        "simulated_annealing": {
+          "n_runs": 300,
+          "n_scenarios": 30,
+          "mean": -11.35038768308955,
+          "cluster_bootstrap": {
+            "lo": -27.278451023520628,
+            "hi": 7.656812976832634,
+            "excludes_zero": false
+          },
+          "win_runs": 126,
+          "win_scenarios": 9,
+          "crossed_bootstrap": {
+            "lo": -44.38672865513829,
+            "hi": 31.142766808946877,
+            "excludes_zero": false
+          },
+          "twoway_cluster_t": {
+            "mean": -11.35038768308955,
+            "lo": -50.964794804910056,
+            "hi": 28.264019438730955,
+            "se": 11.443988022128242,
+            "df": 9,
+            "var_scenario": 46.61876187146233,
+            "var_seed": 121.88399316278004,
+            "var_cell": 37.53789318362771,
+            "excludes_zero": false
+          },
+          "g1_t": {
+            "mean": -11.350387683089552,
+            "lo": -31.1132560220707,
+            "hi": 8.412480655891597,
+            "df": 29,
+            "se": 6.827793338367992,
+            "excludes_zero": false
+          }
+        },
+        "oracle": {
+          "n_runs": 300,
+          "n_scenarios": 30,
+          "mean": 319.6803047104485,
+          "cluster_bootstrap": {
+            "lo": 238.34200699867847,
+            "hi": 400.7892887161482,
+            "excludes_zero": true
+          },
+          "win_runs": 287,
+          "win_scenarios": 30,
+          "crossed_bootstrap": {
+            "lo": 237.36019920754902,
+            "hi": 406.8518280168529,
+            "excludes_zero": true
+          },
+          "twoway_cluster_t": {
+            "mean": 319.6803047104485,
+            "lo": 213.07891527988147,
+            "hi": 426.2816941410156,
+            "se": 30.795488621958057,
+            "df": 9,
+            "var_scenario": 1003.2418064278046,
+            "var_seed": 55.969291278795914,
+            "var_cell": 110.84897824145231,
+            "excludes_zero": true
+          },
+          "g1_t": {
+            "mean": 319.6803047104486,
+            "lo": 228.00076576520178,
+            "hi": 411.3598436556954,
+            "df": 29,
+            "se": 31.673992587417906,
+            "excludes_zero": true
+          }
+        }
+      },
+      "equivalence": {
+        "with": "simulated_annealing",
+        "margin_frac": 0.001,
+        "margin": 64.70777288335414,
+        "reference_mean": 64707.77288335414,
+        "schemes": {
+          "cluster_bootstrap": {
+            "lo": -26.384269402283756,
+            "hi": 6.328537289016554,
+            "equivalent_at_margin": true,
+            "smallest_margin": 26.384269402283756,
+            "smallest_margin_frac": 0.00040774497756004553
+          },
+          "crossed_bootstrap": {
+            "lo": -41.91627688059692,
+            "hi": 27.90107833518362,
+            "equivalent_at_margin": true,
+            "smallest_margin": 41.91627688059692,
+            "smallest_margin_frac": 0.0006477780800176441
+          },
+          "twoway_cluster_t": {
+            "lo": -46.00633897372065,
+            "hi": 23.30556360754155,
+            "equivalent_at_margin": true,
+            "smallest_margin": 46.00633897372065,
+            "smallest_margin_frac": 0.0007109862837754323
+          },
+          "g1_t": {
+            "lo": -29.14874255649014,
+            "hi": 6.447967190311035,
+            "equivalent_at_margin": true,
+            "smallest_margin": 29.14874255649014,
+            "smallest_margin_frac": 0.0004504674053461135
+          }
+        }
+      }
+    },
+    "sensitivity_mc": {
+      "alpha_family": 0.0071428571428571435,
+      "n_comparisons": 1,
+      "alpha_per_comparison": 0.0071428571428571435,
+      "level_per_comparison": 0.9928571428571429,
+      "equivalence_level": 0.9857142857142858,
+      "schemes": {
+        "cluster_bootstrap": "scenarios resampled, all seeds carried (4000 resamples; the manuscript scheme)",
+        "crossed_bootstrap": "scenarios and seeds resampled independently (4000 resamples)",
+        "twoway_cluster_t": "Cameron-Gelbach-Miller two-way variance, t on min(G) - 1 df",
+        "g1_t": "t on G - 1 df over scenario means"
+      },
+      "comparisons": {
+        "simulated_annealing_popstart": {
+          "n_runs": 300,
+          "n_scenarios": 30,
+          "mean": -10.962351938120166,
+          "cluster_bootstrap": {
+            "lo": -44.94586656200922,
+            "hi": 20.66223616376515,
+            "excludes_zero": false
+          },
+          "win_runs": 143,
+          "win_scenarios": 16,
+          "crossed_bootstrap": {
+            "lo": -59.428920951118485,
+            "hi": 33.59393958604419,
+            "excludes_zero": false
+          },
+          "twoway_cluster_t": {
+            "mean": -10.962351938120166,
+            "lo": -62.23406634947332,
+            "hi": 40.309362473232994,
+            "se": 14.811603359180625,
+            "df": 9,
+            "var_scenario": 161.57703728977964,
+            "var_seed": 102.37401967402178,
+            "var_cell": 44.56746289411065,
+            "excludes_zero": false
+          },
+          "g1_t": {
+            "mean": -10.962351938120166,
+            "lo": -47.75486308273264,
+            "hi": 25.83015920649231,
+            "df": 29,
+            "se": 12.71129565739778,
+            "excludes_zero": false
+          }
+        }
+      }
+    },
+    "sensitivity_closed_form": {
+      "alpha_family": 0.0071428571428571435,
+      "n_comparisons": 1,
+      "alpha_per_comparison": 0.0071428571428571435,
+      "level_per_comparison": 0.9928571428571429,
+      "equivalence_level": 0.9857142857142858,
+      "schemes": {
+        "cluster_bootstrap": "scenarios resampled, all seeds carried (4000 resamples; the manuscript scheme)",
+        "crossed_bootstrap": "scenarios and seeds resampled independently (4000 resamples)",
+        "twoway_cluster_t": "Cameron-Gelbach-Miller two-way variance, t on min(G) - 1 df",
+        "g1_t": "t on G - 1 df over scenario means"
+      },
+      "comparisons": {
+        "simulated_annealing_popstart": {
+          "n_runs": 300,
+          "n_scenarios": 30,
+          "mean": -10.983725813685233,
+          "cluster_bootstrap": {
+            "lo": -44.99241492050124,
+            "hi": 20.61750320663644,
+            "excludes_zero": false
+          },
+          "win_runs": 143,
+          "win_scenarios": 16,
+          "crossed_bootstrap": {
+            "lo": -59.49340422204293,
+            "hi": 33.46660891088698,
+            "excludes_zero": false
+          },
+          "twoway_cluster_t": {
+            "mean": -10.983725813685233,
+            "lo": -62.28682270216053,
+            "hi": 40.31937107479006,
+            "se": 14.820669270256513,
+            "df": 9,
+            "var_scenario": 161.64014801685084,
+            "var_seed": 102.58469082017831,
+            "var_cell": 44.57260121870344,
+            "excludes_zero": false
+          },
+          "g1_t": {
+            "mean": -10.983725813685233,
+            "lo": -47.78342169034057,
+            "hi": 25.815970062970102,
+            "df": 29,
+            "se": 12.713777881371486,
+            "excludes_zero": false
+          }
+        }
+      }
+    },
+    "equivalence_margin_frac": 0.001
+  },
+  "closed_form_conclusions_unchanged": {
+    "per_comparison": {
+      "random_valid": {
+        "sign_mc": 1,
+        "sign_cf": 1,
+        "significant_mc": true,
+        "significant_cf": true,
+        "unchanged": true
+      },
+      "perimeter_only": {
+        "sign_mc": 1,
+        "sign_cf": 1,
+        "significant_mc": true,
+        "significant_cf": true,
+        "unchanged": true
+      },
+      "popularity_rank": {
+        "sign_mc": 1,
+        "sign_cf": 1,
+        "significant_mc": true,
+        "significant_cf": true,
+        "unchanged": true
+      },
+      "greedy_swap": {
+        "sign_mc": 1,
+        "sign_cf": 1,
+        "significant_mc": true,
+        "significant_cf": true,
+        "unchanged": true
+      },
+      "random_search": {
+        "sign_mc": 1,
+        "sign_cf": 1,
+        "significant_mc": true,
+        "significant_cf": true,
+        "unchanged": true
+      },
+      "simulated_annealing": {
+        "sign_mc": -1,
+        "sign_cf": -1,
+        "significant_mc": false,
+        "significant_cf": false,
+        "unchanged": true
+      },
+      "oracle": {
+        "sign_mc": 1,
+        "sign_cf": 1,
+        "significant_mc": true,
+        "significant_cf": true,
+        "unchanged": true
+      }
+    },
+    "equivalence_mc": true,
+    "equivalence_cf": true,
+    "equivalence_unchanged": true,
+    "all_unchanged": true
+  },
+  "reference_moved_by_repair": {
+    "n_scenarios": 5,
+    "of_scenarios": 30,
+    "scenarios": [
+      3,
+      6,
+      7,
+      19,
+      27
+    ],
+    "definition": "analytical revenue of the reference after the shared repair below its unrepaired value"
+  },
+  "oracle_restarts": 96,
+  "oracle_failed_restarts": 0,
+  "budget": {
+    "search_evals": 750,
+    "final_evals": 150,
+    "block": 30
+  },
+  "repair_stats": {
+    "calls": 850680,
+    "aisle_clip_calls": 0,
+    "aisle_clip_items": 0,
+    "aisle_clip_max_m": 0.0,
+    "snap_zones": 85753,
+    "reach_single_file": 0,
+    "reach_as_built_zone": 0,
+    "reach_as_built_store": 0
+  },
+  "layouts_path": "layouts.json",
+  "traces_path": "traces.json"
+}

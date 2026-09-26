@@ -31,7 +31,9 @@ import numpy as np
 import pandas as pd
 
 from customer import is_regular_item
-from retail_literature import (DEFAULT_OP_HOURS_PER_DAY,
+from dataset_adapters import anonymous_customer_mask
+from retail_literature import (ASSUMED_CONVERSION_RATE,
+                               DEFAULT_OP_HOURS_PER_DAY,
                                DEFAULT_WEEKEND_MULTIPLIER)
 
 # The Monte Carlo engine projects over consecutive CALENDAR days and lifts
@@ -48,7 +50,8 @@ _MC_MEAN_DAY_MULTIPLIER = (5.0 + 2.0 * DEFAULT_WEEKEND_MULTIPLIER) / 7.0
 # ``CalibratedParams.seed_into`` when it is given the shop.
 _SHOPPING_LIST_KEYS = ('list_invoice_keys', 'list_invoice_ptr',
                        'list_invoice_items', 'list_length_sample',
-                       'list_length_source', 'n_invoices_with_placed')
+                       'list_length_source', 'n_invoices_with_placed',
+                       'anonymous_list_share', 'anonymous_list_item_share')
 
 
 @dataclass
@@ -131,6 +134,31 @@ class CalibratedParams:
     invoice_items: np.ndarray = field(
         default_factory=lambda: np.zeros(0, dtype=np.int32))
 
+    # Time of day (seconds after midnight) at which each gap in
+    # ``inter_arrival_seconds`` starts, in the same order. The gaps alone
+    # cannot be set against an hour-of-day rate; with their start times the
+    # validation can rescale each one by the rate integrated over it
+    # (time-rescaling), which is Exp(1) under a non-homogeneous Poisson
+    # process with that rate. Empty for sources without invoice times.
+    inter_arrival_start_s: np.ndarray = field(
+        default_factory=lambda: np.zeros(0))
+    # Anonymous invoices -- those whose customer id is missing (about 7% of
+    # Online Retail II's invoices, at roughly twice the stocked spend of an
+    # identified one). They are kept by default, and disclosed here:
+    # ``invoice_anonymous`` flags each invoice in the order of
+    # ``basket_distinct_sizes``; the counts and shares describe the whole
+    # calibration, and ``anonymous_placed_shares`` gives the shares among
+    # the invoices a given shop stocks. ``calibrate_transactional(...,
+    # exclude_anonymous=True)`` calibrates without them, for a sensitivity
+    # run. ``customer_id_available`` is False when the source has no
+    # customer column, and then nothing is known about anonymity.
+    invoice_anonymous: np.ndarray = field(
+        default_factory=lambda: np.zeros(0, dtype=bool))
+    n_anonymous_invoices: int = 0
+    anonymous_invoice_frac: float = 0.0
+    anonymous_revenue_frac: float = 0.0
+    customer_id_available: bool = False
+
     @property
     def has_invoice_structure(self) -> bool:
         """True when the per-invoice product sets were kept (transactional
@@ -183,7 +211,10 @@ class CalibratedParams:
         of each stored invoice, so the list-length statistics a run reports
         describe exactly what the agents draw; ``list_length_source`` and
         ``n_invoices_with_placed`` (the number of stored invoices) sit
-        beside it. Without a shop there is no assortment to cut the
+        beside it, and, when the source names customers,
+        ``anonymous_list_share`` / ``anonymous_list_item_share`` -- the
+        anonymous invoices' share of the stored lists and of the items on
+        them. Without a shop there is no assortment to cut the
         invoices to, so none of these is written and the agents keep the
         type-conditional law.
 
@@ -367,7 +398,8 @@ class CalibratedParams:
             # carry -- and invoices touching none of the stocked products
             # are trips this shop never sees.
             if self.has_invoice_structure:
-                lists = placed_invoice_lists(self, regular_item_keys(shop))
+                key_of = regular_item_keys(shop)
+                lists = placed_invoice_lists(self, key_of)
                 if lists['n_with_placed']:
                     cal['list_invoice_keys'] = lists['keys']
                     cal['list_invoice_ptr'] = lists['ptr']
@@ -376,6 +408,14 @@ class CalibratedParams:
                         np.diff(lists['ptr']).astype(np.int64).tolist())
                     cal['list_length_source'] = 'placed-invoice empirical'
                     cal['n_invoices_with_placed'] = int(lists['n_with_placed'])
+                    # How much of the list law anonymous invoices make up:
+                    # their share of the stored lists and of the listed
+                    # items (review R27). Absent without a customer column.
+                    if getattr(self, 'customer_id_available', False):
+                        shares = anonymous_placed_shares(self, key_of)
+                        cal['anonymous_list_share'] = shares['invoice_share']
+                        cal['anonymous_list_item_share'] = \
+                            shares['purchase_share']
 
         sim._calibration_seeded_keys = sorted(set(cal) - keys_before)
 
@@ -414,23 +454,44 @@ def placed_invoice_sample(params: CalibratedParams,
     empty = {'sizes': np.zeros(0, dtype=np.int64),
              'revenues': np.zeros(0, dtype=np.float64),
              'n_invoices': 0, 'n_with_placed': 0}
-    if not getattr(params, 'has_invoice_structure', False):
+    per_invoice = _placed_per_invoice(params, product_ids)
+    if per_invoice is None:
         return empty
+    sizes, revenues = per_invoice
+    empty['n_invoices'] = int(sizes.size)
+    keep = sizes > 0
+    if not keep.any():
+        return empty
+    return {'sizes': sizes[keep].astype(np.int64),
+            'revenues': revenues[keep].astype(np.float64),
+            'n_invoices': int(sizes.size),
+            'n_with_placed': int(keep.sum())}
+
+
+def _placed_per_invoice(params: CalibratedParams, product_ids):
+    """``(sizes, revenues)`` over EVERY invoice of the CSR structure, in
+    invoice order: the distinct stocked products on each invoice and their
+    spend at one unit each, at ``params.item_prices`` (zero for an invoice
+    holding none). None when the params carry no per-invoice product sets.
+    ``placed_invoice_sample`` keeps the invoices with a stocked product;
+    ``anonymous_placed_shares`` splits them by anonymity."""
+    if not getattr(params, 'has_invoice_structure', False):
+        return None
     ptr = np.asarray(params.invoice_ptr, dtype=np.int64)
     items = np.asarray(params.invoice_items, dtype=np.int64)
     index = np.asarray([str(p) for p in params.invoice_product_index],
                        dtype=str)
     n_inv = int(ptr.size) - 1
-    empty['n_invoices'] = n_inv
+    zeros = (np.zeros(n_inv, dtype=np.int64), np.zeros(n_inv, dtype=np.float64))
 
     wanted = np.asarray(
         sorted({str(p) for p in (() if product_ids is None else product_ids)}),
         dtype=str)
     if wanted.size == 0:
-        return empty
+        return zeros
     stocked = np.isin(index, wanted)
     if not stocked.any():
-        return empty
+        return zeros
 
     # Invoice row of every stored (invoice, product) entry.
     row = np.repeat(np.arange(n_inv, dtype=np.int64), np.diff(ptr))
@@ -446,12 +507,59 @@ def placed_invoice_sample(params: CalibratedParams,
               .fillna(0.0).to_numpy(dtype=np.float64))
     revenues = np.bincount(hit_rows, weights=prices[items[hit]],
                            minlength=n_inv)
+    return sizes.astype(np.int64), revenues.astype(np.float64)
 
+
+def anonymous_placed_shares(params: CalibratedParams,
+                            product_ids) -> Dict[str, Any]:
+    """How much of a shop's stocked demand comes from anonymous invoices.
+
+    Over the invoices holding at least one of ``product_ids`` (the trips
+    the shop sees, as ``placed_invoice_sample`` defines them): the number
+    that are anonymous and their share (``invoice_share``), their share of
+    the stocked purchases -- distinct stocked products, summed over
+    invoices (``purchase_share``) -- and of the stocked spend at one unit
+    each at the calibrated prices (``revenue_share``), with the mean
+    stocked size and spend of an anonymous and of an identified invoice
+    side by side. The whole calibration's shares sit beside them
+    (``anonymous_invoice_frac`` of the invoices, ``anonymous_revenue_frac``
+    of the line revenue). Every share is NaN when the source has no
+    customer column (``customer_id_available``) or no invoice structure."""
+    nan = float('nan')
+    out = {'customer_id_available': bool(getattr(params,
+                                                 'customer_id_available',
+                                                 False)),
+           'anonymous_invoice_frac_all': float(getattr(
+               params, 'anonymous_invoice_frac', nan)),
+           'anonymous_revenue_frac_all': float(getattr(
+               params, 'anonymous_revenue_frac', nan)),
+           'n_with_placed': 0, 'n_anonymous_with_placed': 0,
+           'invoice_share': nan, 'purchase_share': nan, 'revenue_share': nan,
+           'mean_size_anonymous': nan, 'mean_size_identified': nan,
+           'mean_revenue_anonymous': nan, 'mean_revenue_identified': nan}
+    per_invoice = _placed_per_invoice(params, product_ids)
+    anon = np.asarray(getattr(params, 'invoice_anonymous', ()), dtype=bool)
+    if per_invoice is None:
+        return out
+    sizes, revenues = per_invoice
     keep = sizes > 0
-    return {'sizes': sizes[keep].astype(np.int64),
-            'revenues': revenues[keep].astype(np.float64),
-            'n_invoices': n_inv,
-            'n_with_placed': int(keep.sum())}
+    out['n_with_placed'] = int(keep.sum())
+    if not out['customer_id_available'] or anon.size != sizes.size:
+        return out
+    a, s, r = anon[keep], sizes[keep], revenues[keep]
+    out['n_anonymous_with_placed'] = int(a.sum())
+    if keep.any():
+        out['invoice_share'] = float(a.mean())
+        out['purchase_share'] = float(s[a].sum() / max(s.sum(), 1))
+        out['revenue_share'] = (float(r[a].sum() / r.sum())
+                                if r.sum() > 0 else nan)
+    if a.any():
+        out['mean_size_anonymous'] = float(s[a].mean())
+        out['mean_revenue_anonymous'] = float(r[a].mean())
+    if (~a).any():
+        out['mean_size_identified'] = float(s[~a].mean())
+        out['mean_revenue_identified'] = float(r[~a].mean())
+    return out
 
 
 def regular_item_keys(shop) -> Dict[str, str]:
@@ -550,13 +658,21 @@ def placed_invoice_lists(params: CalibratedParams,
 # --- Calibration ----------------------------------------------------------
 
 def calibrate_transactional(df: pd.DataFrame,
-                            assumed_conversion_rate: float = 0.30,
+                            assumed_conversion_rate: float = ASSUMED_CONVERSION_RATE,
                             top_pairs_n: int = 50,
-                            currency: str = "GBP") -> CalibratedParams:
+                            currency: str = "GBP",
+                            exclude_anonymous: bool = False) -> CalibratedParams:
     """Compute empirical simulation parameters from a normalized transactional df.
 
     ``df`` must have columns: invoice_id, product_id, product_name, quantity,
     timestamp (datetime64), unit_price, category. customer_id is optional.
+
+    Anonymous invoices (no customer id) are kept and disclosed
+    (``CalibratedParams.invoice_anonymous`` and the counts beside it).
+    ``exclude_anonymous=True`` calibrates without them -- every rate,
+    distribution and per-item count then describes the identified
+    customers only -- for a sensitivity run; it needs a customer column,
+    since without one no invoice can be told anonymous.
     """
     required = {"invoice_id", "product_id", "product_name", "quantity",
                 "timestamp", "unit_price", "category"}
@@ -583,6 +699,34 @@ def calibrate_transactional(df: pd.DataFrame,
     df = df.dropna(subset=["timestamp"])
     df["line_revenue"] = df["quantity"] * df["unit_price"]
 
+    # Anonymous lines: the customer column names nobody. Excluded on
+    # request (sensitivity run), otherwise flagged per invoice below.
+    customer_id_available = "customer_id" in df.columns
+    if customer_id_available:
+        df["_anonymous"] = anonymous_customer_mask(df["customer_id"]).to_numpy()
+    elif exclude_anonymous:
+        raise ValueError("calibrate_transactional: exclude_anonymous needs a "
+                         "customer_id column to tell anonymous invoices "
+                         "apart")
+    else:
+        df["_anonymous"] = False
+    anonymous_excluded = {}
+    if exclude_anonymous:
+        anon_rows = df["_anonymous"].to_numpy(dtype=bool)
+        anonymous_excluded = {
+            "anonymous_invoices": "excluded",
+            "n_anonymous_invoices_excluded": int(
+                df.loc[anon_rows, "invoice_id"].nunique()),
+            "n_anonymous_rows_excluded": int(anon_rows.sum()),
+            "anonymous_revenue_excluded": float(
+                df.loc[anon_rows, "line_revenue"].sum()),
+        }
+        df = df[~anon_rows]
+        if len(df) == 0:
+            raise ValueError("calibrate_transactional: no identified "
+                             "customer's invoice left after excluding the "
+                             "anonymous ones")
+
     # Per-invoice rollups
     inv_g = df.groupby("invoice_id")
     invoice_revs = inv_g["line_revenue"].sum().to_numpy(dtype=np.float64)
@@ -592,6 +736,9 @@ def calibrate_transactional(df: pd.DataFrame,
     # which a wholesale bulk line inflates; distinct-item count is the
     # trip-size companion.
     distinct_per_invoice = inv_g["product_id"].nunique().to_numpy(dtype=np.float64)
+    # An invoice is anonymous when its lines name no customer (an invoice
+    # carries one customer; ``any`` guards a malformed one).
+    invoice_anonymous = inv_g["_anonymous"].any().to_numpy(dtype=bool)
     basket_units_median = float(np.median(basket_sizes)) if basket_sizes.size else 0.0
     basket_distinct_median = (float(np.median(distinct_per_invoice))
                               if distinct_per_invoice.size else 0.0)
@@ -612,6 +759,13 @@ def calibrate_transactional(df: pd.DataFrame,
     invoice_dates = invoice_ns.astype("datetime64[D]")
     same_day = invoice_dates[1:] == invoice_dates[:-1]
     inter_arrival = deltas_s[same_day]
+    # Where in the day each kept gap starts, for the time-rescaled arrival
+    # test (``dataset_validation``): seconds after the gap's first invoice's
+    # midnight.
+    time_of_day_s = (invoice_ns.astype(np.int64)
+                     - invoice_dates.astype("datetime64[ns]").astype(np.int64)
+                     ) / 1e9
+    inter_arrival_start = time_of_day_s[:-1][same_day]
 
     # Buyers per open hour on the projection engine's own day model: the
     # engine runs every CALENDAR day in the horizon and lifts weekends, so
@@ -727,9 +881,8 @@ def calibrate_transactional(df: pd.DataFrame,
     # pseudo-customer would corrupt the repeat-purchase estimate (audit R7.2).
     return_rate = 0.0
     n_unique_customers = 0
-    if "customer_id" in df.columns:
-        cid = df["customer_id"].astype(str).str.strip().str.lower()
-        known = df[~cid.isin({"", "nan", "none", "na", "<na>"})]
+    if customer_id_available:
+        known = df[~df["_anonymous"].to_numpy(dtype=bool)]
         if len(known):
             cust_inv = known.groupby("customer_id")["invoice_id"].nunique()
             return_rate = float((cust_inv > 1).sum() / max(len(cust_inv), 1))
@@ -738,6 +891,13 @@ def calibrate_transactional(df: pd.DataFrame,
     span_seconds = float(
         (invoice_times[-1] - invoice_times[0]).astype("timedelta64[s]").astype(np.int64)
     )
+
+    total_line_revenue = float(df["line_revenue"].sum())
+    anonymous_revenue_frac = (
+        float(df.loc[df["_anonymous"].to_numpy(dtype=bool),
+                     "line_revenue"].sum() / total_line_revenue)
+        if customer_id_available and total_line_revenue > 0 else 0.0)
+    n_anonymous_invoices = int(invoice_anonymous.sum())
 
     return CalibratedParams(
         n_invoices=n_invoices,
@@ -768,13 +928,23 @@ def calibrate_transactional(df: pd.DataFrame,
         invoice_product_index=invoice_product_index,
         invoice_ptr=invoice_ptr,
         invoice_items=invoice_items,
+        inter_arrival_start_s=inter_arrival_start,
+        invoice_anonymous=invoice_anonymous,
+        n_anonymous_invoices=n_anonymous_invoices,
+        anonymous_invoice_frac=(n_anonymous_invoices / max(n_invoices, 1)),
+        anonymous_revenue_frac=anonymous_revenue_frac,
+        customer_id_available=customer_id_available,
         # How the rate was put on the engine's day model, and how far the
         # two day counts differ (UCI: 305 trading days over 374 calendar
-        # days), so a reader can see what the divisor was.
+        # days), so a reader can see what the divisor was. Whether the
+        # anonymous invoices are in the calibration is recorded beside it.
         calibration_extra={
             "arrival_rate_source": "invoices_per_calendar_day",
             "n_trading_days": n_trading_days,
             "n_calendar_days": n_calendar_days,
+            **(anonymous_excluded
+               or {"anonymous_invoices": ("included" if customer_id_available
+                                          else "unknown")}),
         },
     )
 
@@ -880,7 +1050,7 @@ def calibrate_omnichannel(families: pd.DataFrame,
     if basket_sizes.size < 5:
         basket_sizes = np.array([max(1.0, float(p.sum()))] * 10)
         invoice_revenues = np.array([float((p * prices).sum())] * 10)
-    conv_raw = float(buyer.mean()) if buyer.size else 0.30
+    conv_raw = float(buyer.mean()) if buyer.size else ASSUMED_CONVERSION_RATE
     conv = min(max(conv_raw, 0.05), 0.99)
     # Independent per-family draws make at least one purchase near-certain
     # once the marginal probabilities sum well above 1 (the shipped bundle

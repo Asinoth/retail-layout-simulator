@@ -92,26 +92,45 @@ class OptimizeResultsMixin:
         def bibline(text):
             report_text.insert(tk.END, f"    {text}\n", 'bibref')
 
+        # The live windows' revenues are descriptive only (Sec. 9): each is
+        # one short run from an empty store, and no lift is taken from them.
         real_pre  = pipe.get('real_pre_rev', 0)
         real_post = pipe.get('real_post_rev', 0)
-        # The live lift is undefined when the PRE window collected no
-        # revenue; the pipeline records the reason in the analytics.
-        real_lift = (real_post - real_pre) / real_pre * 100 if real_pre > 0 else None
-        real_lift_note = A.get('optimization_impact_note', '')
 
         # Two different baselines: mc_baseline is the CURRENT layout scored
-        # through the same score -> parameter transform as the optimized
+        # through the same score -> driver transform as the optimized
         # projection (so the lift isolates the layout change), while
         # mc_calibrated_baseline is the run on the raw calibrated
         # parameters, which is what the tornado swings were measured around.
         mc_base = pipe.get('mc_baseline', {})
         mc_cal  = pipe.get('mc_calibrated_baseline', mc_base)
         mc_opt  = pipe.get('mc_optimized', {})
-        mc_lift = (mc_opt.get('mean', 0) - mc_base.get('mean', 0)) / max(mc_base.get('mean', 1), 1e-6) * 100
+        projection = pipe.get('projection') or {}
+        proj_paired = projection.get('paired', {})
+        # Every lift in this report comes from the paired projection or
+        # from the GA's exact fitness of the same two layouts, and both
+        # exist only when a layout was optimized. A run with fewer than two
+        # movable items skips the GA and still reaches this report, with
+        # the Phase-2a run on the RAW calibrated parameters under
+        # 'mc_baseline' and no projection; a lift taken against that run
+        # would be unpaired and would compare nothing (it once printed as
+        # "-100%" from "paired draws"). Such a run states why and prints no
+        # lift, projection or layout recommendation (Secs. 1, 5-8, 10, 12).
+        optimized = bool(proj_paired)
+        not_run = ("not run: "
+                   + (pipe.get('not_optimized_reason')
+                      or "no layout was optimized"))
+        mc_lift = proj_paired['lift_pct'] if optimized else None
 
+        # The GA fitness is the exact expected revenue of the projection
+        # (closed form), so this is the lift the Monte Carlo estimate above
+        # converges to.
         ga_best_fit = pipe.get('ga_best_fit', 0)
         ga_curr_fit = pipe.get('ga_current_fit', 0)
-        ga_lift = (ga_best_fit - ga_curr_fit) / max(ga_curr_fit, 1e-6) * 100
+        ga_lift = ((ga_best_fit - ga_curr_fit) / max(ga_curr_fit, 1e-6) * 100
+                   if optimized else None)
+        horizon = pipe.get('ga_horizon_days', 30)
+        from layout_comparison import comparison_lines
 
         n_changes = len(changes) if changes else 0
         base_params = pipe.get('pre_snapshot', {}).get('params', {})
@@ -137,24 +156,36 @@ class OptimizeResultsMixin:
         section("1", "EXECUTIVE SUMMARY")
 
         line(f"Items repositioned:          {n_changes}")
-        if real_lift is not None:
-            line(f"Real-time revenue lift:      {real_lift:+.1f}%  (${real_pre:.2f} -> ${real_post:.2f})",
-                 'good' if real_lift > 0 else 'bad')
+        # Direction and colour come from the paired interval, so Monte Carlo
+        # noise alone never shows up as a better or worse layout.
+        proj_dir = projection.get('direction')
+        proj_tag = {'B': 'good', 'A': 'bad'}.get(proj_dir, 'neutral')
+        if optimized:
+            line(f"Projected {horizon}-day lift:      {ga_lift:+.2f}%  "
+                 f"(exact, layout model: ${ga_curr_fit:,.0f} -> "
+                 f"${ga_best_fit:,.0f})", proj_tag)
+            lo, hi = proj_paired['lift_pct_ci']
+            lvl = int(round(proj_paired['level'] * 100))
+            line(f"  Monte Carlo check:         {mc_lift:+.2f}%  "
+                 f"({lvl}% interval {lo:+.2f}% to {hi:+.2f}%, "
+                 f"{proj_paired['n_pairs']} paired draws)", proj_tag)
+            line("  (current vs optimized layout, both under the layout model;")
+            line("   the intervals are Monte Carlo precision, not uncertainty")
+            line("   about the model's coefficients)")
         else:
-            line(f"Real-time revenue lift:      n/a  (${real_pre:.2f} -> ${real_post:.2f})")
-            if real_lift_note:
-                line(f"  {real_lift_note}")
-        line(f"MC projected 30-day lift:    {mc_lift:+.1f}%  (${mc_base.get('mean',0):,.0f} -> ${mc_opt.get('mean',0):,.0f})",
-             'good' if mc_lift > 0 else 'bad')
-        line("  (current vs optimized layout, both under the layout model)")
-        line(f"GA fitness improvement:      {ga_lift:+.1f}%", 'good' if ga_lift > 0 else 'bad')
-        line(f"Conversion rate:             {performance_data.get('conversion_rate',0)*100:.1f}%")
-        line(f"Current total revenue:       ${performance_data.get('total_revenue',0):,.2f}")
+            line(f"Projected {horizon}-day lift:      {not_run}")
+        line(f"Live conversion rate:        {performance_data.get('conversion_rate',0)*100:.1f}%")
+        line(f"Live total revenue:          ${performance_data.get('total_revenue',0):,.2f}")
         line("")
-        line("Methodology: PRE/POST measurement windows with GA-optimized")
-        line("layout placement, validated by Monte Carlo simulation,")
-        line("Markov chain customer flow analysis, sensitivity analysis,")
-        line("and A/B statistical testing (Welch's t, KS, Cohen's d).")
+        line("Methodology: GA layout search on the exact expected revenue of")
+        line("the Monte Carlo projection, a paired Monte Carlo comparison of")
+        line("the current and optimized layouts under common random numbers,")
+        line("Markov chain customer flow analysis and a sensitivity tornado.")
+        line("The live PRE/POST windows are reported as observations only.")
+        if not optimized:
+            line("")
+            line(f"GA search, projection and re-scored comparison {not_run}.",
+                 'highlight')
 
         # --------------------------------------------------------
         # 2. PRE-OPTIMIZATION BASELINE
@@ -220,20 +251,28 @@ class OptimizeResultsMixin:
             line(f"  #{rank}  {lbl:<24s}  swing=${d['swing']:>10,.0f}  ({pct_impact:.1f}%)  contrib={contrib:.0f}%")
 
         if sorted_t:
-            top = sorted_t[0][0]
             line("")
-
-
-            line(f"Key insight: '{top}' is the single largest revenue driver.", 'highlight')
-            if len(sorted_t) >= 3:
-                top3 = [s[0] for s in sorted_t[:3]]
-                line(f"Top 3 drivers: {', '.join(top3)}")
-                top3_pct = sum(tornado[k]['swing'] for k in top3) / total_swing * 100
-                line(f"Together they account for {top3_pct:.0f}% of total sensitivity.")
+            # Revenue is visitors x conversion x spend (plus the impulse
+            # term), so a +/-20% change in any of the three factors moves it
+            # by about +/-20%: their swings are near-equal on every store,
+            # and their order says nothing about the store.
+            line("Revenue is the product of visitors, conversion and spend per")
+            line("converter, so a +/-20% change in any one of the three moves")
+            line("it by about the same amount on any store; their order above")
+            line("is not a finding about this store. The impulse terms are")
+            line("small because impulse spend is a small share of revenue.")
 
         line("")
-        cite("These sensitivity weights dynamically adjust GA fitness scoring,")
-        cite("so the optimizer focuses on the parameters with most leverage.")
+        line("Conversion rate is perturbed at a fixed visitor rate, i.e. as a")
+        line("change in how many visitors buy. With a transactional dataset")
+        line("the visitor rate is itself derived as buyers / assumed")
+        line("conversion, so a different ASSUMED conversion would move the")
+        line("visitor rate the other way and leave calibrated revenue as it")
+        line("is; this bar varies only one of the rate's two uses.")
+        line("")
+        cite("Diagnostic only: the optimizer's fitness does not read these")
+        cite("swings. It runs at the midpoints of the cited elasticity bands,")
+        cite("as every headless experiment does.")
 
         # --------------------------------------------------------
         # 4. MARKOV CHAIN ANALYSIS
@@ -309,72 +348,85 @@ class OptimizeResultsMixin:
         cite(f" section compliance {GA_W_SECTION_COMPLIANCE:.2f}, entrance proximity "
              f"{GA_W_ACCESSIBILITY:.2f} — retail_literature.py]")
 
-        subsection("5.1", "GA Configuration")
-        line(f"Population size:             {pipe.get('ga_pop_size', 0)}")
-        line(f"Generations:                 {pipe.get('ga_n_gens', 0)}")
-        fit_kind = pipe.get('ga_fitness_kind', 'analytic_surrogate')
-        if fit_kind == 'analytic_surrogate':
-            line("Fitness evaluation:          analytic surrogate "
-                 "(layout score -> cited elasticities -> expected revenue)")
+        if not optimized:
+            line(f"GA search {not_run}.")
         else:
-            line(f"MC iterations/evaluation:    {pipe.get('ga_mc_iters', 0)}")
-        line(f"Projection horizon:          {pipe.get('ga_mc_days', 30)} days")
-        line(f"Movable items:               {len(pipe.get('ga_item_names', []))}")
-        line(f"Selection:                   Tournament (k=5)")
-        line(f"Crossover:                   uniform per-gene mask + arithmetic blend child "
-             f"(alpha~U(0.1,0.5))")
-        line(f"Mutation:                    Gaussian, sigma = 12% of section extent "
-             f"(min 0.2 m; unsectioned items 8% of max(W,H))")
-        line(f"Fitness:                     layout-adjusted conversion x "
-             f"SA-weighted cited elasticities")
+            subsection("5.1", "GA Configuration")
+            line(f"Population size:             {pipe.get('ga_pop_size', 0)}")
+            line(f"Generations:                 {pipe.get('ga_n_gens', 0)}")
+            fit_kind = pipe.get('ga_fitness_kind', 'closed_form')
+            if fit_kind == 'closed_form':
+                line("Fitness evaluation:          closed form -- the exact "
+                     "expected revenue of the Monte Carlo projection "
+                     "(experiments.closed_form.expected_revenue)")
+            else:
+                line(f"MC iterations/evaluation:    {pipe.get('ga_mc_iters', 0)}")
+            line(f"Projection horizon:          {horizon} days")
+            line(f"Movable items:               {len(pipe.get('ga_item_names', []))}")
+            if pipe.get('ga_repair_note'):
+                line(f"Feasibility repair:          {pipe['ga_repair_note']}",
+                     'bad')
+            line(f"Selection:                   Tournament (k=5)")
+            line(f"Crossover:                   uniform per-gene mask + arithmetic blend child "
+                 f"(alpha~U(0.1,0.5))")
+            line(f"Mutation:                    Gaussian, sigma = 12% of section extent "
+                 f"(min 0.2 m; unsectioned items 8% of max(W,H))")
+            line(f"Fitness:                     layout score -> conversion, "
+                 f"impulse and basket at the cited band-midpoint elasticities")
+            anchor = pipe.get('score_anchor') or {}
+            if anchor:
+                line(f"Elasticity anchor:           the PRE layout (score "
+                     f"{anchor.get('score', 0.0):.4f} at optimize start); lifts "
+                     f"act on the score difference from it, so in the GA and the "
+                     f"projection it reproduces the calibrated inputs")
 
-        subsection("5.2", "Revenue Comparison (GA)")
-        line(f"Current layout proj revenue: ${ga_curr_fit:>12,.2f}")
-        line(f"Optimized layout projection: ${ga_best_fit:>12,.2f}")
-        line(f"Improvement:                 {ga_lift:+.1f}%", 'good' if ga_lift> 0 else 'bad')
-        ga_mc_d = max(pipe.get('ga_mc_days', 30), 1)
-        line(f"Daily delta:                 ${(ga_best_fit - ga_curr_fit) / ga_mc_d:+,.2f}")
-        line(f"Annual projection delta:     ${(ga_best_fit - ga_curr_fit) / ga_mc_d * 365:+,.0f}",
-             'good' if ga_lift > 0 else 'bad')
+            subsection("5.2", "Revenue Comparison (GA, exact expectation)")
+            line(f"Current layout proj revenue: ${ga_curr_fit:>12,.2f}")
+            line(f"Optimized layout projection: ${ga_best_fit:>12,.2f}")
+            line(f"Improvement:                 {ga_lift:+.2f}%", 'good' if ga_lift> 0 else 'bad')
+            ga_mc_d = max(horizon, 1)
+            line(f"Daily delta:                 ${(ga_best_fit - ga_curr_fit) / ga_mc_d:+,.2f}")
+            line(f"Annual projection delta:     ${(ga_best_fit - ga_curr_fit) / ga_mc_d * 365:+,.0f}",
+                 'good' if ga_lift > 0 else 'bad')
 
-        subsection("5.3", "Layout Quality Breakdown (Before -> After)")
-        for key in best_bk:
-            if key == 'composite':
-                continue
-            cv = curr_bk.get(key, 0)
-            bv = best_bk.get(key, 0)
-            delta_v = bv - cv
-            tag = 'good' if delta_v > 0.001 else ('bad' if delta_v < -0.001 else 'neutral')
-            if 'penalty' in key:
-                tag = 'good' if delta_v < -0.001 else ('bad' if delta_v > 0.001 else 'neutral')
-            line(f"  {key:<24s}  {cv:.4f} -> {bv:.4f}  ({delta_v:+.4f})", tag)
-        line(f"  {'COMPOSITE':<24s}  {curr_bk.get('composite',0):.4f} -> {best_bk.get('composite',0):.4f}  "
-             f"({best_bk.get('composite',0) - curr_bk.get('composite',0):+.4f})", 'highlight')
+            subsection("5.3", "Layout Quality Breakdown (Before -> After)")
+            for key in best_bk:
+                if key == 'composite':
+                    continue
+                cv = curr_bk.get(key, 0)
+                bv = best_bk.get(key, 0)
+                delta_v = bv - cv
+                tag = 'good' if delta_v > 0.001 else ('bad' if delta_v < -0.001 else 'neutral')
+                if 'penalty' in key:
+                    tag = 'good' if delta_v < -0.001 else ('bad' if delta_v > 0.001 else 'neutral')
+                line(f"  {key:<24s}  {cv:.4f} -> {bv:.4f}  ({delta_v:+.4f})", tag)
+            line(f"  {'COMPOSITE':<24s}  {curr_bk.get('composite',0):.4f} -> {best_bk.get('composite',0):.4f}  "
+                 f"({best_bk.get('composite',0) - curr_bk.get('composite',0):+.4f})", 'highlight')
 
-        subsection("5.4", "GA Convergence")
-        h_best = pipe.get('ga_history_best', [])
-        h_avg  = pipe.get('ga_history_avg', [])
-        h_worst = pipe.get('ga_history_worst', [])
-        if h_best:
-            line(f"Gen 1 best:                  ${h_best[0]:>12,.2f}")
-            line(f"Final best:                  ${h_best[-1]:>12,.2f}")
-            line(f"Convergence gain:            ${h_best[-1] - h_best[0]:+12,.2f}")
-            if len(h_best) >= 2:
-                early_gain = h_best[min(4, len(h_best)-1)] - h_best[0]
-                late_gain  = h_best[-1] - h_best[max(len(h_best)-5, 0)]
-                line(f"Early-stage gain (gen 1-5):  ${early_gain:+12,.2f}")
-                line(f"Late-stage gain (last 5):    ${late_gain:+12,.2f}")
-                # Check the flat run first: with zero gains both ratio tests
-                # would otherwise fail and report a search that never moved
-                # as still improving.
-                if abs(h_best[-1] - h_best[0]) <= 1e-9 * max(abs(h_best[0]), 1.0):
-                    line("Convergence: NO IMPROVEMENT AFTER GENERATION 1 (flat search)", 'neutral')
-                elif abs(late_gain) <= abs(early_gain) * 0.1:
-                    line("Convergence: FULLY CONVERGED (flat tail)", 'good')
-                elif abs(late_gain) <= abs(early_gain) * 0.3:
-                    line("Convergence: NEARLY CONVERGED", 'good')
-                else:
-                    line("Convergence: STILL IMPROVING (more generations may help)", 'highlight')
+            subsection("5.4", "GA Convergence")
+            h_best = pipe.get('ga_history_best', [])
+            h_avg  = pipe.get('ga_history_avg', [])
+            h_worst = pipe.get('ga_history_worst', [])
+            if h_best:
+                line(f"Gen 1 best:                  ${h_best[0]:>12,.2f}")
+                line(f"Final best:                  ${h_best[-1]:>12,.2f}")
+                line(f"Convergence gain:            ${h_best[-1] - h_best[0]:+12,.2f}")
+                if len(h_best) >= 2:
+                    early_gain = h_best[min(4, len(h_best)-1)] - h_best[0]
+                    late_gain  = h_best[-1] - h_best[max(len(h_best)-5, 0)]
+                    line(f"Early-stage gain (gen 1-5):  ${early_gain:+12,.2f}")
+                    line(f"Late-stage gain (last 5):    ${late_gain:+12,.2f}")
+                    # Check the flat run first: with zero gains both ratio tests
+                    # would otherwise fail and report a search that never moved
+                    # as still improving.
+                    if abs(h_best[-1] - h_best[0]) <= 1e-9 * max(abs(h_best[0]), 1.0):
+                        line("Convergence: NO IMPROVEMENT AFTER GENERATION 1 (flat search)", 'neutral')
+                    elif abs(late_gain) <= abs(early_gain) * 0.1:
+                        line("Convergence: FULLY CONVERGED (flat tail)", 'good')
+                    elif abs(late_gain) <= abs(early_gain) * 0.3:
+                        line("Convergence: NEARLY CONVERGED", 'good')
+                    else:
+                        line("Convergence: STILL IMPROVING (more generations may help)", 'highlight')
 
         # --------------------------------------------------------
         # 6. ITEM MOVEMENTS
@@ -386,8 +438,10 @@ class OptimizeResultsMixin:
                 line(f"{i:>3d}. {change}")
             line("")
             line(f"Total items moved: {n_changes}", 'highlight')
-        else:
+        elif optimized:
             line("No items were moved — layout already optimal.", 'good')
+        else:
+            line(f"No items were moved: the GA search was {not_run}.")
 
         # --------------------------------------------------------
         # 7. POST-OPTIMIZATION MC PROJECTION
@@ -395,142 +449,122 @@ class OptimizeResultsMixin:
         section("7", "POST-OPTIMIZATION MONTE CARLO PROJECTION")
         cite("[Monte Carlo revenue simulation per Metropolis & Ulam, 1949; Rubinstein & Kroese, 2016]")
 
-        line(f"Mean 30-day revenue:         ${mc_opt.get('mean',0):>12,.2f}")
-        line(f"Std deviation:               ${mc_opt.get('std',0):>12,.2f}")
-        line(f"5th percentile:              ${mc_opt.get('p5',0):>12,.2f}")
-        line(f"95th percentile:             ${mc_opt.get('p95',0):>12,.2f}")
-        line(f"Daily average:               ${mc_opt.get('mean',0)/30:>12,.2f}")
-        line(f"Annual projection:           ${mc_opt.get('mean',0)/30*365:>12,.0f}")
-        line("")
-        mc_delta = mc_opt.get('mean', 0) - mc_base.get('mean', 0)
-        line(f"vs current layout, 30-day:   ${mc_delta:+12,.2f}  ({mc_lift:+.1f}%)",
-             'good' if mc_delta > 0 else 'bad')
-        line(f"vs current layout, annual:   ${mc_delta/30*365:+12,.0f}",
-             'good' if mc_delta > 0 else 'bad')
-        line("  (both layouts under the layout model; the raw calibrated")
-        line("   baseline is Sec. 2.2)")
+        if not optimized:
+            line(f"Projection {not_run}.")
+        else:
+            line(f"Mean {horizon}-day revenue:         ${mc_opt.get('mean',0):>12,.2f}")
+            line(f"Std deviation:               ${mc_opt.get('std',0):>12,.2f}")
+            line(f"5th percentile:              ${mc_opt.get('p5',0):>12,.2f}")
+            line(f"95th percentile:             ${mc_opt.get('p95',0):>12,.2f}")
+            line(f"Daily average:               ${mc_opt.get('mean',0)/horizon:>12,.2f}")
+            line(f"Annual projection:           ${mc_opt.get('mean',0)/horizon*365:>12,.0f}")
+            line("")
+            if projection:
+                proj_tag = {'B': 'good', 'A': 'bad'}.get(
+                    projection.get('direction'), 'neutral')
+                for txt in comparison_lines(projection, 'current', 'optimized'):
+                    line(txt, proj_tag if txt.lstrip().startswith(
+                        ('Monte Carlo', 'The model expects')) else 'neutral')
+            line("  (both layouts under the layout model; the raw calibrated")
+            line("   baseline is Sec. 2.2)")
 
-        line("")
-        # 5th-95th percentiles of the simulated 30-day totals: the spread of
-        # outcomes the model produces, which is far wider than the Monte
-        # Carlo uncertainty about the projected mean.
-        line("90% range of simulated outcomes (5th-95th pct):", 'highlight')
-        line(f"  Current:   ${mc_base.get('p5',0):>10,.0f}  to  ${mc_base.get('p95',0):>10,.0f}")
-        line(f"  Optimized: ${mc_opt.get('p5',0):>10,.0f}  to  ${mc_opt.get('p95',0):>10,.0f}")
+            line("")
+            # 5th-95th percentiles of the simulated totals: the spread of
+            # outcomes the model produces, which is far wider than the Monte
+            # Carlo uncertainty about the projected mean or the lift.
+            line("90% range of simulated outcomes (5th-95th pct):", 'highlight')
+            line(f"  Current:   ${mc_base.get('p5',0):>10,.0f}  to  ${mc_base.get('p95',0):>10,.0f}")
+            line(f"  Optimized: ${mc_opt.get('p5',0):>10,.0f}  to  ${mc_opt.get('p95',0):>10,.0f}")
+            line("  These describe the spread of simulated months, not the")
+            line("  uncertainty of the lift, which the paired interval gives.")
 
         # --------------------------------------------------------
-        # 8. A/B TEST (PRE vs POST)
+        # 8. RE-SCORED COMPARISON (as-built vs optimized layout)
         # --------------------------------------------------------
-        section("8", "A/B STATISTICAL COMPARISON (PRE vs POST LAYOUT)")
-        cite("[Welch's t-test: Welch, 1947; KS test: Massey, 1951; Cohen's d: Cohen, 1988]")
+        section("8", "RE-SCORED COMPARISON AFTER THE POST WINDOW "
+                     "(AS-BUILT vs OPTIMIZED)")
+        line("The Sec. 7 projection repeated after the live POST window:")
+        line("the traffic, revenue-placement and bottleneck criteria read")
+        line("the heat map and the bottleneck counts, which the window has")
+        line("added to, so both layouts are scored again. Both are projected")
+        line("under the calibrated inputs measured before the change, so")
+        line("they differ by the layout alone. This is a model projection of")
+        line("the two layouts, not a measurement of the PRE and POST windows")
+        line("(Sec. 9).")
 
-        ab_r = pipe.get('ab_results', {})
-        ab_t = pipe.get('ab_tests', {})
+        ab = pipe.get('ab_comparison')
+        if ab:
+            ra, rb = ab['A'], ab['B']
+            ab_tag = {'B': 'good', 'A': 'bad'}.get(ab.get('direction'),
+                                                   'neutral')
+            n_days_ab = ab['n_days']
 
-        if 'A' in ab_r and 'B' in ab_r:
-            ra = ab_r['A']
-            rb = ab_r['B']
-            ab_delta = rb['mean'] - ra['mean']
-            ab_pct = ab_delta / max(ra['mean'], 1e-6) * 100
-            # Direction (and colour) comes from the paired-lift interval, not
-            # the sign of the mean, so Monte Carlo noise alone never shows up
-            # as a better or worse layout.
-            lift_mean = ab_t.get('lift_mean', ab_delta)
-            lift_ci = ab_t.get('lift_ci95')
-            if lift_ci and lift_ci[0] > 0:
-                ab_dir_tag = 'good'
-            elif lift_ci and lift_ci[1] < 0:
-                ab_dir_tag = 'bad'
-            else:
-                ab_dir_tag = 'neutral'
-
-            subsection("8.1", "Revenue Summary (30-day MC)")
-            line(f"  {'Metric':<22s} {'PRE (A)':>12s} {'POST (B)':>12s}")
+            subsection("8.1", f"Revenue Summary ({n_days_ab}-day MC)")
+            line(f"  {'Metric':<22s} {'as-built':>12s} {'optimized':>12s}")
             line(f"  {'Mean':.<22s} ${ra['mean']:>11,.2f} ${rb['mean']:>11,.2f}")
+            line(f"  {'Exact mean (model)':.<22s} ${ra['exact_mean']:>11,.2f} "
+                 f"${rb['exact_mean']:>11,.2f}")
             line(f"  {'Median':.<22s} ${ra['median']:>11,.2f} ${rb['median']:>11,.2f}")
             line(f"  {'Std Dev':.<22s} ${ra['std']:>11,.2f} ${rb['std']:>11,.2f}")
             line(f"  {'5th pct':.<22s} ${ra['p5']:>11,.2f} ${rb['p5']:>11,.2f}")
             line(f"  {'95th pct':.<22s} ${ra['p95']:>11,.2f} ${rb['p95']:>11,.2f}")
-            line("")
-            line(f"  Delta (POST - PRE):    ${ab_delta:+12,.2f}  ({ab_pct:+.1f}%)",
-                 ab_dir_tag)
-            line(f"  Daily delta:           ${ab_delta/30:+12,.2f}")
-            line(f"  Annual projection:     ${ab_delta/30*365:+12,.0f}",
-                 ab_dir_tag)
 
-            subsection("8.2", "Statistical Tests")
-            sig_str = "YES" if ab_t.get('significant') else "NO"
-            effect = ("Large" if abs(ab_t.get('cohens_d', 0)) >= 0.8 else
-                      "Medium" if abs(ab_t.get('cohens_d', 0)) >= 0.5 else
-                      "Small" if abs(ab_t.get('cohens_d', 0)) >= 0.2 else "Negligible")
-            line(f"  Welch's t-test:")
-            line(f"    t-statistic:         {ab_t.get('t_stat',0):.4f}")
-            line(f"    p-value:             {ab_t.get('p_value',1):.6f}")
-            line(f"    p < alpha:           {sig_str} (alpha={ab_t.get('alpha',0.05)})")
-            line("")
-            line(f"  Kolmogorov-Smirnov test:")
-            line(f"    KS statistic:        {ab_t.get('ks_stat',0):.4f}")
-            line(f"    p-value:             {ab_t.get('ks_p',1):.6f}")
-            if ab_t.get('p_value_caveat'):
-                line(f"    Note: {ab_t['p_value_caveat']}")
-            line("")
-            line(f"  Effect Size:")
-            line(f"    Cohen's d:           {ab_t.get('cohens_d',0):.4f}  ({effect})")
-            line(f"    P(POST > PRE):       {ab_t.get('p_b_better',50):.1f}%",
-                 ab_dir_tag)
+            subsection("8.2", "Paired Lift (common random numbers)")
+            for txt in comparison_lines(ab, 'as-built', 'optimized'):
+                line(txt, ab_tag if txt.lstrip().startswith(
+                    ('Monte Carlo', 'The model expects')) else 'neutral')
+            delta = ab['paired']['lift_mean']
+            line(f"  Daily delta:           ${delta / n_days_ab:+12,.2f}")
+            line(f"  Annual projection:     ${delta / n_days_ab * 365:+12,.0f}",
+                 ab_tag)
 
             subsection("8.3", "Layout Quality Scores")
-            line(f"  PRE layout score:      {ra.get('score',0):.4f}")
-            line(f"  POST layout score:     {rb.get('score',0):.4f}")
-            line(f"  Score improvement:     {rb.get('score',0) - ra.get('score',0):+.4f}",
-                 'good' if rb.get('score',0) > ra.get('score',0) else 'bad')
-            line(f"  Conv rate PRE:         {ra.get('conv_adj',0)*100:.2f}%")
-            line(f"  Conv rate POST:        {rb.get('conv_adj',0)*100:.2f}%")
-            line(f"  Impulse rate PRE:      {ra.get('imp_adj',0)*100:.2f}%")
-            line(f"  Impulse rate POST:     {rb.get('imp_adj',0)*100:.2f}%")
-
-            subsection("8.4", "Verdict")
-            # PRE and POST are simulated under parameters that differ by
-            # construction, so both the p-values and the lift CI narrow as
-            # MC iterations grow; the verdict reports magnitude, not
-            # significance. The direction is the one set from the lift
-            # interval above.
-            if ab_dir_tag == 'good':
-                line(f"  POST (B) projects higher 30-day revenue than PRE (A)", 'good')
-            elif ab_dir_tag == 'bad':
-                line(f"  POST (B) projects lower 30-day revenue than PRE (A)", 'bad')
-            else:
-                line(f"  No difference distinguishable from MC noise", 'neutral')
-            line(f"  Mean lift (POST - PRE): ${lift_mean:+12,.2f}")
-            if lift_ci:
-                line(f"  95% CI (MC precision under the model): "
-                     f"${lift_ci[0]:+,.2f} to ${lift_ci[1]:+,.2f}")
-            line(f"  Effect magnitude:       Cohen's d = {ab_t.get('cohens_d', 0):.3f} ({effect})")
-            line(f"  The CI reflects simulation noise only, not real-world")
-            line(f"  uncertainty about the layout change.")
+            ab_anchor = pipe.get('ab_score_anchor') or {}
+            if ab_anchor:
+                # The live POST window has added to the heat map and the
+                # bottleneck counts since optimize start, so the comparison
+                # re-scores the as-built layout under the current analytics
+                # and anchors both arms there.
+                line(f"  Elasticity anchor:     as-built layout re-scored "
+                     f"after the POST window "
+                     f"({ab_anchor.get('score', 0.0):.4f}); it reproduces "
+                     f"the calibrated inputs")
+            sa_, sb_ = ab['scores']['A'], ab['scores']['B']
+            da, db = ab['drivers']['A'], ab['drivers']['B']
+            line(f"  As-built score:        {sa_:.4f}")
+            line(f"  Optimized score:       {sb_:.4f}")
+            line(f"  Score improvement:     {sb_ - sa_:+.4f}",
+                 'good' if sb_ > sa_ else 'bad')
+            line(f"  Conv rate as-built:    {da['conv']*100:.2f}%")
+            line(f"  Conv rate optimized:   {db['conv']*100:.2f}%")
+            line(f"  Impulse rate as-built: {da['imp_rate']*100:.2f}%")
+            line(f"  Impulse rate optim.:   {db['imp_rate']*100:.2f}%")
+            line(f"  Spend multiplier:      {da['rev_mult']:.4f} -> "
+                 f"{db['rev_mult']:.4f}")
+        elif not optimized:
+            line(f"Re-scored comparison {not_run}.")
         else:
-            line("A/B comparison could not be run (insufficient snapshot data).", 'bad')
+            line("Re-scored comparison could not be run (insufficient "
+                 "snapshot data).", 'bad')
 
         # --------------------------------------------------------
-        # 9. REAL-TIME VALIDATION
+        # 9. LIVE MEASUREMENT WINDOWS
         # --------------------------------------------------------
-        section("9", "REAL-TIME SIMULATION VALIDATION")
+        section("9", "LIVE MEASUREMENT WINDOWS (OBSERVATIONS ONLY)")
 
         dur = A.get('measurement_duration', 120)
-        line(f"Measurement window:          {dur}s ({dur//60} min each)")
+        line(f"Measurement window:          {dur}s of simulated time each")
         line(f"PRE-window revenue:          ${real_pre:.2f}")
         line(f"POST-window revenue:         ${real_post:.2f}")
-        if real_lift is not None:
-            line(f"Real-time lift:              {real_lift:+.1f}%",
-                 'good' if real_lift > 0 else 'bad')
-        else:
-            line(f"Real-time lift:              n/a")
-            if real_lift_note:
-                line(f"  {real_lift_note}")
         line("")
-        line("Note: Short measurement windows have high stochastic variance.")
-        line("The MC/GA projections (Sections 5, 7, 8) provide statistically")
-        line("robust estimates. Real-time results serve as a directional sanity check.")
+        line("No lift is computed from these two windows. Each is a single")
+        line("short live run that starts from an empty store, so its revenue")
+        line("mostly reflects which few customers happened to finish inside")
+        line("it; one window per layout gives no estimate of its own noise.")
+        if optimized:
+            line("The layout effect is the paired comparison in Secs. 7 and 8.")
+        else:
+            line(f"No layout effect was estimated: the GA search was {not_run}.")
         line("")
         cite("In practice, A/B tests in retail require 2-4 weeks of data to")
         cite("reach statistical power >0.80 (Kohavi et al., 2020).")
@@ -540,28 +574,29 @@ class OptimizeResultsMixin:
         # --------------------------------------------------------
         section("10", "STRATEGIC RECOMMENDATIONS")
 
+        # No recommendation is drawn from the tornado's ranking: its top
+        # three bars are near-equal by the product form of revenue (Sec. 3).
         recs = []
-        if sorted_t:
-            top_driver = sorted_t[0][0]
-            recs.append(f"Focus on improving '{top_driver}' — it has the largest revenue impact "
-                        f"(Sec. 3).")
         if markov_absorb.get('p_abandon_from_entering', 0) > 0.25:
             recs.append(f"Reduce abandonment rate (currently "
                         f"{markov_absorb['p_abandon_from_entering']*100:.0f}%) through better "
                         f"flow and checkout optimization (Sec. 4).")
-        if best_bk.get('bottleneck_penalty', 0) > 0.1:
+        if not optimized:
+            recs.append(f"No layout recommendation: the GA search was "
+                        f"{not_run}.")
+        elif best_bk.get('bottleneck_penalty', 0) > 0.1:
             recs.append("Address congestion hotspots — the bottleneck penalty is still "
                         "significant (Sec. 5.3).")
-        if best_bk.get('section_compliance', 0) < 0.7:
+        if optimized and best_bk.get('section_compliance', 0) < 0.7:
             recs.append("Improve section compliance — some items placed outside their "
                         "category zones reduce wayfinding efficiency [10][11].")
-        if best_bk.get('cross_merch', 0) < 0.3:
+        if optimized and best_bk.get('cross_merch', 0) < 0.3:
             recs.append("Strengthen cross-merchandising — frequently co-purchased items "
                         "are still far apart. Adjacent placement lifts basket size 10-30% [5][6].")
-        if best_bk.get('impulse', 0) < 0.4:
+        if optimized and best_bk.get('impulse', 0) < 0.4:
             recs.append("Reposition impulse items closer to checkout — checkout-adjacent "
                         "placement increases impulse purchases by 25-45% [7][8].")
-        if ga_lift > 0:
+        if optimized and ga_lift > 0:
             recs.append(f"The GA found a {ga_lift:.1f}% revenue improvement — "
                         f"apply and monitor for 2+ weeks [17].")
         if not recs:
@@ -707,28 +742,30 @@ class OptimizeResultsMixin:
         # 12. EXPECTED IMPROVEMENTS SUMMARY (with citations)
         # --------------------------------------------------------
         section("12", "EXPECTED IMPROVEMENTS SUMMARY")
+        if not optimized:
+            line(f"No improvement is expected: the GA search was {not_run}.")
+        else:
+            line("Based on the retail science literature and the optimization", 'highlight')
+            line("scores achieved, the following improvements are expected:", 'highlight')
+            line("")
+            line(f"  {'Strategy':<35s} {'Expected Range':>18s}  {'Source':>8s}")
+            line(f"  {'-'*35:<35s} {'-'*18:>18s}  {'-'*8:>8s}")
+            line(f"  {'Eye-level / traffic placement':<35s} {'7-19% conv. lift':>18s}  {'[1][2]':>8s}")
+            line(f"  {'Cross-merchandising adjacency':<35s} {'10-30% basket lift':>18s}  {'[5][6]':>8s}")
+            line(f"  {'Impulse zone at checkout':<35s} {'25-45% impulse lift':>18s}  {'[7][8]':>8s}")
+            line(f"  {'Optimized customer flow':<35s} {'20-40% more exposure':>18s}  {'[3][4]':>8s}")
+            line(f"  {'Bottleneck elimination':<35s} {'15-25% less abandon':>18s}  {'[9][4]':>8s}")
+            line(f"  {'Section compliance':<35s} {'20-35% less search':>18s}  {'[10][11]':>8s}")
+            line("")
 
-        line("Based on the retail science literature and the optimization", 'highlight')
-        line("scores achieved, the following improvements are expected:", 'highlight')
-        line("")
-        line(f"  {'Strategy':<35s} {'Expected Range':>18s}  {'Source':>8s}")
-        line(f"  {'-'*35:<35s} {'-'*18:>18s}  {'-'*8:>8s}")
-        line(f"  {'Eye-level / traffic placement':<35s} {'7-19% conv. lift':>18s}  {'[1][2]':>8s}")
-        line(f"  {'Cross-merchandising adjacency':<35s} {'10-30% basket lift':>18s}  {'[5][6]':>8s}")
-        line(f"  {'Impulse zone at checkout':<35s} {'25-45% impulse lift':>18s}  {'[7][8]':>8s}")
-        line(f"  {'Optimized customer flow':<35s} {'20-40% more exposure':>18s}  {'[3][4]':>8s}")
-        line(f"  {'Bottleneck elimination':<35s} {'15-25% less abandon':>18s}  {'[9][4]':>8s}")
-        line(f"  {'Section compliance':<35s} {'20-35% less search':>18s}  {'[10][11]':>8s}")
-        line("")
-
-        composite_lift = best_bk.get('composite', 0) - curr_bk.get('composite', 0)
-        line(f"Composite layout quality improvement: {composite_lift:+.4f}", 'highlight')
-        line(f"MC projected revenue lift (30-day):   {mc_lift:+.1f}%", 'highlight')
-        line(f"GA projected revenue lift:            {ga_lift:+.1f}%", 'highlight')
-        line("")
-        cite("Note: Expected ranges are literature benchmarks. Actual results")
-        cite("depend on shop size, product mix, customerdemographics, and")
-        cite("baseline layout quality. The MC simulation projects site-specific impact.")
+            composite_lift = best_bk.get('composite', 0) - curr_bk.get('composite', 0)
+            line(f"Composite layout quality improvement: {composite_lift:+.4f}", 'highlight')
+            line(f"Projected {horizon}-day lift (exact):      {ga_lift:+.2f}%", 'highlight')
+            line(f"Monte Carlo check (paired draws):     {mc_lift:+.2f}%", 'highlight')
+            line("")
+            cite("Note: Expected ranges are literature benchmarks. Actual results")
+            cite("depend on shop size, product mix, customerdemographics, and")
+            cite("baseline layout quality. The MC simulation projects site-specific impact.")
 
         # --------------------------------------------------------
         # 13. REFERENCES
@@ -812,13 +849,7 @@ class OptimizeResultsMixin:
         bibline("     Algorithm-Based Optimization of Retail Store Layout'.")
         bibline("     Proceedings of the European Modeling and Simulation Symposium.")
         bibline("")
-        bibline("[19] Cohen, J. (1988). Statistical Power Analysis for the")
-
-
-        bibline("     Behavioral Sciences (2nd ed.). Hillsdale, NJ: Lawrence")
-        bibline("     Erlbaum Associates.")
-        bibline("")
-        bibline("[20] Metropolis, N. & Ulam, S. (1949). 'The Monte Carlo Method'.")
+        bibline("[19] Metropolis, N. & Ulam, S. (1949). 'The Monte Carlo Method'.")
         bibline("     Journal of the American Statistical Association, 44(247),")
         bibline("     pp.335-341.")
 

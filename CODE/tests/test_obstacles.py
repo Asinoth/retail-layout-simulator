@@ -10,8 +10,9 @@ stand beside the shelving rather than in it, every fixture has a standing
 spot beside it that is reachable from the door, agents get round shelf
 corners instead of stalling on them, visits still complete and the run is
 still reproducible. The driver rules that depend
-on the same geometry follow: a long frame is split into model-sized ticks
-so walking speed does not follow the host's frame rate, an agent a layout
+on the same geometry follow: the GUI driver advances the model in fixed
+ticks, carrying what a frame leaves over, so walking speed does not follow
+the host's frame rate, an agent a layout
 change buried inside a fixture is lifted out, an agent stranded on a floor
 with no connector leaves instead of asking routing again, and a pending
 arrival gap is redrawn when the arrival rate changes.
@@ -31,7 +32,7 @@ from dataset_calibration import calibrate_transactional
 from experiments._common import (HeadlessShop,
                                  build_headless_shop_from_calibration)
 from shop_architecture import generate_architecture, scale_catalog
-from simulation import MAX_STEP_S, MAX_SUBSTEPS, _substeps_for
+from simulation import MAX_STEP_S, MAX_SUBSTEPS, _fixed_ticks
 
 
 W, H = 16.0, 12.0
@@ -99,6 +100,23 @@ def _reachable_cells(blocked, start):
     return seen
 
 
+def _step_without_arrivals(sim):
+    """Build the geometry caches with one tick that admits nobody.
+
+    A bare ``sim.step(0.04)`` at a positive spawn rate draws its first
+    inter-arrival gap from the simulation's unseeded arrival stream, so
+    about one run in a hundred would admit an agent before any seed is set;
+    that agent then shapes every later draw of a 'seeded' run. At rate zero
+    ``_process_arrivals`` returns before drawing anything, and the clock
+    still ends at 0.04 s, where the tests' runs have always started."""
+    rate, sim.spawn_rate = sim.spawn_rate, 0.0
+    try:
+        sim.step(0.04)
+    finally:
+        sim.spawn_rate = rate
+    assert not sim.customers
+
+
 def _seeded_run(plan, seed=SEED, duration=RUN_S):
     """One headless run, sampling every agent's position on every tick.
 
@@ -106,7 +124,7 @@ def _seeded_run(plan, seed=SEED, duration=RUN_S):
     it was inside a fixture other than the one it is shopping.
     """
     sim = _build_sim(plan)
-    sim.step(0.04)                       # build the geometry caches
+    _step_without_arrivals(sim)          # build the geometry caches
     fixtures = _fixtures(sim)
     samples = {'walking': 0, 'through': 0, 'where': [],
                'shopping': 0, 'standing_inside': 0}
@@ -239,7 +257,7 @@ def test_an_agent_that_rounds_a_shelf_corner_early_gets_past_it():
     f1['walls'] = {}
     sim = shop.customer_simulation
     sim.door_position, sim.door_side = shop.door_position, shop.door_side
-    sim.step(0.04)
+    _step_without_arrivals(sim)
     assert not sim.path_blocked_grid_by_floor[1][9, 8]   # (2.25, 2.0) is aisle
 
     sim._spawn_customer()
@@ -331,7 +349,7 @@ def dataset_shop():
     sim = shop.customer_simulation
     sim.spawn_rate, sim.max_customers = 0.25, 20
     sim.record_state_histories = True
-    sim.step(0.04)
+    _step_without_arrivals(sim)
     return sim
 
 
@@ -397,11 +415,13 @@ def _uci_workbook():
 
 @pytest.fixture(scope='module')
 def uci_shop():
-    """The UCI-calibrated store the live diagnostics run on: a 60k-row
-    sample of the last sheet, eight products per category, the naive
-    layout, at the nominal load. Its fixtures sit on round-number
-    coordinates, so aisle columns with no clearance to spare occur here
-    as they do in the paper's runs."""
+    """A UCI-calibrated store built the way the live diagnostics' store is
+    (eight products per category, the naive layout), calibrated from a
+    60,000-row sample of the last sheet to keep the test fast -- the
+    diagnostics themselves calibrate on the whole sheet -- at a lighter
+    load than theirs. Its fixtures sit on round-number coordinates, so
+    aisle columns with no clearance to spare occur here as they do in
+    the paper's runs."""
     path = _uci_workbook()
     if path is None:
         pytest.skip('UCI Online Retail II workbook not under DATASETS/')
@@ -416,7 +436,7 @@ def uci_shop():
     sim = shop.customer_simulation
     sim.spawn_rate, sim.max_customers = 0.17, 45
     sim.record_state_histories = True
-    sim.step(0.04)
+    _step_without_arrivals(sim)
     return sim
 
 
@@ -472,18 +492,32 @@ def test_the_diagnostics_store_is_walkable_and_its_visits_complete(uci_shop):
 
 # --- the driver rules -------------------------------------------------------
 
-def test_a_long_frame_is_split_into_model_ticks():
+def test_the_gui_driver_takes_fixed_ticks_and_carries_the_rest():
     """The threaded driver's frame length follows host load and the speed
-    slider; the model must always see ticks of at most MAX_STEP_S."""
-    assert _substeps_for(MAX_STEP_S) == (1, MAX_STEP_S)
-    assert _substeps_for(0.01) == (1, 0.01)
-    n, sub = _substeps_for(0.2)
-    assert (n, sub) == pytest.approx((5, 0.04))
-    n, sub = _substeps_for(0.13)
-    assert n == 4 and sub <= MAX_STEP_S and n * sub == pytest.approx(0.13)
-    # Past the cap the excess simulated time is dropped, so a frame can
-    # never ask for unbounded work.
-    assert _substeps_for(5.0) == (MAX_SUBSTEPS, MAX_STEP_S)
+    slider; the model always sees ticks of exactly MAX_STEP_S, the
+    headless runs' tick, and the part of a frame short of a whole tick is
+    carried to the next frame rather than run as a shorter tick."""
+    assert _fixed_ticks(MAX_STEP_S) == (1, 0.0)
+    n, rest = _fixed_ticks(0.01)
+    assert n == 0 and rest == pytest.approx(0.01)
+    n, rest = _fixed_ticks(0.2)
+    assert n == 5 and rest == pytest.approx(0.0, abs=1e-12)
+    n, rest = _fixed_ticks(0.13)
+    assert n == 3 and rest == pytest.approx(0.01)
+    # A sum of frame lengths a hair under a whole tick is that tick.
+    n, rest = _fixed_ticks(0.03 + 0.01 - 1e-12)
+    assert n == 1 and rest == pytest.approx(0.0, abs=1e-9)
+    # Frames of 0.03 s: the carried remainder adds up to whole ticks, so
+    # four frames (0.12 s) take three ticks between them.
+    backlog, taken = 0.0, 0
+    for _ in range(4):
+        n, backlog = _fixed_ticks(backlog + 0.03)
+        taken += n
+    assert taken == 3 and backlog == pytest.approx(0.0, abs=1e-9)
+    # Past the cap the whole ticks beyond it are dropped, so a frame can
+    # never ask for unbounded work and no backlog builds up.
+    n, rest = _fixed_ticks(5.01)
+    assert n == MAX_SUBSTEPS and 0.0 <= rest < MAX_STEP_S
 
 
 def test_walking_speed_does_not_depend_on_the_frame_length(plan):
@@ -549,7 +583,7 @@ def test_a_stranded_agent_leaves_instead_of_asking_routing_again():
     shop.num_floors = 2
     sim = shop.customer_simulation
     sim.door_position, sim.door_side = shop.door_position, shop.door_side
-    sim.step(0.04)
+    _step_without_arrivals(sim)
 
     sim._spawn_customer()
     cust = sim.customers[-1]

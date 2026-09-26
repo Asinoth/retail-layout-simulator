@@ -1,0 +1,105 @@
+{
+ "figure": "figc_layouts",
+ "source": {
+  "figc_dir": "CODE/experiments/results/real_data_uci_20260926-111819",
+  "layouts_sha256": "b18f8eb385637568fe3ab64401c35e30a735519e95c43abcefeb971fb790b6f8",
+  "summary_sha256": "a9e586aaa18d89bf076eba4ed29bf7c96f95956d67a073855724b29ba926d33b",
+  "figc_git_sha": "81291699f516557f73f311759e422aec7e75b88c",
+  "search_seed": 0
+ },
+ "store": {
+  "width_m": 42.1,
+  "height_m": 30.1,
+  "n_items": 108,
+  "n_zones": 15
+ },
+ "moves": {
+  "n_fixtures": 108,
+  "n_moved": 107,
+  "n_moved_at_least_aisle": 53,
+  "n_slot_exchange": 41,
+  "n_along_run": 43,
+  "n_slot_exchange_along_run": 41,
+  "move_tol_m": 0.01,
+  "highlight_m": 1.6,
+  "slot_tol_m": 0.3,
+  "along_run_tol_m": 0.5,
+  "median_m": 0.7985304920058955,
+  "p90_m": 8.193932593143783,
+  "max_m": 22.572348484848483
+ },
+ "shading": {
+  "by": "popularity rank: invoices containing the product (calibration popular_items)",
+  "class_upper_ranks": [
+   5,
+   27,
+   54,
+   108
+  ],
+  "most_bought": [
+   "WHITE HANGING HEART T-LIGHT HOLD",
+   "JUMBO BAG RED WHITE SPOTTY",
+   "REGENCY CAKESTAND 3 TIER",
+   "PACK OF 72 RETRO SPOT CAKE CASES",
+   "LUNCH BAG RED SPOTTY"
+  ]
+ },
+ "flow_tour": {
+  "n_items": 5,
+  "items": [
+   "WHITE HANGING HEART T-LIGHT HOLD",
+   "JUMBO BAG RED WHITE SPOTTY",
+   "REGENCY CAKESTAND 3 TIER",
+   "PACK OF 72 RETRO SPOT CAKE CASES",
+   "LUNCH BAG RED SPOTTY"
+  ],
+  "length_m": {
+   "baseline": 128.3403362089668,
+   "optimized": 85.48648016558077
+  },
+  "flow_score": {
+   "baseline": 0.6457370024554974,
+   "optimized": 0.764028226763587
+  },
+  "matches_ga_flow_score": true
+ },
+ "scale_bar_m": 10.0,
+ "invariants": {
+  "baseline": {
+   "n_outside_zone": 0,
+   "n_overlap": 0,
+   "n_clearance": 0,
+   "n_unshoppable": 0,
+   "min_clearance_kept_apart_m": 1.6000000000000005,
+   "required_clearance_m": 1.6
+  },
+  "optimized": {
+   "n_outside_zone": 0,
+   "n_overlap": 0,
+   "n_clearance": 0,
+   "n_unshoppable": 0,
+   "min_clearance_kept_apart_m": 1.6000000000000005,
+   "required_clearance_m": 1.6
+  }
+ },
+ "invariants_hold": true,
+ "min_clearance_m": 1.6000000000000005,
+ "required_clearance_m": 1.6,
+ "print": {
+  "saved_width_in": 5.477,
+  "saved_height_in": 2.758,
+  "min_font_pt": 7.5,
+  "include_width_in": 5.477,
+  "min_font_pt_printed": 7.5
+ },
+ "print_frac": 1.0,
+ "wall_seconds": 63.2288215999979,
+ "provenance": {
+  "git_sha": "e14bf23dbbb58c2d9751e3b3ff6bf27e11948610",
+  "git_dirty": false,
+  "git_diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "git_modified": [],
+  "git_untracked_py": [],
+  "git_state_changed_during_run": false
+ }
+}

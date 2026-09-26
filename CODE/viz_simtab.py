@@ -304,7 +304,6 @@ class SimTabMixin:
             'optimization_history':       [],
             'pre_optimization_revenue':   0.0,
             'post_optimization_revenue':  0.0,
-            'optimization_impact':        0.0,
             'measurement_duration':       90,
             'pre_window_revenue':         0.0,
             'post_window_revenue':        0.0,

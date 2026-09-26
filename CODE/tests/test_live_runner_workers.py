@@ -24,7 +24,9 @@ from experiments import (_live_store, measure_queueing, run_abm_diagnostics,
 
 
 TINY = ['--warmup', '30', '--seconds', '90', '--reps', '2']
-WORKER_COUNTS = (1, 3)
+# Two processes are enough to show a pool changes nothing, and keep the
+# suite inside the workstation's thermal limit.
+WORKER_COUNTS = (1, 2)
 
 
 def _invoices(n_invoices=400, seed=0, day0='2010-12-01 09:00'):
@@ -110,8 +112,19 @@ def test_abm_diagnostics_summary_does_not_depend_on_worker_count(
         assert s['data'] == _record('current', params)
         em = s['emergence']
         assert em['perimeter_interior_ratio_geometric_null'] > 0
+        assert em['perimeter_interior_ratio_routing_null'] > 0
+        # The routing null walks whole visits, one exit leg per tour.
+        rn = em['routing_null']
+        assert rn['construction'] == 'whole_visit_tours'
+        assert rn['n_exit_legs'] == rn['n_tours']
+        assert em['routing_null_mc_se'] > 0
+        assert em['headline']['comparison'] == 'moving_only / routing_null'
+        assert 0 < em['moving_only']['share_of_samples'] <= 1
+        assert s['markov_order']['bookkeeping_null']['n_sequences'] == \
+            s['markov_order']['n_sequences']
         rep0 = s['per_rep'][0]['emergence']
         assert set(rep0['band_sweep_geometric_null']) == set(rep0['band_sweep'])
+        assert set(rep0['moving']['band_sweep']) == set(rep0['band_sweep'])
         texts.append(_canonical(s, workers))
     assert texts[0] == texts[1]
 
@@ -126,8 +139,13 @@ def test_structural_sweep_summary_does_not_depend_on_worker_count(
             '--spawn', '0.5', '--cap', '30',
             '--workers', str(workers), '--out-root', str(root)])
         s = _summary(str(root / 'structural_sensitivity_*' / 'summary.json'))
-        seeds = [x for v in s['protocol']['seeds'].values() for x in v]
-        assert len(set(seeds)) == len(seeds)
+        # Common random numbers: replication r of every setting shares a
+        # seed, and the replications of one setting differ.
+        per_setting = list(s['protocol']['seeds'].values())
+        assert all(v == per_setting[0] for v in per_setting)
+        assert len(set(per_setting[0])) == len(per_setting[0])
+        assert s['design'] == 'common_random_numbers'
+        assert len(s['per_rep_values']['completed']) == len(s['strengths'])
         assert sum(s['completed_per_setting']) > 0
         texts.append(_canonical(s, workers))
     assert texts[0] == texts[1]
@@ -168,11 +186,32 @@ def test_validation_gof_summary_does_not_depend_on_worker_count(
         assert s['protocol']['seeds'] == [4000, 4001]
         assert held['protocol']['seeds'] == [4002, 4003]
         assert s['pooled'] and held['pooled']
-        assert set(held) == set(s) - {'design', 'held_out'}
+        assert set(held) == set(s) - {'design', 'held_out', 'visits_file'}
         assert s['design']['in_sample']['store_period'] == 'current'
         assert s['design']['held_out']['store_period'] == 'prior'
         assert s['design']['held_out']['reference_period'] == 'current'
         assert s['design']['held_out']['n_reference_invoices_with_placed'] > 0
+        # The window's cohort is drained, and the category row comes with
+        # its list chain (drawn lists vs reference, paying vs unpaid drawn
+        # lists) and the door rate.
+        assert s['protocol']['cohort'] == 'window_arrivals_drained'
+        assert [t['test'] for t in s['list_chain']['tests']] == list(
+            run_validation_gof.LIST_CHAIN_TESTS)
+        assert s['list_chain']['counts']['n_visits'] == \
+            s['load']['cohort_visits']
+        # Every cohort visit's record is in visits.jsonl.
+        run_dir = glob.glob(str(root / 'validation_gof_*'))[0]
+        with open(f"{run_dir}/{s['visits_file']['path']}") as f:
+            visits = [json.loads(line) for line in f]
+        assert len(visits) == s['visits_file']['n_records'] == \
+            s['load']['cohort_visits'] + held['load']['cohort_visits']
+        assert all(set(v) == set(run_validation_gof.VISIT_FIELDS)
+                   for v in visits)
+        assert sum(1 for v in visits if v['design'] == 'in_sample'
+                   and v['bought'] is not None) == \
+            s['list_chain']['counts']['n_paying']
+        assert held['load']['door_rate_per_s'] > 0
+        assert 'year_shift_fixed_assortment' in s['design']['held_out']
         with open(glob.glob(str(root / 'validation_gof_*'
                                 / 'results.csv'))[0]) as f:
             rows = list(csv.DictReader(f))

@@ -5,7 +5,10 @@ to one (asserted at import) and the cited elasticity bands are
 non-negative. The score-to-parameter mapping is checked on the production
 ``_ga_fitness`` itself: conversion and basket rise with the composite
 score, impulse rises with the impulse sub-score, the clamps hold, and a
-zero score leaves the base parameters unchanged.
+layout scoring what the anchor scores leaves the base parameters unchanged
+(these parameters opt into the zero anchor explicitly, since the objective
+refuses parameters without one; the as-built anchor itself is pinned in
+tests/test_objective_anchor.py).
 """
 
 import importlib
@@ -13,6 +16,7 @@ import importlib
 import pytest
 
 import retail_literature as RL
+from layout_objective import SCORE_ANCHOR_KEY, zero_anchor
 
 _ELAS = ('ELASTICITY_CONV_BASE', 'ELASTICITY_CONV_GAIN_MAX',
          'ELASTICITY_IMP_BASE', 'ELASTICITY_IMP_GAIN_MAX',
@@ -36,6 +40,7 @@ _BP = {
     'basket_sizes_observed': [], 'abandonment_rate': 0.10,
     'avg_queue_time': 5.0, 'rev_per_converting_customer': 40.0,
     'rev_std': 10.0, 'customers_per_hour': 50.0, 'avg_impulse_value': 3.0,
+    SCORE_ANCHOR_KEY: zero_anchor(),
 }
 
 

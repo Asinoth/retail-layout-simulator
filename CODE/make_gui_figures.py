@@ -1,10 +1,14 @@
-"""Regenerate the GUI screenshots and the emergent traffic heat map.
+"""Regenerate the GUI screenshots.
 
 Requires a live desktop (Tk display): it opens the real application,
-calibrates a UCI Online Retail II shop, captures the layout canvas,
-runs the live simulation briefly, captures it with agents overlaid at
-their real positions (colored by behavioral state), and saves the
-emergent traffic heat map from the simulation buffers.
+calibrates a UCI Online Retail II shop, captures the layout canvas, runs
+the live simulation briefly and captures it with agents overlaid at their
+real positions (colored by behavioral state).
+
+The emergent traffic heat map is no longer drawn here: a few seconds of an
+unseeded GUI session cannot be regenerated. It comes from a seeded
+headless run of the live store at the live diagnostics' protocol,
+``python -m experiments.make_heatmap_figure`` (review R52).
 
 Screenshots are taken from the application's OWN matplotlib canvas
 (``fig.savefig``), never a desktop screen-grab, so no other window can
@@ -31,8 +35,6 @@ sys.path.insert(0, HERE)
 
 import matplotlib
 matplotlib.use('TkAgg')
-import numpy as np                                          # noqa: E402
-import matplotlib.pyplot as plt                             # noqa: E402
 
 from visualizer import ShopVisualizer                       # noqa: E402
 import dataset_adapters as DA                               # noqa: E402
@@ -85,28 +87,6 @@ def main():
         _save_canvas(root, v, os.path.join(FIGS, 'gui_simulation.png'))
 
         sim.hard_stop()
-        heat = np.array(sim.heat_raw, dtype=float)
-        if heat.max() > 0:
-            k = np.array([1, 2, 1], float) / 4.0
-            for ax_i in (0, 1):
-                heat = np.apply_along_axis(
-                    lambda m: np.convolve(m, k, mode='same'), ax_i, heat)
-            fig, ax = plt.subplots(figsize=(7.6, 5.2))
-            im = ax.imshow(heat.T, origin='lower', cmap='inferno',
-                           extent=[0, v.width, 0, v.height], aspect='equal')
-            for nm, wd in v.floors[1]['walls'].items():
-                if nm.startswith('Section_'):
-                    continue
-                x, y = wd['position']; w, h = wd['size']
-                ax.add_patch(plt.Rectangle((x, y), w, h, fill=False,
-                                           edgecolor='white', lw=0.6, alpha=0.7))
-            fig.colorbar(im, ax=ax, label='visit intensity')
-            ax.set_title('Emergent traffic heat map (live ABM run, '
-                         'UCI-calibrated shop)')
-            ax.set_xlabel('x (m)'); ax.set_ylabel('y (m)')
-            fig.tight_layout()
-            fig.savefig(os.path.join(FIGS, 'emergent_heatmap.png'), dpi=140)
-            print('saved emergent_heatmap.png')
     finally:
         try:
             v.customer_simulation.hard_stop()

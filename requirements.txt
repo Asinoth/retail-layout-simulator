@@ -1,16 +1,14 @@
-# Pinned runtime + reproduction dependencies for the retail-layout
-# simulator and its TOMACS experiment harness (audit R5.1).
-#
-# These are the exact versions under which the paper-grade experiment
-# artefacts and figures were produced; the experiment sidecars and the
-# dataset provenance records also stamp the resolved versions at run
-# time, so a reviewer can confirm an exact match. Tested on CPython
-# 3.13.2 (see `python_requires` note below).
+# Direct dependencies of the retail-layout simulator and its experiment
+# harness, pinned to the versions the experiment artifacts were produced
+# with (CPython 3.13.2).
 #
 #   python -m pip install -r requirements.txt
 #
-# Python: 3.13.2 (3.11+ expected to work; 3.13.2 is what the artefacts
-# were built with).
+# requirements-lock.txt pins the whole resolved environment -- these
+# packages and everything they require -- and is what every experiment
+# sidecar checks the running environment against:
+#
+#   python -m pip install -r requirements-lock.txt
 
 numpy==2.2.4
 scipy==1.15.3
@@ -20,8 +18,8 @@ matplotlib==3.10.1
 # Excel ingestion for UCI Online Retail II (.xlsx).
 openpyxl==3.1.5
 
-# Greek supervisor status PDF (reportlab); optional for the core pipeline.
+# PDF output of make_status_report.py; not needed by the experiments.
 reportlab==4.5.1
 
-# Test suite (audit R5.3).
+# Test suite.
 pytest==9.0.3

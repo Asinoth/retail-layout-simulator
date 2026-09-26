@@ -11,6 +11,15 @@ from collections import defaultdict
 
 import numpy as np
 
+from retail_literature import (
+    ABANDON_FRAC_OF_NONCONVERTERS, ASSUMED_CONVERSION_RATE,
+    DEFAULT_DAY_NOISE_STD, DEFAULT_QUEUE_TIME_S, IMPULSE_RATE_STANDIN,
+    IMPULSE_VALUE_CV, IMPULSE_VALUE_FRAC_OF_GROSS, MC_CONV_CLAMP_HI,
+    MC_CONV_CLAMP_LO, MC_LAMBDA_CAP, MC_LAMBDA_FLOOR, MC_SD_FLOOR,
+    MC_SPEND_LAW, NET_BASE_REVENUE_MIN_FRAC, REV_STD_FRAC_OF_MEAN,
+    STANDIN_AVG_BASKET,
+)
+
 # Transient states observed during the ABM; terminal outcomes are absorbing.
 MARKOV_TRANSIENT = ('entering', 'moving', 'shopping', 'checking_out', 'exiting')
 MARKOV_ABSORBING = ('purchased', 'abandoned')
@@ -20,10 +29,10 @@ MIN_TRANSITIONS_FOR_EMPIRICAL = 25
 
 # Stand-in impulse share of purchases for a calibrated session. Transaction
 # data does not label impulse buys, so there is nothing to estimate it from;
-# 0.20 is the midpoint the headless calibrated path already assumes, kept
-# here so both paths read the same number. Omnichannel measures a per-family
-# impulse rate and overrides it.
-DEFAULT_CALIBRATED_IMPULSE_RATE = 0.20
+# it is retail_literature.IMPULSE_RATE_STANDIN, the value the headless
+# calibrated path uses too, so both paths read the same number. Omnichannel
+# measures a per-family impulse rate and overrides it.
+DEFAULT_CALIBRATED_IMPULSE_RATE = IMPULSE_RATE_STANDIN
 
 
 def new_markov_transition_counts():
@@ -265,8 +274,9 @@ def _cval(analytics, key, default=None):
 
 def _observed_conversion_rate(analytics):
     """Conversion rate the MC / projection layers use, clamped to
-    [0.001, 0.999]: the calibrated assumption when a dataset is loaded,
-    else purchases over customers who have already left. Customers still in
+    [MC_CONV_CLAMP_LO, MC_CONV_CLAMP_HI] (the engine's own guard, 0.001
+    to 0.999 in retail_literature): the calibrated assumption when a
+    dataset is loaded, else purchases over customers who have already left. Customers still in
     the store have not had the chance to buy yet, so counting them in the
     denominator biases the rate low on short live runs. Before anyone has
     exited there is no evidence either way, so use the same 0.30
@@ -278,8 +288,8 @@ def _observed_conversion_rate(analytics):
         completed = int(_cval(analytics, 'completed_purchases', 0))
         abandoned = int(_cval(analytics, 'abandoned_carts', 0))
         exited = completed + abandoned
-        rate = completed / exited if exited > 0 else 0.30
-    return max(0.001, min(rate, 0.999))
+        rate = completed / exited if exited > 0 else ASSUMED_CONVERSION_RATE
+    return max(MC_CONV_CLAMP_LO, min(rate, MC_CONV_CLAMP_HI))
 
 
 def net_base_revenue(rev_mean, imp_rate, imp_val):
@@ -294,7 +304,7 @@ def net_base_revenue(rev_mean, imp_rate, imp_val):
     (net + imp_rate*imp_val = gross), and optimized projections add only
     the impulse DELTA the layout actually induces."""
     net = float(rev_mean) - float(imp_rate) * float(imp_val)
-    return max(net, 0.05 * float(rev_mean), 0.01)
+    return max(net, NET_BASE_REVENUE_MIN_FRAC * float(rev_mean), 0.01)
 
 
 def sim_hours(sim):
@@ -358,13 +368,14 @@ def extract_simulation_parameters(sim):
         if 'abandonment_rate' in cal:
             abandonment_rate = float(cal['abandonment_rate'])
         else:
-            abandonment_rate = max(0.0, 1.0 - conversion_rate) * 0.10
+            abandonment_rate = (max(0.0, 1.0 - conversion_rate)
+                                * ABANDON_FRAC_OF_NONCONVERTERS)
     else:
         exited = n_completed + abandoned
         abandonment_rate = abandoned / exited if exited > 0 else 0.0
 
     baskets = list(_cval(A, 'basket_sizes', []) or [])
-    avg_basket = float(np.mean(baskets)) if baskets else 3.0
+    avg_basket = float(np.mean(baskets)) if baskets else STANDIN_AVG_BASKET
     std_basket = float(np.std(baskets, ddof=1)) if len(baskets) > 1 else max(avg_basket * 0.3, 0.5)
 
     rev_obs = list(_cval(A, 'customer_revenues', []) or [])
@@ -374,7 +385,7 @@ def extract_simulation_parameters(sim):
         rev_std = float(np.std(rev_obs, ddof=1))
     else:
         rev_per_cust = total_rev_calibrated / completed if completed else 0.0
-        rev_std = max(rev_per_cust * 0.35, 0.1)
+        rev_std = max(rev_per_cust * REV_STD_FRAC_OF_MEAN, 0.1)
 
     rev_std = max(rev_std, 0.05)
 
@@ -425,20 +436,20 @@ def extract_simulation_parameters(sim):
                                         for name, cnt in impulse_sales.items())
             avg_impulse_val = total_impulse_rev / total_impulse_items
     if avg_impulse_val <= 0.0:
-        avg_impulse_val = max(rev_per_cust * 0.15, 0.01)
+        avg_impulse_val = max(rev_per_cust * IMPULSE_VALUE_FRAC_OF_GROSS, 0.01)
 
     imp_rev_obs = list(_cval(A, 'impulse_revenues', []) or [])
     if len(imp_rev_obs) >= 2:
         imp_std = float(np.std(imp_rev_obs, ddof=1))
     else:
-        imp_std = max(avg_impulse_val * 0.3, 0.01)
+        imp_std = max(avg_impulse_val * IMPULSE_VALUE_CV, MC_SD_FLOOR)
 
     rev_by_area = dict(_cval(A, 'revenue_by_area', {}) or {})
     total_area_rev = sum(rev_by_area.values()) or 1.0
     area_shares = {k: v / total_area_rev for k, v in rev_by_area.items()}
 
     queue_times = A.get('queue_wait_times', [])
-    avg_queue = float(np.mean(queue_times)) if queue_times else 5.0
+    avg_queue = float(np.mean(queue_times)) if queue_times else DEFAULT_QUEUE_TIME_S
 
     dwell = A.get('dwell_times_by_zone', {})
     avg_dwell = {}
@@ -448,7 +459,8 @@ def extract_simulation_parameters(sim):
 
     return {
         'customers_per_hour': customers_per_hour,
-        'conversion_rate': max(0.001, min(conversion_rate, 0.999)),
+        'conversion_rate': max(MC_CONV_CLAMP_LO,
+                               min(conversion_rate, MC_CONV_CLAMP_HI)),
         'abandonment_rate': abandonment_rate,
         'avg_basket_size': avg_basket,
         'std_basket_size': std_basket,
@@ -499,6 +511,58 @@ _BINOM_TABLE_ENTRIES_PER_DRAW = 128
 # block holds about this many iterations x days; it bounds the block's
 # temporaries to a few MB whatever n_iter and the horizon are.
 _MC_BLOCK_DRAWS = 1 << 18
+
+
+def lognormal_spend_total(n, mean, sd, z):
+    """A day's total spend over ``n`` spenders, as a non-negative draw with
+    the exact mean ``n * mean`` and SD ``sqrt(n) * sd`` of a sum of ``n``
+    independent spends of mean ``mean`` and SD ``sd``.
+
+    The total is lognormal with those two moments (Fenton 1960's
+    moment-matched approximation to a sum of lognormal spends):
+
+        X = n * mean * exp(s * z - s**2 / 2),   s**2 = log(1 + cv**2 / n),
+
+    with ``cv = sd / mean`` and ``z`` a standard normal. E[exp(s z -
+    s^2/2)] = 1 exactly, so E[X] = n * mean for every n and cv, and
+    Var[X] = (n mean)^2 (exp(s^2) - 1) = n sd^2. It replaces the normal
+    N(n mean, sqrt(n) sd) floored at zero: at Online Retail II's
+    coefficient of variation (about 2.3 per invoice, 3.4 before the
+    reversal pairs were removed) that floor bound on thin days and added
+    to the mean, and the normal's lower tail made a day's spend FALL as a
+    converter was added (d/dn < 0 for z < -2 sqrt(n) / cv).
+
+    Common random numbers: ``z`` is the only randomness, so the draw is a
+    deterministic, increasing function of it. A layout changes ``mean`` and
+    ``sd`` by the same factor (``layout_objective.layout_mc_kwargs``), which
+    scales X by that factor exactly. The draw rises with ``n`` except where
+    z > 4.14 (probability 1.7e-5) on a thin day: for z <= 6 only from at
+    most 72 spenders at cv 3.4 (56 at cv 3, 33 at cv 2.3), the bound
+    growing with z. Under common numbers a higher conversion rate can
+    therefore lower about one day in a million, never the mean
+    (tests/test_spend_law.py). ``n`` may be an array (per iteration); a
+    non-positive ``n`` or ``mean`` spends nothing."""
+    n = np.asarray(n, dtype=np.float64)
+    z = np.asarray(z, dtype=np.float64)
+    out = np.zeros(np.broadcast(n, z).shape, dtype=np.float64)
+    mean = float(mean)
+    if not mean > 0.0:
+        return out
+    cv2 = (max(float(sd), 0.0) / mean) ** 2
+    n_b = np.broadcast_to(n, out.shape)
+    z_b = np.broadcast_to(z, out.shape)
+    pos = n_b > 0
+    if not pos.any():
+        return out
+    npos = n_b[pos]
+    s2 = np.log1p(cv2 / npos)
+    out[pos] = npos * mean * np.exp(np.sqrt(s2) * z_b[pos] - 0.5 * s2)
+    return out
+
+
+# The spend law ``mc_engine`` draws a day's base and impulse spend from,
+# named by retail_literature.MC_SPEND_LAW so every sidecar records it.
+_SPEND_TOTALS = {'lognormal_moment_matched': lognormal_spend_total}
 
 
 def _binomial_window(n, p):
@@ -651,14 +715,18 @@ def mc_engine(
     wknd_mult,
     monthly_growth,
     impulse_value_std=None,
-    day_noise_std=0.08,
+    day_noise_std=DEFAULT_DAY_NOISE_STD,
     rng=None,
 ):
     """
     Monte Carlo daily revenue with:
     - Poisson arrivals (per simulated day)
     - Binomial conversion, drawn by inverse CDF
-    - Per-converting-customer revenue draws (preserves variance)
+    - The day's spend over its converters (and over its impulse buyers)
+      drawn as one non-negative total with the exact mean and variance of
+      a sum of independent per-converter spends of mean ``rev_mean`` and
+      SD ``rev_std`` (``lognormal_spend_total``; retail_literature
+      MC_SPEND_LAW), so no floor shifts the mean
     - Optional lognormal day-level traffic multiplier, drawn independently
       each day with log-factor ~ Normal(-sigma^2/2, sigma^2) so its mean is
       exactly 1 and its spread does not grow with the horizon
@@ -673,6 +741,16 @@ def mc_engine(
     follows. Paired differences between nearby layouts therefore measure
     the layouts, not the sampler.
 
+    Basket size does not reach revenue here. ``avg_bsk``, ``std_bsk`` and
+    ``observed_baskets`` (only its mean and SD are used, in a normal
+    approximation to the day's item count) feed the tracked
+    ``daily_baskets`` series and nothing else; a layout's basket effect
+    reaches revenue only through ``rev_mean`` (and ``rev_std``), which the
+    caller scales by b(s)/b0 (``layout_objective.layout_drivers``). The
+    mean of the returned totals has a closed form,
+    ``experiments.closed_form.mc_expected_total``, and it is exact: the
+    spend draws are non-negative by construction and keep their means.
+
     Note: within-day non-homogeneity (the empirical hour-of-day arrival
     shape) is applied to the LIVE simulator's spawn loop via
     ``simulation.hourly_profile``, but NOT to this MC daily aggregator.
@@ -685,6 +763,7 @@ def mc_engine(
     """
     if rng is None:
         rng = np.random
+    spend_total = _SPEND_TOTALS[MC_SPEND_LAW]
 
     # One integer from the caller's stream seeds every draw family below,
     # so seeding that stream (``np.random.seed(s)``, or a Generator handed
@@ -706,7 +785,7 @@ def mc_engine(
     conv_tables, imp_tables = {}, {}
 
     if impulse_value_std is None:
-        impulse_value_std = max(imp_val * 0.3, 0.01)
+        impulse_value_std = max(imp_val * IMPULSE_VALUE_CV, MC_SD_FLOOR)
 
     day_multipliers = np.ones(7)
     day_multipliers[5] = wknd_mult
@@ -735,10 +814,11 @@ def mc_engine(
     else:
         obs_mean = obs_std = None
 
-    # Hard cap to keep Poisson sampling numerically sane even when the
-    # caller passes a pathological customers_per_hour (e.g. sim_time floor
-    # was zero on first Optimize click before enough data accumulated).
-    _LAM_CAP = 1.0e6
+    # Hard cap (MC_LAMBDA_CAP) to keep Poisson sampling numerically sane
+    # even when the caller passes a pathological customers_per_hour (e.g.
+    # sim_time floor was zero on first Optimize click before enough data
+    # accumulated). The guards here are retail_literature's MC_* NUMERICAL
+    # GUARDS, which experiments.closed_form applies too.
 
     # Sanitize the caller-supplied rate up-front so we never end up with
     # NaN/inf inside the loop.
@@ -756,9 +836,10 @@ def mc_engine(
         cols = slice(d0, d0 + days.size)
         shape = (days.size, n_iter)
         gf = 1.0 + monthly_growth * (days / 30.0)
-        lam = np.maximum(cph * op_hours * day_multipliers[days % 7] * gf, 0.1)
-        lam = np.minimum(np.where(np.isfinite(lam), lam, _LAM_CAP),
-                         _LAM_CAP)[:, None]
+        lam = np.maximum(cph * op_hours * day_multipliers[days % 7] * gf,
+                         MC_LAMBDA_FLOOR)
+        lam = np.minimum(np.where(np.isfinite(lam), lam, MC_LAMBDA_CAP),
+                         MC_LAMBDA_CAP)[:, None]
 
         if day_noise_std > 0:
             # A fresh factor per day keeps the traffic noise stationary, so
@@ -773,14 +854,15 @@ def mc_engine(
                 8.0 * day_noise_std - half_var,
             )
             lam_vec = lam * np.exp(log_day_factor)
-            lam_vec = np.clip(lam_vec, 0.0, _LAM_CAP)
+            lam_vec = np.clip(lam_vec, 0.0, MC_LAMBDA_CAP)
         else:
             lam_vec = np.repeat(lam, n_iter, axis=1)
 
         n_cust = arr_rng.poisson(lam_vec)
         daily_cust[:, cols] = n_cust.T
         n_conv = _binomial_icdf(conv_rng.random(shape).ravel(), n_cust.ravel(),
-                                min(max(conv, 0.001), 0.999),
+                                min(max(conv, MC_CONV_CLAMP_LO),
+                                    MC_CONV_CLAMP_HI),
                                 conv_tables).reshape(shape)
         daily_converting[:, cols] = n_conv.T
 
@@ -802,23 +884,21 @@ def mc_engine(
         total_items = np.maximum(total_items, 0.0)
         daily_baskets[:, cols] = total_items.T
 
-        # Sum of n i.i.d. N(mu, sigma) ~ N(n*mu, sqrt(n)*sigma)
-        rs = max(rev_std, 0.01)
-        base_rev = np.maximum(
-            nc_f * rev_mean + nc_sqrt * rs * rev_rng.standard_normal(shape),
-            0.0,
-        )
+        # The day's spend over n_conv converters: non-negative, with the
+        # exact mean n*mu and SD sqrt(n)*sigma of n independent spends
+        # (``lognormal_spend_total``), read off this family's standard
+        # normals so CRN pairing is unchanged.
+        rs = max(rev_std, MC_SD_FLOOR)
+        base_rev = spend_total(nc_f, rev_mean, rs,
+                               rev_rng.standard_normal(shape))
 
         n_imp = _binomial_icdf(imp_u_rng.random(shape).ravel(), n_conv.ravel(),
                                min(max(imp_rate, 0.0), 1.0),
                                imp_tables).reshape(shape)
         ni_f = n_imp.astype(np.float64)
-        is_ = max(impulse_value_std, 0.01)
-        imp_rev = np.maximum(
-            ni_f * imp_val
-            + np.sqrt(ni_f) * is_ * imp_z_rng.standard_normal(shape),
-            0.0,
-        )
+        is_ = max(impulse_value_std, MC_SD_FLOOR)
+        imp_rev = spend_total(ni_f, imp_val, is_,
+                              imp_z_rng.standard_normal(shape))
         daily_impulse_rev[:, cols] = imp_rev.T
 
         daily_rev[:, cols] = (base_rev + imp_rev).T

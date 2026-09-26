@@ -27,6 +27,16 @@ selection's own winner's-curse bias but leaves regret non-negative only up
 to confirmation noise: the summary reports the minimum regret and how many
 scenarios came out negative.
 
+The MC objective has a closed-form mean (``experiments.closed_form``), so
+every candidate layout is also scored exactly: the summary's
+``closed_form`` block gives each scenario's regret of the normal-budget GA
+against the same best-known layout, and against the candidate that is best
+in closed form, and says whether the MC regret's conclusion survives (the
+closed-form regret within two confirmation standard errors of the MC one).
+Every candidate layout, its closed-form value, and each search's
+convergence trace are saved (``layouts.json``, ``traces.json``); every one
+is checked against the floor-plan engine's invariants first.
+
     python -m experiments.run_mc_groundtruth --n-scenarios 6 \
         --normal-budget 750 --big-budget 7500 --mc-iters 1000
 
@@ -50,9 +60,13 @@ sys.path.insert(0, os.path.dirname(_HERE))
 
 from synthetic_shops import generate_synthetic_shop
 from experiments._common import (build_headless_shop, base_params_for,
-                                 paired_mc_revenue, run_ga_headless,
-                                 chromosome_to_layout, feasible_layout,
-                                 make_run_dir, write_sidecar)
+                                 anchor_base_params, base_params_record,
+                                 checked_layout, closed_form_revenue,
+                                 layout_json, paired_mc_revenue, repair_stats,
+                                 combine_repair_stats,
+                                 run_ga_headless, chromosome_to_layout,
+                                 feasible_layout, make_run_dir, write_json,
+                                 write_sidecar)
 from experiments.metaheuristics import (random_search, simulated_annealing,
                                         _final_select, DEFAULT_INITIAL_ACCEPT)
 
@@ -64,11 +78,14 @@ POP_SIZE = 30
 
 
 def _confirm(shop, names, layout, base_params, base_seed, mc_iters,
-             mc_days, n_seeds):
-    """Mean MC revenue of a layout under ``n_seeds`` fresh shared seeds."""
+             mc_days, n_seeds, values_out=None):
+    """Mean MC revenue of a layout under ``n_seeds`` fresh shared seeds;
+    ``values_out`` receives the per-seed values."""
     vals = [paired_mc_revenue(shop, names, layout, base_params,
                               seed=base_seed + k, mc_iters=mc_iters,
                               mc_days=mc_days) for k in range(n_seeds)]
+    if values_out is not None:
+        values_out.extend(vals)
     return float(np.mean(vals)), layout
 
 
@@ -113,12 +130,15 @@ def one_scenario(idx: int, args) -> Dict:
         n_items=args.n_items, width=12.0, height=10.0)
     shop = build_headless_shop(shop_synth)
     names = [it.name for it in shop_synth.items]
-    bp = base_params_for(shop_synth)
     # Every search starts from the as-built layout: the big GA does not
     # inherit whatever layout the other searches scored last, and random
     # search and SA get the same starting information as both GA runs.
     init_layout = {n: tuple(shop.floors[1]['items'][n]['position'])
                    for n in names}
+    # The elasticities act on score differences from the repaired as-built
+    # layout, which therefore reproduces the calibrated inputs.
+    bp = anchor_base_params(shop, names, base_params_for(shop_synth),
+                            init_layout)
 
     # GA at NORMAL budget (the paper's operating point). pop 30 x gens 25.
     pop = POP_SIZE
@@ -189,6 +209,12 @@ def one_scenario(idx: int, args) -> Dict:
                              f"annealer spent "
                              f"{sa_pop_stats['n_search_evals']} search "
                              f"evaluations, not {counts['GA_big']}")
+    big_finals = {'random_search_big': rs_stats['n_final_evals'],
+                  'simulated_annealing_big': sa_stats['n_final_evals'],
+                  'GA_big': ga_big_out['n_final_evals']}
+    if len(set(big_finals.values())) != 1:
+        raise AssertionError(f"scenario {idx}: big searches spent unequal "
+                             f"final-selection budgets {big_finals}")
     counts['GA_normal'] = ga_out['n_search_evals']
     counts['simulated_annealing_big_popstart'] = sa_pop_stats['n_search_evals']
     starts['simulated_annealing_big_popstart'] = sa_pop_stats['sa_start']
@@ -207,27 +233,63 @@ def one_scenario(idx: int, args) -> Dict:
                   feasible_layout(shop, names, sa_big),
                   ga_big, ga_layout,
                   feasible_layout(shop, names, sa_big_pop)]
+    invariants = {src: checked_layout(shop, names, lay,
+                                      f"mcgt scenario {idx} {src}")
+                  for src, lay in zip(CANDIDATES, candidates)}
     cseed = 900_000 + idx * 1000
     best_known = _final_select(shop, names, candidates, bp,
                                cseed, args.mc_iters, args.mc_days,
                                n_final_seeds=args.confirm_seeds)
     best_source = CANDIDATES[next(i for i, c in enumerate(candidates)
                                   if c is best_known)]
+    bk_vals, ga_vals = [], []
     bk_mean, _ = _confirm(shop, names, best_known, bp, cseed + 500,
-                          args.mc_iters, args.mc_days, args.confirm_seeds)
+                          args.mc_iters, args.mc_days, args.confirm_seeds,
+                          values_out=bk_vals)
     ga_mean, _ = _confirm(shop, names, ga_layout, bp, cseed + 500,
-                          args.mc_iters, args.mc_days, args.confirm_seeds)
+                          args.mc_iters, args.mc_days, args.confirm_seeds,
+                          values_out=ga_vals)
 
     regret_pct = (bk_mean - ga_mean) / max(abs(bk_mean), 1e-9) * 100.0
+    # Standard error of that regret from the paired confirmation seeds.
+    d = (np.asarray(bk_vals) - np.asarray(ga_vals)) / max(abs(bk_mean), 1e-9)
+    regret_se_pct = (float(d.std(ddof=1)) / np.sqrt(d.size) * 100.0
+                     if d.size > 1 else float('nan'))
+    # The exact mean of the objective at every candidate: the regret of the
+    # normal-budget GA against the same best-known layout, and against the
+    # candidate that is best in closed form.
+    cf = {src: closed_form_revenue(shop, names, lay, bp, args.mc_days)
+          for src, lay in zip(CANDIDATES, candidates)}
+    cf_bk = cf[best_source]
+    cf_best_source = max(CANDIDATES, key=lambda s: (cf[s], -CANDIDATES.index(s)))
+    cf_regret_pct = (cf_bk - cf['GA_normal']) / max(abs(cf_bk), 1e-9) * 100.0
+    cf_regret_best_pct = ((cf[cf_best_source] - cf['GA_normal'])
+                          / max(abs(cf[cf_best_source]), 1e-9) * 100.0)
     print(f"[mcgt {idx:>2d}] GA(normal)={ga_mean:>10.1f}  "
           f"best-known(10x,3-method)={bk_mean:>10.1f} [{best_source}]  "
-          f"MC-regret={regret_pct:+.2f}%", flush=True)
+          f"MC-regret={regret_pct:+.2f}%  (closed form {cf_regret_pct:+.2f}%)",
+          flush=True)
+    traces = {'GA_normal': ga_out['trace'], 'GA_big': ga_big_out['trace'],
+              'random_search_big': rs_stats.get('trace'),
+              'simulated_annealing_big': sa_stats.get('trace'),
+              'simulated_annealing_big_popstart': sa_pop_stats.get('trace')}
     return {'scenario': idx, 'ga_normal_mc': ga_mean,
             'best_known_mc': bk_mean, 'mc_regret_pct': regret_pct,
+            'mc_regret_se_pct': regret_se_pct,
             'best_known_source': best_source, 'evaluation_counts': counts,
             'final_evaluation_counts': final_counts,
             'search_start': starts,
-            'sa_T0': sa_stats.get('sa_T0')}
+            'sa_T0': sa_stats.get('sa_T0'),
+            'closed_form': {'values': cf,
+                            'regret_pct': cf_regret_pct,
+                            'best_source': cf_best_source,
+                            'regret_vs_cf_best_pct': cf_regret_best_pct},
+            'layouts': {src: layout_json(lay)
+                        for src, lay in zip(CANDIDATES, candidates)},
+            'invariants': invariants,
+            'traces': traces,
+            'repair_stats': repair_stats(shop),
+            'base_params': base_params_record(bp)}
 
 
 def _map_scenarios(fn, n_scenarios: int, workers: int, *fn_args) -> list:
@@ -256,6 +318,55 @@ def _map_scenarios(fn, n_scenarios: int, workers: int, *fn_args) -> list:
     return [done[s] for s in sorted(done)]
 
 
+def _sum_stats(stats) -> Dict[str, float]:
+    """``repair_stats`` records combined: counts summed, distances their
+    maximum (``_feasibility.combine_repair_stats``)."""
+    return combine_repair_stats(stats)
+
+
+def _closed_form_block(rows: List[Dict]) -> Dict:
+    """The ground-truth regret with the objective at its exact mean.
+
+    Per scenario: the normal-budget GA's regret against the MC-selected
+    best-known layout, and against whichever candidate is best in closed
+    form. The conclusion the paper draws from the MC regret -- its median
+    and worst value -- counts as unchanged when the closed-form median lies
+    within two confirmation standard errors of the MC median (the median of
+    the per-scenario standard errors), and the MC-selected reference is the
+    closed-form best, or within that tolerance of it."""
+    mc = np.array([r['mc_regret_pct'] for r in rows])
+    se = np.array([r['mc_regret_se_pct'] for r in rows], dtype=float)
+    cf = np.array([r['closed_form']['regret_pct'] for r in rows])
+    cfb = np.array([r['closed_form']['regret_vs_cf_best_pct'] for r in rows])
+    tol = 2.0 * float(np.nanmedian(se)) if np.isfinite(se).any() else 0.0
+    same_ref = [r['best_known_source'] == r['closed_form']['best_source']
+                for r in rows]
+    return {
+        'regret_pct': {'median': float(np.median(cf)),
+                       'mean': float(np.mean(cf)),
+                       'max': float(np.max(cf)), 'min': float(np.min(cf)),
+                       'per_scenario': [float(v) for v in cf]},
+        'regret_vs_cf_best_pct': {'median': float(np.median(cfb)),
+                                  'max': float(np.max(cfb)),
+                                  'per_scenario': [float(v) for v in cfb]},
+        'mc_regret_se_pct': [float(v) for v in se],
+        'n_reference_is_cf_best': int(sum(same_ref)),
+        'tolerance_pct': tol,
+        'conclusions_unchanged': {
+            'median_within_tolerance': bool(abs(np.median(cf)
+                                                - np.median(mc)) <= tol),
+            'max_within_tolerance': bool(abs(np.max(cf) - np.max(mc))
+                                         <= 2.0 * float(np.nanmax(se))
+                                         if np.isfinite(se).any() else True),
+            'cf_best_regret_within_tolerance': bool(
+                abs(np.median(cfb) - np.median(mc)) <= tol),
+        },
+        'all_unchanged': bool(
+            abs(np.median(cf) - np.median(mc)) <= tol
+            and abs(np.median(cfb) - np.median(mc)) <= tol),
+    }
+
+
 def main():
     args = parse_args()
     out_dir = make_run_dir(args.out_root, 'mc_groundtruth')
@@ -270,12 +381,27 @@ def main():
     with open(path, 'w', newline='', encoding='utf-8') as f:
         w = csv.writer(f)
         w.writerow(['scenario', 'ga_normal_mc', 'best_known_mc',
-                    'mc_regret_pct', 'best_known_source'])
+                    'mc_regret_pct', 'best_known_source',
+                    'ga_normal_cf', 'best_known_cf', 'cf_regret_pct',
+                    'cf_best_source'])
         for r in rows:
+            cf = r['closed_form']
             w.writerow([r['scenario'], f"{r['ga_normal_mc']:.4f}",
                         f"{r['best_known_mc']:.4f}",
                         f"{r['mc_regret_pct']:.4f}",
-                        r['best_known_source']])
+                        r['best_known_source'],
+                        f"{cf['values']['GA_normal']:.4f}",
+                        f"{cf['values'][r['best_known_source']]:.4f}",
+                        f"{cf['regret_pct']:.4f}",
+                        cf['best_source']])
+    write_json(out_dir, 'layouts.json', {
+        str(r['scenario']): {'layouts': r['layouts'],
+                             'closed_form': r['closed_form']['values'],
+                             'best_known_source': r['best_known_source'],
+                             'invariants': r['invariants']}
+        for r in rows})
+    write_json(out_dir, 'traces.json', {str(r['scenario']): r['traces']
+                                        for r in rows})
 
     summary = {
         'mc_regret_median_pct': float(np.median(reg)),
@@ -304,6 +430,10 @@ def main():
         'search_start': {m: '/'.join(sorted({r['search_start'][m]
                                              for r in rows}))
                          for m in CANDIDATES},
+        'closed_form': _closed_form_block(rows),
+        'repair_stats': _sum_stats(r['repair_stats'] for r in rows),
+        'layouts_path': 'layouts.json',
+        'traces_path': 'traces.json',
     }
     write_sidecar(out_dir, {'experiment': 'mc_groundtruth',
                             'args': vars(args), 'wall_seconds': wall,
@@ -325,6 +455,10 @@ def main():
                                 'sa_T0': [{'scenario': r['scenario'],
                                            'sa_T0': r['sa_T0']}
                                           for r in rows]},
+                            # The inputs every layout of each scenario was
+                            # scored with, anchor included.
+                            'base_params': {str(r['scenario']):
+                                            r['base_params'] for r in rows},
                             'summary': summary})
     import json
     with open(os.path.join(out_dir, 'summary.json'), 'w') as f:

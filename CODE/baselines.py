@@ -19,10 +19,14 @@ Four baselines, ordered roughly by sophistication:
                           (closest to entrance + section centre).
                           Mirrors what dataset_layout.py does for
                           real-data shops.
-  4. ``greedy_swap``    - start from popularity_rank, then for each
-                          pair (i, j) try swapping positions; keep
-                          the swap if analytical_revenue increases.
-                          Single pass, O(N^2) evaluations.
+  4. ``greedy_swap``    - a single-pass hill-climb of the ANALYTICAL
+                          objective (``analytical_revenue``, the
+                          reference solver's, not the GA's) from the
+                          popularity_rank layout: each same-section pair
+                          (i, j) swaps positions when that raises
+                          analytical revenue. O(N^2) evaluations; when
+                          no swap helps it returns popularity_rank
+                          unchanged.
 
 The GA's job is to beat all four under paired-MC comparison.
 """
@@ -287,9 +291,17 @@ def popularity_rank(shop: SyntheticShop, seed: int = 0
 
 def greedy_swap(shop: SyntheticShop, seed: int = 0,
                 max_swaps: int = None) -> Dict[str, Tuple[float, float]]:
-    """Start from popularity_rank; for each pair of items in the same
-    section, try swapping their positions; keep the swap iff
-    analytical_revenue strictly increases. Single pass over all pairs.
+    """Hill-climb the ANALYTICAL objective from the popularity layout.
+
+    Starts from ``popularity_rank``; for each pair of items in the same
+    section, tries swapping their positions and keeps the swap iff
+    ``analytical_revenue`` -- the closed-form objective the analytical
+    reference optimizes, not the GA's Monte Carlo fitness -- strictly
+    increases. Single pass over all pairs, at most ``max_swaps`` swaps.
+    When no swap raises analytical revenue (a scenario whose sections
+    hold one item each, or whose popularity layout is already
+    swap-optimal) the result IS the popularity layout, so on such
+    scenarios the two baselines tie.
 
     Crucially: swaps are constrained to within-section pairs (cross-
     section swaps would violate the section-bound constraint). This is

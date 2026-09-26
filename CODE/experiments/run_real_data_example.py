@@ -15,7 +15,9 @@ shared seed per ``pop_size`` block, then the GA's final selection over
 the GA's population is seeded from, and seeded from ``--ga-seed`` as the
 GA is. The calibrated store has no SyntheticShop to draw layouts from, so
 their draws and moves come from ``zone_sampler`` / ``zone_neighbor``,
-inside the zone the GA constrains each item to, and every candidate goes
+inside each item's zone less the aisles the shared repair keeps (its
+region) -- the space the GA's initial noise and mutation are scaled to and
+clipped into as well (``search_operators``) -- and every candidate goes
 through ``feasible_layout`` like the GA's. Their layouts are scored under
 the same held-out paired replicates as the GA and the baseline, which says
 whether the lift over the as-built store needs the GA or only needs
@@ -28,6 +30,19 @@ spread; it builds the store with ``build_store``, searches with
 ``run_searches`` and scores with ``score_layouts`` from this module, so the
 two runners cannot drift apart on the store, the budget or the evaluation
 seeds.
+
+Every reported layout (the as-built baseline and the three searches') is
+checked against the floor-plan engine's invariants before it is scored --
+the aisles the as-built store keeps between zones stay at least 1.6 m wide
+and every fixture stays shoppable (``experiments._feasibility``); the run
+stops on a violation. Each layout is also scored in closed form, at the
+exact mean of its Monte Carlo fitness (``closed_form_scan``): its score
+breakdown, its lift over the baseline at the corners of the three
+elasticity bands and at the basket elasticities 0.02 and 0, and at assumed
+conversion rates up to the 0.99 clamp, with the rate at which the clamp
+starts to bind; ``closed_form_check`` says whether each conclusion holds
+in closed form. The final layouts and each search's convergence trace are
+saved (``layouts.json``, ``traces.json``).
 
 This is the script that reproduces the paper's real-data application
 figure. Output sidecar.json records dataset SHA-256, git SHA, elasticity
@@ -69,7 +84,7 @@ import re
 import sys
 import time
 from dataclasses import dataclass
-from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
+from typing import Any, Callable, Dict, List, Mapping, Optional, Sequence, Tuple
 
 import numpy as np
 
@@ -78,6 +93,7 @@ _HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.dirname(_HERE))
 
 from dataset_adapters import (
+    READER_VERSION,
     OnlineRetailIIAdapter,
     list_excel_sheets,
     read_excel_sheets,
@@ -90,23 +106,34 @@ from experiments._common import (
     GA_N_FINAL_SEEDS,
     build_headless_shop_from_calibration,
     base_params_for_calibration,
+    anchor_base_params,
+    base_params_record,
+    checked_layout,
     run_ga_headless,
     paired_mc_revenue,
     bootstrap_ci,
-    apply_layout,
-    layout_to_chromosome,
     chromosome_to_layout,
     feasible_layout,
+    layout_json,
+    layout_score,
+    aisle_rule_summary,
+    repair_stats,
     zone_sampler,
     zone_neighbor,
     make_run_dir,
+    write_json,
     write_sidecar,
 )
+from experiments.closed_form import expected_revenue
 from experiments.metaheuristics import (
     DEFAULT_INITIAL_ACCEPT,
     random_search,
     simulated_annealing,
 )
+from experiments.run_elasticity_lhs import BASKET_CORNERS
+from layout_objective import ELASTICITY_BANDS, layout_drivers
+from retail_literature import (ABANDON_FRAC_OF_NONCONVERTERS,
+                               ASSUMED_CONVERSION_RATE, CONV_CLAMP_HI)
 
 
 # Paired-evaluation seeds are EVAL_SEED_BASE + replicate. Every search --
@@ -120,6 +147,59 @@ EVAL_SEED_BASE = 1_000_000
 #: item's zone gives it on each axis (``zone_neighbor``). The same fraction
 #: ``metaheuristics._neighbor`` scales its moves by on the synthetic shops.
 SA_STEP_FRAC = 0.25
+
+#: Run-directory prefix and experiment-name suffix of a run calibrated
+#: without the anonymous invoices (``--exclude-anonymous``). Such a run is
+#: a sensitivity analysis. The macro generator takes, per family, the
+#: newest valid run whose directory name starts with the family's prefix
+#: (``real_data_uci_``, ``real_data_seeds_``, ...), so a sensitivity run
+#: written under the headline prefix could silently replace the headline;
+#: it gets a prefix of its own instead.
+NOANON_DIR_PREFIX = 'noanon_'
+NOANON_EXPERIMENT_SUFFIX = '_noanon'
+
+
+def run_dir_prefix(base: str, args: argparse.Namespace) -> str:
+    """``make_run_dir`` prefix of ``base``'s family: the headline family,
+    or its no-anonymous sensitivity family (``NOANON_DIR_PREFIX``)."""
+    return (NOANON_DIR_PREFIX + base
+            if getattr(args, 'exclude_anonymous', False) else base)
+
+
+def experiment_name(base: str, args: argparse.Namespace) -> str:
+    """The ``experiment`` field of ``base``'s summary and sidecar, suffixed
+    for a no-anonymous sensitivity run."""
+    return (base + NOANON_EXPERIMENT_SUFFIX
+            if getattr(args, 'exclude_anonymous', False) else base)
+
+
+def search_operators(sa_k_move: Optional[int] = None) -> Dict[str, str]:
+    """What each search's operators draw from, as the runs record it
+    (``search_design['operators']``). All three work inside the same space,
+    each item's zone less the aisles the shared repair keeps (its region,
+    ``experiments._feasibility``): random search draws uniformly over it,
+    the annealer's step is a fraction of the room it leaves, and the GA's
+    initial noise and mutation are scaled to it and clipped into it. None of
+    them proposes a position the repair would clip onto an aisle edge."""
+    out = {
+        'space': ("region: each item's zone less the aisles the shared "
+                  "repair keeps (_feasibility.AislePlan.move_box / "
+                  "position_bounds)"),
+        'GA': ("initial noise N(0, max(0.15 x side, 0.3 m)) and mutation "
+               "N(0, max(0.12 x side, 0.2 m)) per axis, side = the side of "
+               "the item's move box (its zone less the aisle rule), clipped "
+               "0.05 m inside that box, i.e. into the region "
+               "(HeadlessShop._ga_move_boxes)"),
+        'random_search': "zone_sampler: uniform over each item's region",
+        'simulated_annealing': f'zone_neighbor(step_frac={SA_STEP_FRAC}): '
+                               f'one item, step uniform in +/- '
+                               f'{SA_STEP_FRAC} x its room in its region',
+    }
+    if sa_k_move is not None:
+        out['simulated_annealing_k'] = (
+            f'zone_neighbor(step_frac={SA_STEP_FRAC}, n_move={int(sa_k_move)})'
+            f': {int(sa_k_move)} distinct items per move, each as above')
+    return out
 
 
 def search_seed_ranges(ga_seed: int, n_gens: int,
@@ -175,8 +255,13 @@ def add_arguments(p: argparse.ArgumentParser,
                    help="Comma-separated Excel sheet names to concatenate")
     p.add_argument('--max-items-per-category', type=int, default=12,
                    help="Cap on items placed per inferred category")
-    p.add_argument('--assumed-conversion', type=float, default=0.30,
+    p.add_argument('--assumed-conversion', type=float,
+                   default=ASSUMED_CONVERSION_RATE,
                    help="Conversion rate assumption (transactional data has no buy/no-buy split)")
+    p.add_argument('--exclude-anonymous', action='store_true',
+                   help="Calibrate without the invoices that carry no "
+                        "customer id (a sensitivity run; they are kept by "
+                        "default and their share is recorded)")
     p.add_argument('--mc-iters', type=int, default=2000)
     p.add_argument('--mc-days', type=int, default=30)
     p.add_argument('--n-gens', type=int, default=25)
@@ -260,6 +345,42 @@ def reader_facts(read_notes: List[str], rows_after: int) -> Dict:
 
 def calibrate_from_file(args: argparse.Namespace) -> tuple:
     """Returns (params, report, reader_facts)."""
+    normalized, report, reader = read_normalized(args)
+    return calibrate_normalized(normalized, report, args), report, reader
+
+
+def calibrate_normalized(normalized, report,
+                         args: argparse.Namespace) -> CalibratedParams:
+    """``calibrate_transactional`` on the adapted rows with this example's
+    options (assumed conversion, the report's currency, the anonymous
+    invoices in or out)."""
+    t0 = time.perf_counter()
+    params = calibrate_transactional(
+        normalized,
+        assumed_conversion_rate=args.assumed_conversion,
+        currency=report.extra.get('currency', 'GBP'),
+        exclude_anonymous=bool(getattr(args, 'exclude_anonymous', False)),
+    )
+    print(f"[real] calibrated in {time.perf_counter()-t0:.1f}s: "
+          f"{params.n_invoices:,} invoices, "
+          f"{params.n_unique_products:,} unique products, "
+          f"{params.n_unique_categories} categories, "
+          f"{params.arrivals_per_hour:.1f} invoices/hr (avg)",
+          flush=True)
+    return params
+
+
+def read_normalized(args: argparse.Namespace) -> tuple:
+    """The requested sheets through the reader and the UCI adapter:
+    ``(normalized rows, adapter report, reader facts)``."""
+    df, reader = read_workbook(args)
+    normalized, report = adapt_rows(df)
+    return normalized, report, reader
+
+
+def read_workbook(args: argparse.Namespace) -> tuple:
+    """The requested sheets as the reader returns them (cross-sheet
+    repeats dropped): ``(raw rows, reader facts)``."""
     if not os.path.isfile(args.retail_path):
         raise SystemExit(f"--retail-path does not exist: {args.retail_path}")
     sheets_avail = [name for name, _ in list_excel_sheets(args.retail_path)]
@@ -280,8 +401,15 @@ def calibrate_from_file(args: argparse.Namespace) -> tuple:
           flush=True)
     for note in read_notes:
         print(f"[real]   {note}", flush=True)
+    return df, reader
 
-    adapter = OnlineRetailIIAdapter()
+
+def adapt_rows(df, match_reversals: bool = True) -> tuple:
+    """Raw workbook rows through the UCI adapter: ``(normalized rows,
+    adapter report)``. ``match_reversals=False`` is adapter 1.1's cleaning
+    (``OnlineRetailIIAdapter``), used only to measure what results made
+    under it carried."""
+    adapter = OnlineRetailIIAdapter(match_reversals=match_reversals)
     normalized, report = adapter.adapt(df)
     if report.is_blocking():
         raise SystemExit(
@@ -289,22 +417,38 @@ def calibrate_from_file(args: argparse.Namespace) -> tuple:
             + report.to_text()
         )
     print(f"[real] adapter kept {report.rows_kept:,}/{report.rows_in:,} rows "
-          f"({adapter.name} v{adapter.version})",
+          f"({adapter.name} v{adapter.version}"
+          f"{'' if match_reversals else ', 1.1 cleaning'})",
           flush=True)
+    return normalized, report
 
-    t0 = time.perf_counter()
-    params = calibrate_transactional(
-        normalized,
-        assumed_conversion_rate=args.assumed_conversion,
-        currency=report.extra.get('currency', 'GBP'),
-    )
-    print(f"[real] calibrated in {time.perf_counter()-t0:.1f}s: "
-          f"{params.n_invoices:,} invoices, "
-          f"{params.n_unique_products:,} unique products, "
-          f"{params.n_unique_categories} categories, "
-          f"{params.arrivals_per_hour:.1f} invoices/hr (avg)",
-          flush=True)
-    return params, report, reader
+
+def data_provenance_extra(report, params: CalibratedParams,
+                          args: argparse.Namespace) -> Dict[str, Any]:
+    """What the adapter and the calibration did to the workbook's rows,
+    for the ``extra`` of a real-data run's provenance record: the reader's
+    version, the adapter's cleaning counts (cancellation lines and the
+    purchase lines they reverse), whether anonymous invoices were
+    calibrated, and their counts and shares. Every real-data runner stamps
+    these, so the families identify their data the same way the live
+    runners' period record does."""
+    return {
+        'reader_version':    READER_VERSION,
+        'cleaning':          dict(report.extra.get('cleaning') or {}),
+        'exclude_anonymous': bool(getattr(args, 'exclude_anonymous', False)),
+        'anonymous': {
+            'calibration':            params.calibration_extra.get(
+                'anonymous_invoices'),
+            'n_anonymous_invoices':   int(params.n_anonymous_invoices),
+            'anonymous_invoice_frac': float(params.anonymous_invoice_frac),
+            'anonymous_revenue_frac': float(params.anonymous_revenue_frac),
+            **{k: params.calibration_extra[k]
+               for k in ('n_anonymous_invoices_excluded',
+                         'n_anonymous_rows_excluded',
+                         'anonymous_revenue_excluded')
+               if k in params.calibration_extra},
+        },
+    }
 
 
 def comparator_summary(optimized: np.ndarray, other: np.ndarray,
@@ -395,7 +539,14 @@ def build_store(params: CalibratedParams, max_items_per_category: int,
     }
     baseline_layout = feasible_layout(shop, item_names, init_layout)
 
-    base_params = base_params_for_calibration(params)
+    # Anchored at the baseline layout (the as-built one after the shared
+    # repair): the elasticities act on score differences from it, so the
+    # baseline reproduces the calibrated conversion, basket, spend and
+    # daily invoice volume, and the lift is measured from the store the
+    # data describe.
+    base_params = anchor_base_params(shop, item_names,
+                                     base_params_for_calibration(params),
+                                     init_layout)
     if verbose:
         print(f"[real] MC base_params: cph={base_params['customers_per_hour']:.1f}, "
               f"conv={base_params['conversion_rate']:.2f} (assumed), "
@@ -408,18 +559,51 @@ def build_store(params: CalibratedParams, max_items_per_category: int,
                            base_params=base_params)
 
 
+#: The GA's operator settings on the calibrated store (``run_ga_search``).
+GA_MUT_RATE = 0.18
+GA_ELITE_FRAC = 0.20
+
+
+def run_ga_search(store: CalibratedStore, *, seed: int, n_gens: int,
+                  pop_size: int, mc_iters: int,
+                  mc_days: int) -> Dict[str, Any]:
+    """Figure C's GA search on ``store`` from its as-built layout, seeded
+    from ``seed``: ``run_ga_headless``'s output. ``run_searches`` runs the
+    GA through here, as would any runner that needs Figure C's optimized
+    layout without its comparators, so the two cannot drift apart on the
+    operator settings."""
+    return run_ga_headless(
+        store.shop, store.item_names, store.base_params,
+        pop_size=pop_size,
+        n_gens=n_gens,
+        mut_rate=GA_MUT_RATE,
+        elite_frac=GA_ELITE_FRAC,
+        mc_iters=mc_iters,
+        mc_days=mc_days,
+        rng_seed=seed,
+        init_layout=store.init_layout,
+    )
+
+
 def run_searches(store: CalibratedStore, *, seed: int, n_gens: int,
                  pop_size: int, mc_iters: int, mc_days: int,
                  sa_initial_accept: float,
-                 verbose: bool = True) -> Dict[str, Any]:
+                 verbose: bool = True,
+                 sa_k_move: Optional[int] = None) -> Dict[str, Any]:
     """The GA, random search and simulated annealing at one budget, from
     the as-built layout, each seeded from ``seed``.
 
     Returns the three layouts (``'optimized'``, ``'rs'``, ``'sa'``), each on
-    the GA's feasible set, with the search statistics, the evaluation counts
-    and the starts -- after checking that the searches spent equal search
-    budgets and all started as-built, since a comparison that fails either
-    is not the one the paper reports."""
+    the GA's feasible set, with the search statistics, each search's
+    convergence trace (``'traces'``), the evaluation counts and the starts
+    -- after checking that the searches spent equal search and
+    final-selection budgets and all started as-built, since a comparison
+    that fails either is not the one the paper reports.
+
+    ``sa_k_move`` adds a fourth search, ``'sa_k'``: the same annealer, seed
+    and budget, with moves of ``sa_k_move`` items at a time
+    (``zone_neighbor(n_move=...)``) instead of one; it is held to the same
+    budgets and start."""
     shop, item_names = store.shop, store.item_names
     base_params, init_layout = store.base_params, store.init_layout
 
@@ -429,17 +613,9 @@ def run_searches(store: CalibratedStore, *, seed: int, n_gens: int,
               f"mc_iters={mc_iters}, mc_days={mc_days})…",
               flush=True)
     ga_t0 = time.perf_counter()
-    ga_out = run_ga_headless(
-        shop, item_names, base_params,
-        pop_size=pop_size,
-        n_gens=n_gens,
-        mut_rate=0.18,
-        elite_frac=0.20,
-        mc_iters=mc_iters,
-        mc_days=mc_days,
-        rng_seed=seed,
-        init_layout=init_layout,
-    )
+    ga_out = run_ga_search(store, seed=seed, n_gens=n_gens,
+                           pop_size=pop_size, mc_iters=mc_iters,
+                           mc_days=mc_days)
     ga_wall = time.perf_counter() - ga_t0
     if verbose:
         print(f"[real] GA done in {ga_wall:.1f}s; best fitness "
@@ -483,23 +659,47 @@ def run_searches(store: CalibratedStore, *, seed: int, n_gens: int,
         print(f"[real] random search done in {rs_wall:.1f}s; simulated "
               f"annealing done in {sa_wall:.1f}s (T0={sa_stats.get('sa_T0')})",
               flush=True)
+    sak_stats: Dict = {}
+    sak_layout = None
+    sak_wall = 0.0
+    if sa_k_move is not None:
+        sak_t0 = time.perf_counter()
+        sak_layout = simulated_annealing(
+            shop, None, item_names, base_params,
+            seed=seed, budget=budget, block=pop_size,
+            n_final_seeds=GA_N_FINAL_SEEDS,
+            mc_iters=mc_iters, mc_days=mc_days,
+            initial_accept=sa_initial_accept, stats=sak_stats,
+            init_layout=init_layout, start='asbuilt',
+            neighbor=zone_neighbor(shop, item_names, step_frac=SA_STEP_FRAC,
+                                   n_move=sa_k_move))
+        sak_wall = time.perf_counter() - sak_t0
+        if verbose:
+            print(f"[real] {sa_k_move}-item annealing done in {sak_wall:.1f}s",
+                  flush=True)
 
-    # The equal-budget check is on the SEARCH evaluations, which is what
-    # the budget buys; the final-selection counts are recorded beside them
-    # (SA hands its final stage distinct archived states only, so it can
-    # spend fewer there than the GA's full population).
+    # The equal-budget check covers the SEARCH evaluations, which is what
+    # the budget buys, and the final selection, where each search re-scores
+    # pop_size candidates under the GA's selection seeds.
     eval_counts = {'GA': ga_out['n_search_evals'],
                    'random_search': rs_stats['n_search_evals'],
                    'simulated_annealing': sa_stats['n_search_evals']}
-    if len(set(eval_counts.values())) != 1:
-        raise AssertionError(f"search methods spent unequal "
-                             f"search-evaluation budgets {eval_counts}")
     final_eval_counts = {'GA': ga_out['n_final_evals'],
                          'random_search': rs_stats['n_final_evals'],
                          'simulated_annealing': sa_stats['n_final_evals']}
     starts = {'GA': 'asbuilt',
               'random_search': rs_stats['rs_start'],
               'simulated_annealing': sa_stats['sa_start']}
+    if sa_k_move is not None:
+        eval_counts['simulated_annealing_k'] = sak_stats['n_search_evals']
+        final_eval_counts['simulated_annealing_k'] = sak_stats['n_final_evals']
+        starts['simulated_annealing_k'] = sak_stats['sa_start']
+    if len(set(eval_counts.values())) != 1:
+        raise AssertionError(f"search methods spent unequal "
+                             f"search-evaluation budgets {eval_counts}")
+    if len(set(final_eval_counts.values())) != 1:
+        raise AssertionError(f"search methods spent unequal "
+                             f"final-selection budgets {final_eval_counts}")
     if set(starts.values()) != {'asbuilt'}:
         raise AssertionError(f"searches did not share the as-built start: "
                              f"{starts}")
@@ -507,7 +707,7 @@ def run_searches(store: CalibratedStore, *, seed: int, n_gens: int,
     # points of the repair; mapping them keeps the rule uniform.
     rs_layout = feasible_layout(shop, item_names, rs_layout)
     sa_layout = feasible_layout(shop, item_names, sa_layout)
-    return {
+    out = {
         'optimized':         optimized_layout,
         'rs':                rs_layout,
         'sa':                sa_layout,
@@ -518,9 +718,47 @@ def run_searches(store: CalibratedStore, *, seed: int, n_gens: int,
         'eval_counts':       eval_counts,
         'final_eval_counts': final_eval_counts,
         'starts':            starts,
+        'traces':            {'GA': ga_out['trace'],
+                              'random_search': rs_stats.get('trace'),
+                              'simulated_annealing': sa_stats.get('trace')},
         'walls':             {'GA': ga_wall, 'random_search': rs_wall,
                               'simulated_annealing': sa_wall},
     }
+    if sa_k_move is not None:
+        out['sa_k'] = feasible_layout(shop, item_names, sak_layout)
+        out['sak_stats'] = sak_stats
+        out['traces']['simulated_annealing_k'] = sak_stats.get('trace')
+        out['walls']['simulated_annealing_k'] = sak_wall
+        out['sa_k_move'] = int(sa_k_move)
+    return out
+
+
+#: The layouts ``run_searches`` reports, by the names the runs save them
+#: under, beside the as-built baseline.
+REPORTED_LAYOUTS = ('optimized', 'rs', 'sa', 'sa_k')
+
+
+def reported_layouts(store: CalibratedStore,
+                     searches: Mapping[str, Any]) -> Dict[str, Any]:
+    """``{'baseline': ..., 'optimized': ..., 'rs': ..., 'sa': ...[, 'sa_k']}``:
+    every layout a run reports, in that order."""
+    out = {'baseline': store.baseline_layout}
+    for k in REPORTED_LAYOUTS:
+        if searches.get(k) is not None:
+            out[k] = searches[k]
+    return out
+
+
+def check_reported(store: CalibratedStore,
+                   layouts: Mapping[str, Mapping[str, Tuple[float, float]]],
+                   label: str = '') -> Dict[str, Dict[str, Any]]:
+    """Check every reported layout against the floor-plan engine's
+    invariants (aisles the as-built store keeps, every fixture shoppable,
+    inside its zone, no overlap); ``LayoutInvariantError`` stops the run on
+    the first that breaks one. Returns each layout's invariant record."""
+    return {k: checked_layout(store.shop, store.item_names, lay,
+                              f"{label}{k}")
+            for k, lay in layouts.items()}
 
 
 def score_layouts(store: CalibratedStore,
@@ -553,9 +791,198 @@ def score_layouts(store: CalibratedStore,
     return {name: np.asarray(v) for name, v in out.items()}
 
 
+#: Conversion rates the closed-form scan re-scores the saved layouts at.
+#: The lift's claimed invariance to the assumed conversion rate holds only
+#: below the rate at which the 0.99 conversion clamps start to bind, which
+#: the scan also locates exactly (``clamp_onset``).
+CONVERSION_GRID = (0.05, 0.10, 0.15, 0.20, 0.25, 0.30, 0.35, 0.40, 0.45,
+                   0.50, 0.55, 0.60, 0.65, 0.70, 0.75, 0.80, 0.85, 0.90,
+                   0.95, 0.99)
+
+#: Basket elasticities scored beside the band's own corners: 0.02, a fifth
+#: of the band's floor, and no basket effect -- the corners the LHS runner
+#: adds below the band (``run_elasticity_lhs.BASKET_CORNERS``).
+BASKET_ELASTICITY_POINTS = BASKET_CORNERS
+
+
+def _at_conversion(base_params: Dict[str, Any], p: float) -> Dict[str, Any]:
+    """``base_params`` recalibrated to an assumed conversion rate ``p``,
+    as ``base_params_for_calibration`` would build them: the observed
+    buyers stay fixed, so the visitor rate is the buyer rate over ``p``,
+    and the baseline abandonment is ``ABANDON_FRAC_OF_NONCONVERTERS`` of
+    the ``1 - p`` who do not buy. The anchor and every spend input stay."""
+    p0 = float(base_params['conversion_rate'])
+    out = dict(base_params)
+    out['conversion_rate'] = float(p)
+    out['customers_per_hour'] = float(base_params['customers_per_hour']) \
+        * p0 / float(p)
+    out['abandonment_rate'] = (max(0.0, 1.0 - float(p))
+                               * ABANDON_FRAC_OF_NONCONVERTERS)
+    return out
+
+
+def _clamps_bind(score: float, breakdown: Mapping[str, Any],
+                 base_params: Mapping[str, Any]) -> bool:
+    """True when the 0.99 clamp on the lifted or the abandonment-adjusted
+    conversion binds for a layout scored ``(score, breakdown)``."""
+    d = layout_drivers(score, breakdown, base_params)
+    return (d['conv_lifted'] >= CONV_CLAMP_HI
+            or d['conv'] >= CONV_CLAMP_HI)
+
+
+def closed_form_scan(store: CalibratedStore,
+                     layouts: Mapping[str, Mapping[str, Tuple[float, float]]],
+                     horizon_days: int,
+                     baseline: str = 'baseline') -> Dict[str, Any]:
+    """Every saved layout scored in closed form (the exact mean of its Monte
+    Carlo fitness, ``experiments.closed_form``), and its percentage lift
+    over ``baseline`` re-scored where the paper's inputs are assumptions.
+
+    Returns, per layout: its closed-form value, score and per-criterion
+    breakdown; its lift over the baseline at the band midpoints the search
+    used; the BAND BOX -- the lift at every corner of the three elasticity
+    bands (conversion x impulse x basket), and with the basket elasticity at
+    each of ``BASKET_ELASTICITY_POINTS`` instead of the band's corners --
+    with its range; and the CONVERSION SCAN -- the lift at every assumed
+    conversion rate of ``CONVERSION_GRID`` (the store recalibrated to it,
+    ``_at_conversion``), the rate above which the 0.99 conversion clamps bind
+    for any saved layout (``clamp_onset``, by bisection), and how far the
+    lift moves below that rate. The impulse channel cannot move on a store
+    without impulse fixtures (the UCI store has none), so its band leaves
+    the lift where it is; the scan shows that rather than assuming it."""
+    shop, names, bp = store.shop, store.item_names, store.base_params
+    scored = {k: layout_score(shop, names, lay) for k, lay in layouts.items()}
+
+    def cf(k, params=bp, **kw):
+        s, b = scored[k]
+        return float(expected_revenue(params, int(horizon_days), score=s,
+                                      breakdown=b, **kw))
+
+    others = [k for k in layouts if k != baseline]
+    values = {k: cf(k) for k in layouts}
+    lift = {k: (values[k] - values[baseline]) / max(values[baseline], 1e-9)
+            * 100.0 for k in others}
+
+    # Band box.
+    points = []
+    bands = ELASTICITY_BANDS
+    bsk_values = tuple(bands['bsk']) + tuple(BASKET_ELASTICITY_POINTS)
+    for ec in bands['conv']:
+        for ei in bands['imp']:
+            for eb in bsk_values:
+                e = {'conv': float(ec), 'imp': float(ei), 'bsk': float(eb)}
+                base_v = cf(baseline, elasticities=e)
+                points.append({
+                    **e, 'basket_point': ('band' if eb in bands['bsk']
+                                          else 'fixed'),
+                    'lift_pct': {k: (cf(k, elasticities=e) - base_v)
+                                 / max(base_v, 1e-9) * 100.0 for k in others}})
+
+    def _range(sel):
+        return {k: {'min': float(min(p['lift_pct'][k] for p in sel)),
+                    'max': float(max(p['lift_pct'][k] for p in sel))}
+                for k in others} if sel else {}
+
+    band_box = {
+        'bands': {k: list(v) for k, v in bands.items()},
+        'basket_points': list(BASKET_ELASTICITY_POINTS),
+        'points': points,
+        'range_all': _range(points),
+        'range_band_corners': _range([p for p in points
+                                      if p['basket_point'] == 'band']),
+        **{f'range_bsk_{eb:g}': _range([p for p in points
+                                        if p['basket_point'] == 'fixed'
+                                        and p['bsk'] == eb])
+           for eb in BASKET_ELASTICITY_POINTS},
+    }
+
+    # Conversion scan.
+    p0 = float(bp['conversion_rate'])
+    grid = sorted(set(CONVERSION_GRID) | {p0})
+    scan_lift = {k: [] for k in others}
+    binds = []
+    for p in grid:
+        bpp = _at_conversion(bp, p)
+        base_v = cf(baseline, params=bpp)
+        for k in others:
+            scan_lift[k].append((cf(k, params=bpp) - base_v)
+                                / max(base_v, 1e-9) * 100.0)
+        binds.append(any(_clamps_bind(*scored[k], bpp) for k in layouts))
+
+    def _any_bind(p):
+        bpp = _at_conversion(bp, p)
+        return any(_clamps_bind(*scored[k], bpp) for k in layouts)
+
+    onset = None
+    if _any_bind(0.999):
+        lo, hi = 1e-4, 0.999
+        if _any_bind(lo):
+            onset = lo
+        else:
+            for _ in range(60):
+                mid = 0.5 * (lo + hi)
+                if _any_bind(mid):
+                    hi = mid
+                else:
+                    lo = mid
+            onset = hi
+    at_p0 = {k: scan_lift[k][grid.index(p0)] for k in others}
+    below = [i for i, p in enumerate(grid) if onset is None or p < onset]
+    dev = {k: (float(max(abs(scan_lift[k][i] - at_p0[k]) for i in below))
+               if below else None) for k in others}
+    return {
+        'horizon_days': int(horizon_days),
+        'values': values,
+        'scores': {k: {'score': float(s), 'breakdown': {
+            c: float(v) for c, v in b.items() if isinstance(v, (int, float))}}
+            for k, (s, b) in scored.items()},
+        'lift_pct': lift,
+        'band_box': band_box,
+        'conversion_scan': {
+            'grid': grid, 'reference_rate': p0, 'lift_pct': scan_lift,
+            'clamps_bind': binds, 'clamp_onset': onset,
+            'clamp': CONV_CLAMP_HI,
+            'lift_at_reference_pct': at_p0,
+            'max_abs_change_below_onset_pp': dev,
+        },
+    }
+
+
+def closed_form_check(cf_scan: Dict[str, Any], results: Dict[str, Any]
+                      ) -> Dict[str, Any]:
+    """Whether Figure C's conclusions hold with every layout at its exact
+    mean: the sign of the lift and of each GA-minus-comparator difference,
+    and whether each closed-form difference lies inside the Monte Carlo
+    interval the run reports for it (an unbiased estimate's interval
+    should hold its mean)."""
+    v = cf_scan['values']
+    out: Dict[str, Any] = {}
+    lift = v['optimized'] - v['baseline']
+    out['lift'] = {'cf': lift, 'cf_pct': cf_scan['lift_pct']['optimized'],
+                   'mc': results['paired_mean_diff'],
+                   'sign_unchanged': bool(np.sign(lift)
+                                          == np.sign(results['paired_mean_diff'])),
+                   'cf_inside_mc_ci': bool(results['ci_lo'] <= lift
+                                           <= results['ci_hi'])}
+    for key, lay in (('random_search', 'rs'), ('simulated_annealing', 'sa')):
+        c = results['comparators'][key]
+        d = v['optimized'] - v[lay]
+        out[key] = {'cf': d, 'mc': c['paired_mean_diff_GA_minus_X'],
+                    'sign_unchanged': bool(np.sign(d) == np.sign(
+                        c['paired_mean_diff_GA_minus_X'])),
+                    'mc_excludes_zero': bool(c['ci_lo'] > 0 or c['ci_hi'] < 0),
+                    'cf_inside_mc_ci': bool(c['ci_lo'] <= d <= c['ci_hi'])}
+    out['all_signs_unchanged'] = bool(all(
+        out[k]['sign_unchanged']
+        for k in ('lift', 'random_search', 'simulated_annealing')))
+    return out
+
+
 def main() -> int:
     args = parse_args()
-    out_dir = make_run_dir(args.out_root, 'real_data_uci')
+    out_dir = make_run_dir(args.out_root,
+                           run_dir_prefix('real_data_uci', args))
+    experiment = experiment_name('real_data_uci_figure_c', args)
     print(f"output dir: {out_dir}", flush=True)
 
     wall_t0 = time.perf_counter()
@@ -580,6 +1007,8 @@ def main() -> int:
     ga_wall = searches['walls']['GA']
     rs_wall = searches['walls']['random_search']
     sa_wall = searches['walls']['simulated_annealing']
+    reported = reported_layouts(store, searches)
+    invariants = check_reported(store, reported)
 
     # -- 5. Paired-MC: every layout under the same replicate seeds ----
     print(f"[real] paired-MC over {args.n_mc_replicates} replicates "
@@ -656,6 +1085,18 @@ def main() -> int:
           f"{final_eval_counts['random_search']} / "
           f"{final_eval_counts['simulated_annealing']})")
 
+    # Every layout at the exact mean of its fitness, its score breakdown,
+    # and its lift re-scored over the elasticity bands and the assumed
+    # conversion rate; and whether the headline holds in closed form.
+    cf_scan = closed_form_scan(store, reported, args.mc_days)
+    results_mc = {'paired_mean_diff': mean_diff, 'ci_lo': ci_lo,
+                  'ci_hi': ci_hi, 'comparators': comparators}
+    cf_check = closed_form_check(cf_scan, results_mc)
+    bb = cf_scan['band_box']['range_all']['optimized']
+    print(f"       closed form: lift {cf_scan['lift_pct']['optimized']:+.2f}%"
+          f"  (band box {bb['min']:+.2f}% .. {bb['max']:+.2f}%; clamps bind "
+          f"above p_c = {cf_scan['conversion_scan']['clamp_onset']})")
+
     # -- 6. Stamp provenance ---------------------------------------
     prov = stamp_provenance(
         source_path=args.retail_path,
@@ -681,6 +1122,8 @@ def main() -> int:
             'sections':                sum(1 for w in shop.floors[1]['walls']
                                            if w.startswith('Section_')),
             'items_placed':            len(item_names),
+            # Reader version, cleaning counts, anonymous invoices.
+            **data_provenance_extra(report, params, args),
         },
     )
 
@@ -725,11 +1168,34 @@ def main() -> int:
         # The GA against each equal-budget search, paired on the same
         # held-out replicates as the lift above (GA minus X).
         'comparators':     comparators,
+        # Every layout at the exact mean of its fitness, its score
+        # breakdown, the band box and the conversion scan
+        # (``closed_form_scan``), and whether each conclusion above holds in
+        # closed form (``closed_form_check``).
+        'closed_form':     cf_scan,
+        'closed_form_check': cf_check,
     }
+    # The floor-plan invariants of every reported layout; how much of the
+    # zones the aisle rule takes from the searches (``aisle_rule``); and how
+    # often the region clip and the reachability fallbacks bound during them
+    # (the searches' operators stay inside the regions, so the clip is a
+    # safety net expected at zero).
+    feasibility = {'invariants': invariants,
+                   'repair_stats': repair_stats(shop),
+                   'aisle_rule': aisle_rule_summary(shop, item_names)}
+    write_json(out_dir, 'layouts.json', {
+        k: layout_json(lay) for k, lay in reported.items()})
+    write_json(out_dir, 'traces.json', searches['traces'])
     # How the three searches were held level: one budget, one block, one
     # number of final-selection seeds, one start, one seed family.
     search_design = {
         'budget_search_evals':  budget,
+        'budget_final_evals':   args.pop_size * GA_N_FINAL_SEEDS,
+        'final_pool':           {'GA': 'final population (elites + '
+                                       'unscored children)',
+                                 'random_search': rs_stats.get('pool_rule'),
+                                 'simulated_annealing':
+                                     sa_stats.get('pool_rule')},
         'block':                args.pop_size,
         'n_final_seeds':        GA_N_FINAL_SEEDS,
         'seed':                 args.ga_seed,
@@ -740,6 +1206,7 @@ def main() -> int:
                                  EVAL_SEED_BASE + args.n_mc_replicates],
         'rs_sampler':           'zone_sampler',
         'sa_neighbor':          f'zone_neighbor(step_frac={SA_STEP_FRAC})',
+        'operators':            search_operators(),
         'ci':                   'percentile bootstrap, 2000 resamples, 95%, '
                                 'per comparison (uncorrected)',
     }
@@ -749,8 +1216,20 @@ def main() -> int:
         'sa_start':          sa_stats.get('sa_start'),
     }
 
+    # What the store was calibrated from, in the summary itself: a
+    # validator of the headline must refuse a no-anonymous sensitivity run
+    # (``exclude_anonymous``) and a run under older cleaning
+    # (``adapter_version``).
+    data_design = {
+        'sheets':                 args.sheets,
+        'max_items_per_category': args.max_items_per_category,
+        'assumed_conversion':     args.assumed_conversion,
+        'exclude_anonymous':      bool(args.exclude_anonymous),
+        'adapter_version':        OnlineRetailIIAdapter.version,
+    }
+
     write_sidecar(out_dir, {
-        'experiment':        'real_data_uci_figure_c',
+        'experiment':        experiment,
         'args':              vars(args),
         'wall_seconds':      time.perf_counter() - wall_t0,
         'ga_wall_seconds':   ga_wall,
@@ -784,6 +1263,9 @@ def main() -> int:
                                      if w.startswith('Section_')),
             'items_placed':      len(item_names),
         },
+        # The inputs every layout was scored with, the as-built anchor
+        # included (lists as length, moments and a hash).
+        'base_params': base_params_record(store.base_params),
         'results': results,
         # Search-evaluation totals (checked equal) and the final-selection
         # evaluations each search spent on top of them.
@@ -791,18 +1273,26 @@ def main() -> int:
         'final_evaluation_counts': final_eval_counts,
         'sa_schedule':             sa_schedule,
         'search_design':           search_design,
+        'feasibility':             feasibility,
+        'layouts_path':            'layouts.json',
+        'traces_path':             'traces.json',
+        'data':                    data_design,
     })
 
     # Written last: its presence marks a finished run.
     with open(os.path.join(out_dir, 'summary.json'), 'w',
               encoding='utf-8') as f:
         json.dump({
-            'experiment':              'real_data_uci_figure_c',
+            'experiment':              experiment,
+            'data':                    data_design,
             'results':                 results,
             'evaluation_counts':       eval_counts,
             'final_evaluation_counts': final_eval_counts,
             'sa_schedule':             sa_schedule,
             'search_design':           search_design,
+            'feasibility':             feasibility,
+            'layouts_path':            'layouts.json',
+            'traces_path':             'traces.json',
         }, f, indent=2)
 
     print(f"\nArtifacts in: {out_dir}")

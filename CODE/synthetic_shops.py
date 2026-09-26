@@ -5,8 +5,9 @@ Each ``SyntheticShop`` carries:
   * a small set of items (typically 8-12) with category, size, base
     revenue, and per-item type tag (regular/impulse)
   * a cross-merchandising affinity matrix
-  * the *literature-cited elasticity parameters* used by the oracle's
-    closed-form revenue model
+  * the per-item elasticities the oracle's closed-form revenue model
+    reads, drawn from the SYNTH_* bands of retail_literature (each with
+    its epistemic label)
 
 These are not a replacement for the dataset-loaded shop that
 dataset_layout.build_layout_from_calibration produces. They're small,
@@ -15,10 +16,13 @@ generate -> solve analytically (oracle) -> run the GA on the simulator
 fitness -> compare GA vs oracle.
 
 oracle.py works only off these dataclasses and analytical_revenue below.
-The simulator fitness in viz_ga._ga_compute_layout_score is structurally
-independent (agent paths, heatmap, ...), so any agreement between the two
-is real evidence that the geometric scoring captures the same placement
-principles as the closed-form model.
+The GA's fitness is a different function of the layout: the composite
+score of viz_ga._ga_compute_layout_score, read off a painted cold-start
+heat map, co-purchase distances and an entrance-to-checkout waypoint path,
+turned into revenue by the Monte Carlo engine. No agent walks in either.
+Any agreement between the two is therefore evidence that the geometric
+scoring captures the same placement principles as the closed-form model,
+not a restatement of it.
 """
 
 from __future__ import annotations
@@ -28,6 +32,13 @@ from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Tuple
 
 import numpy as np
+
+from retail_literature import (
+    SYNTH_AFFINITY_DENSITY, SYNTH_AFFINITY_RANGE, SYNTH_DAILY_CUSTOMERS,
+    SYNTH_DETOUR_ELASTICITY_DEFAULT, SYNTH_DETOUR_ELASTICITY_RANGE,
+    SYNTH_IMPULSE_ELASTICITY_DEFAULT, SYNTH_IMPULSE_ELASTICITY_RANGE,
+    SYNTH_PERIMETER_ELASTICITY_DEFAULT, SYNTH_PERIMETER_ELASTICITY_RANGE,
+)
 
 
 # --- Data classes ---------------------------------------------------------
@@ -40,12 +51,13 @@ class SyntheticItem:
     size: Tuple[float, float]          # (width_m, depth_m)
     base_revenue: float                # GBP / per-converting-customer
     is_impulse: bool = False
-    # Per-item demand sensitivities used by ``analytical_revenue``.
-    # Defaults come from retail_literature.py midpoints; the generator
-    # perturbs them within the cited bands.
-    detour_elasticity: float = 0.40    # Hui 2009 midpoint
-    impulse_elasticity: float = 0.50   # Hui Inman 2013 midpoint
-    perimeter_elasticity: float = 0.20 # Larson 2005 lower bound
+    # Per-item demand sensitivities used by ``analytical_revenue``. The
+    # generator draws them from the SYNTH_*_RANGE bands of
+    # retail_literature, where each carries its epistemic label; these
+    # defaults are the registry's SYNTH_*_DEFAULT values.
+    detour_elasticity: float = SYNTH_DETOUR_ELASTICITY_DEFAULT
+    impulse_elasticity: float = SYNTH_IMPULSE_ELASTICITY_DEFAULT
+    perimeter_elasticity: float = SYNTH_PERIMETER_ELASTICITY_DEFAULT
 
 
 @dataclass
@@ -63,7 +75,7 @@ class SyntheticShop:
     sections: Dict[str, Tuple[float, float, float, float]]  # cat -> (x, y, w, h)
     affinity: Dict[Tuple[str, str], float] = field(default_factory=dict)
     # Per-shop scaling factors -- not random; deterministic from ``seed``.
-    daily_customers: float = 200.0
+    daily_customers: float = SYNTH_DAILY_CUSTOMERS
     rng_seed: int = 0
 
     def item_by_name(self, name: str) -> SyntheticItem:
@@ -110,13 +122,20 @@ def analytical_revenue(shop: SyntheticShop,
 
     Total: R(layout) = sum_i r_i - overlap_penalty
 
-    This formula is *structurally independent* of the simulator's GA
-    scoring function on what makes a layout *good* (heatmap, agent
-    paths, queue) -- their elasticities come from the same literature
-    (Hui/Larson) but the functional forms differ. They agree only on
-    what makes a layout *physically valid* (no overlapping items), which
-    is a constraint both must respect. This is what keeps synthetic-GT
-    non-circular: structural agreement on validity, divergence on value.
+    This formula differs from the GA's scoring function on what makes a
+    layout *good* -- the GA reads a painted heat-map prior, co-purchase
+    distances and a waypoint path, with no agent walking and no live queue
+    -- although both take their directions from the same literature
+    (Hui/Larson). They agree only on what makes a layout *physically valid*
+    (no overlapping items), which is a constraint both must respect. This
+    is what keeps synthetic-GT non-circular: structural agreement on
+    validity, divergence on value.
+
+    The function is continuous and piecewise smooth, not smooth: it has
+    kinks at the min in d_wall, the floor on L_perimeter, the floor on
+    r_i, the Euclidean distances at their centres and the onset of an
+    overlap, which is why ``oracle.solve_oracle`` restarts its local search
+    many times.
     """
     diag = shop.diag()
     rev_total = 0.0
@@ -166,12 +185,13 @@ def analytical_revenue(shop: SyntheticShop,
         )
         rev_total += max(r_i, 0.0)   # revenue is non-negative
 
-    # Physical overlap penalty (within-section only). Penalty is
-    # *smooth* in overlap area so a gradient-based optimizer
-    # (L-BFGS-B) can navigate out of overlapping configurations
-    # cleanly. Scale: 2 * smaller_base * daily_customers per unit of
-    # smaller-item area overlapped -- guaranteed to dominate any
-    # positional gain from stacking.
+    # Physical overlap penalty (within-section only). The penalty is
+    # continuous in the overlap area (zero at contact, growing with the
+    # area) rather than a step, so a gradient-based optimizer (L-BFGS-B)
+    # sees a slope out of an overlapping configuration; it has a kink at
+    # contact, not a smooth onset. Scale: 2 * smaller_base *
+    # daily_customers per unit of smaller-item area overlapped --
+    # guaranteed to dominate any positional gain from stacking.
     by_cat: Dict[str, List[SyntheticItem]] = {}
     for it in shop.items:
         by_cat.setdefault(it.category, []).append(it)
@@ -302,8 +322,8 @@ def generate_synthetic_shop(
     n_items: int = 10,
     width: float = 12.0,
     height: float = 10.0,
-    affinity_density: float = 0.15,
-    daily_customers: float = 200.0,
+    affinity_density: float = SYNTH_AFFINITY_DENSITY,
+    daily_customers: float = SYNTH_DAILY_CUSTOMERS,
 ) -> SyntheticShop:
     """Generate one parameterized synthetic shop.
 
@@ -311,9 +331,11 @@ def generate_synthetic_shop(
     at 2*n_items (default 20), which is well within scipy.optimize's
     reliable range when warm-started from a section-grid initialization.
 
-    The per-item elasticities are drawn from cited literature bands
-    (see ``retail_literature.py`` ELASTICITY_* constants). A
-    deterministic seed produces a reproducible scenario.
+    The per-item elasticities and the affinities are drawn uniformly from
+    the SYNTH_* bands of ``retail_literature.py``, which label each one
+    (the impulse band is anchored on Hui, Inman 2013; the detour,
+    perimeter and affinity sizes are operational assumptions with a cited
+    direction). A deterministic seed produces a reproducible scenario.
     """
     rng = np.random.default_rng(seed)
 
@@ -328,9 +350,9 @@ def generate_synthetic_shop(
             _DEFAULT_CATEGORIES[cat_idx % len(_DEFAULT_CATEGORIES)]
         )
         base_rev = float(rng.uniform(rev_lo, rev_hi))
-        det = float(rng.uniform(0.30, 0.50))    # Hui 2009 midpoint +/-25%
-        imp = float(rng.uniform(0.40, 0.70))    # Hui Inman 2013 band
-        per = float(rng.uniform(0.15, 0.30))    # Larson 2005 perimeter
+        det = float(rng.uniform(*SYNTH_DETOUR_ELASTICITY_RANGE))
+        imp = float(rng.uniform(*SYNTH_IMPULSE_ELASTICITY_RANGE))
+        per = float(rng.uniform(*SYNTH_PERIMETER_ELASTICITY_RANGE))
         suffix = next_in_cat[cat]
         next_in_cat[cat] += 1
         items.append(SyntheticItem(
@@ -370,7 +392,7 @@ def generate_synthetic_shop(
         key = (min(a, b), max(a, b))
         if key in affinity:
             continue
-        affinity[key] = float(rng.uniform(0.10, 0.30))   # modest affinity
+        affinity[key] = float(rng.uniform(*SYNTH_AFFINITY_RANGE))
 
     return SyntheticShop(
         name=name,

@@ -1,0 +1,481 @@
+{
+  "experiment": "input_uncertainty_uci",
+  "design": {
+    "sheets": "Year 2009-2010,Year 2010-2011",
+    "max_items_per_category": 12,
+    "assumed_conversion": 0.3,
+    "exclude_anonymous": false,
+    "adapter_version": "1.2",
+    "horizon_days": 30,
+    "ga": {
+      "seed": 0,
+      "n_gens": 25,
+      "pop_size": 30,
+      "mc_iters": 2000,
+      "mc_days": 30,
+      "mut_rate": 0.18,
+      "elite_frac": 0.2,
+      "start": "asbuilt",
+      "n_search_evals": 750,
+      "n_final_evals": 150
+    },
+    "searches": {
+      "seed": 0,
+      "budget_search_evals": 750,
+      "evaluation_counts": {
+        "GA": 750,
+        "random_search": 750,
+        "simulated_annealing": 750
+      },
+      "final_evaluation_counts": {
+        "GA": 150,
+        "random_search": 150,
+        "simulated_annealing": 150
+      },
+      "starts": {
+        "GA": "asbuilt",
+        "random_search": "asbuilt",
+        "simulated_annealing": "asbuilt"
+      },
+      "sa_initial_accept": 0.8,
+      "sa_T0": 22.35921875841494,
+      "rs_sampler": "zone_sampler",
+      "sa_neighbor": "zone_neighbor(step_frac=0.25)",
+      "operators": {
+        "space": "region: each item's zone less the aisles the shared repair keeps (_feasibility.AislePlan.move_box / position_bounds)",
+        "GA": "initial noise N(0, max(0.15 x side, 0.3 m)) and mutation N(0, max(0.12 x side, 0.2 m)) per axis, side = the side of the item's move box (its zone less the aisle rule), clipped 0.05 m inside that box, i.e. into the region (HeadlessShop._ga_move_boxes)",
+        "random_search": "zone_sampler: uniform over each item's region",
+        "simulated_annealing": "zone_neighbor(step_frac=0.25): one item, step uniform in +/- 0.25 x its room in its region"
+      }
+    },
+    "n_boot": 200,
+    "boot_seed": 20251,
+    "replicate_rng": "numpy default_rng([boot_seed, b])",
+    "clusters": {
+      "rule": "one per identified customer, one per anonymous invoice; copies relabelled as distinct invoices and customers",
+      "n_clusters": 8760,
+      "n_customers": 5838,
+      "n_anonymous_invoices": 2922
+    },
+    "layouts": "fixed: the repaired as-built layout and the GA, random-search and annealing layouts of the full-data searches",
+    "rekey": "same fixtures; each replicate calibration re-seeded onto them and the base parameters re-anchored at the as-built layout",
+    "scoring": "experiments.closed_form.expected_revenue",
+    "scales": {
+      "whole": "whole invoices, every invoice a buyer (Figure C)",
+      "stocked": "each invoice cut to the stocked products, buyers the invoices holding one (placed_invoice_sample)"
+    },
+    "ci_level": 0.95
+  },
+  "point": {
+    "anchor_score": 0.44002271956643996,
+    "whole": {
+      "level_asbuilt": 769612.7302862497,
+      "level_ga": 783565.3300685766,
+      "level_rs": 781299.7477283261,
+      "level_sa": 779439.1670657992,
+      "lift": 13952.599782326957,
+      "pct_lift": 1.8129377585967725,
+      "ga_minus_rs": {
+        "gbp": 2265.5823402504902,
+        "frac_of_asbuilt": 0.00294379530261646,
+        "pct": 0.28997607471880044
+      },
+      "ga_minus_sa": {
+        "gbp": 4126.163002777379,
+        "frac_of_asbuilt": 0.005361349728769033,
+        "pct": 0.5293758868072194
+      }
+    },
+    "stocked": {
+      "level_asbuilt": 17020.223750043366,
+      "level_ga": 17328.789813005562,
+      "level_rs": 17278.685758280702,
+      "level_sa": 17237.538441019675,
+      "lift": 308.56606296219616,
+      "pct_lift": 1.8129377585967985,
+      "ga_minus_rs": {
+        "gbp": 50.10405472485945,
+        "frac_of_asbuilt": 0.0029437953026165,
+        "pct": 0.2899760747188043
+      },
+      "ga_minus_sa": {
+        "gbp": 91.25137198588709,
+        "frac_of_asbuilt": 0.005361349728769258,
+        "pct": 0.5293758868072417
+      }
+    },
+    "stocked_invoice_share": 0.7949038094024716
+  },
+  "input_uncertainty": {
+    "level": 0.95,
+    "n_boot": 200,
+    "whole": {
+      "pct_lift": {
+        "estimate": 1.8129377585967725,
+        "boot_mean": 1.685176399334453,
+        "boot_bias": -0.12776135926231946,
+        "boot_se": 0.22608014005000324,
+        "ci": [
+          1.2931041822519755,
+          1.9592168702656794
+        ],
+        "method": "percentile, customer-clustered bootstrap",
+        "pct_of": "asbuilt_level",
+        "covers": "input"
+      },
+      "level_gbp": {
+        "estimate": 769612.7302862497,
+        "se": 43183.855153612545,
+        "rse": 0.05611114974352198,
+        "ci": [
+          684973.9294715747,
+          854251.5311009246
+        ],
+        "method": "delta: the as-built level is proportional to the total over the calendar span, SE of the total clustered by customer",
+        "boot_ci": [
+          693596.7301161481,
+          868455.1718603105
+        ],
+        "boot_se": 46348.402601982,
+        "covers": "input"
+      },
+      "lift_gbp": {
+        "estimate": 13952.599782326957,
+        "se": 2090.923785299407,
+        "ci": [
+          9854.464468721959,
+          18050.735095931956
+        ],
+        "method": "delta: lift = level x fraction; var = f^2 var(L) + L^2 var_boot(f) + 2 L f cov_boot(L, f)",
+        "boot_ci": [
+          9452.002227975334,
+          16263.89482479799
+        ],
+        "boot_se": 2082.9851190220243,
+        "covers": "input"
+      },
+      "ga_minus_rs": {
+        "pct": {
+          "estimate": 0.28997607471880044,
+          "boot_mean": 0.16459243664306755,
+          "boot_bias": -0.12538363807573288,
+          "boot_se": 0.2213583696731268,
+          "ci": [
+            -0.36779024078036276,
+            0.39579740615898573
+          ],
+          "method": "percentile, customer-clustered bootstrap",
+          "pct_of": "comparator_level",
+          "covers": "input"
+        },
+        "gbp": {
+          "estimate": 2265.5823402504902,
+          "se": 1766.0522176882066,
+          "ci": [
+            -1195.816401235486,
+            5726.981081736467
+          ],
+          "method": "delta: margin = level x fraction of the as-built level; var = f^2 var(L) + L^2 var_boot(f) + 2 L f cov_boot(L, f)",
+          "boot_ci": [
+            -2770.669039920136,
+            3133.4644150326526
+          ],
+          "boot_se": 1732.9206769831292,
+          "covers": "input"
+        },
+        "n_boot_ga_ahead": 168
+      },
+      "ga_minus_sa": {
+        "pct": {
+          "estimate": 0.5293758868072194,
+          "boot_mean": 0.4725970454660283,
+          "boot_bias": -0.056778841341191044,
+          "boot_se": 0.16124261802585965,
+          "ci": [
+            0.2694598278034236,
+            0.8814992038257613
+          ],
+          "method": "percentile, customer-clustered bootstrap",
+          "pct_of": "comparator_level",
+          "covers": "input"
+        },
+        "gbp": {
+          "estimate": 4126.163002777379,
+          "se": 1295.661247851914,
+          "ci": [
+            1586.7136208234033,
+            6665.612384731355
+          ],
+          "method": "delta: margin = level x fraction of the as-built level; var = f^2 var(L) + L^2 var_boot(f) + 2 L f cov_boot(L, f)",
+          "boot_ci": [
+            2133.4910880728717,
+            7006.561296644257
+          ],
+          "boot_se": 1286.3027953741682,
+          "covers": "input"
+        },
+        "n_boot_ga_ahead": 199
+      }
+    },
+    "stocked": {
+      "pct_lift": {
+        "estimate": 1.8129377585967985,
+        "boot_mean": 1.6851763993344526,
+        "boot_bias": -0.12776135926234589,
+        "boot_se": 0.22608014005000035,
+        "ci": [
+          1.293104182251964,
+          1.9592168702656751
+        ],
+        "method": "percentile, customer-clustered bootstrap",
+        "pct_of": "asbuilt_level",
+        "covers": "input"
+      },
+      "level_gbp": {
+        "estimate": 17020.223750043366,
+        "se": 452.74310923435155,
+        "rse": 0.026600303020881146,
+        "ci": [
+          16132.863561695352,
+          17907.583938391377
+        ],
+        "method": "delta: the as-built level is proportional to the total over the calendar span, SE of the total clustered by customer",
+        "boot_ci": [
+          16257.483710506227,
+          17869.95815270115
+        ],
+        "boot_se": 453.2292123505968,
+        "covers": "input"
+      },
+      "lift_gbp": {
+        "estimate": 308.56606296219616,
+        "se": 40.33934359363171,
+        "ci": [
+          229.50240235869143,
+          387.6297235657009
+        ],
+        "method": "delta: lift = level x fraction; var = f^2 var(L) + L^2 var_boot(f) + 2 L f cov_boot(L, f)",
+        "boot_ci": [
+          217.7550410010101,
+          336.8841430802407
+        ],
+        "boot_se": 40.06325945923334,
+        "covers": "input"
+      },
+      "ga_minus_rs": {
+        "pct": {
+          "estimate": 0.2899760747188043,
+          "boot_mean": 0.16459243664306564,
+          "boot_bias": -0.12538363807573868,
+          "boot_se": 0.2213583696731262,
+          "ci": [
+            -0.36779024078038147,
+            0.39579740615898423
+          ],
+          "method": "percentile, customer-clustered bootstrap",
+          "pct_of": "comparator_level",
+          "covers": "input"
+        },
+        "gbp": {
+          "estimate": 50.10405472485945,
+          "se": 38.592585238224274,
+          "ci": [
+            -25.536022412352267,
+            125.74413186207117
+          ],
+          "method": "delta: margin = level x fraction of the as-built level; var = f^2 var(L) + L^2 var_boot(f) + 2 L f cov_boot(L, f)",
+          "boot_ci": [
+            -63.8212777325123,
+            68.05458352514316
+          ],
+          "boot_se": 38.17776554271144,
+          "covers": "input"
+        },
+        "n_boot_ga_ahead": 168
+      },
+      "ga_minus_sa": {
+        "pct": {
+          "estimate": 0.5293758868072417,
+          "boot_mean": 0.47259704546602743,
+          "boot_bias": -0.05677884134121425,
+          "boot_se": 0.16124261802585818,
+          "ci": [
+            0.26945982780342653,
+            0.8814992038257393
+          ],
+          "method": "percentile, customer-clustered bootstrap",
+          "pct_of": "comparator_level",
+          "covers": "input"
+        },
+        "gbp": {
+          "estimate": 91.25137198588709,
+          "se": 27.861114361096412,
+          "ci": [
+            36.644591268986446,
+            145.85815270278772
+          ],
+          "method": "delta: margin = level x fraction of the as-built level; var = f^2 var(L) + L^2 var_boot(f) + 2 L f cov_boot(L, f)",
+          "boot_ci": [
+            46.88350074322799,
+            148.57644871156367
+          ],
+          "boot_se": 27.69847900219781,
+          "covers": "input"
+        },
+        "n_boot_ga_ahead": 199
+      }
+    },
+    "scale_ratio": 0.022115309531993924
+  },
+  "uncertainty_layers": {
+    "input": "this runner: customer-clustered bootstrap of the invoices, each replicate recalibrated and re-keyed onto the same fixtures, the layouts held fixed and scored in closed form",
+    "monte_carlo": "not here (closed-form scoring has none); Figure C's paired held-out replicates cover the evaluation noise of its Monte Carlo lift and margins",
+    "search_seed": "not here (the layouts are fixed, from one search per method at --ga-seed); run_real_data_seeds covers the search-to-search spread"
+  },
+  "totals": {
+    "whole": {
+      "total": 19088647.59,
+      "se": 1071085.96332381
+    },
+    "stocked": {
+      "total": 422151.3499999999,
+      "se": 11229.353830674052
+    }
+  },
+  "absent_fixtures": {
+    "max": 0,
+    "mean": 0.0,
+    "full_data": 0
+  },
+  "anonymous": {
+    "customer_id_available": true,
+    "anonymous_invoice_frac_all": 0.07445534462988916,
+    "anonymous_revenue_frac_all": 0.13494565908113132,
+    "n_with_placed": 31196,
+    "n_anonymous_with_placed": 1980,
+    "invoice_share": 0.06346967559943582,
+    "purchase_share": 0.18308715536078904,
+    "revenue_share": 0.1684770876606222,
+    "mean_size_anonymous": 15.487878787878788,
+    "mean_size_identified": 4.683324205914567,
+    "mean_revenue_anonymous": 35.92062121212121,
+    "mean_revenue_identified": 12.014941128148958
+  },
+  "legacy_floor_bias": {
+    "meaning": "how far the former floored-normal spend law raised each layout's expected revenue over horizon_days above the exact mean, and the lift's bias (GA minus as-built); frac_of_* divide by the exact quantity",
+    "horizon_days": 30,
+    "current_inputs": {
+      "inputs": "this run's calibration (adapter 1.2 cleaning: reversal pairs removed)",
+      "asbuilt": 99.15858861704156,
+      "spend_cv": 2.3209750688902644,
+      "ga": 94.08514559662379,
+      "rs": 94.79340222001805,
+      "sa": 95.56233402785949,
+      "lift": -5.07344302041777,
+      "frac_of_asbuilt_level": 0.00012884218869425474,
+      "frac_of_lift": -0.00036361990593638616
+    },
+    "adapter_1_1_inputs": {
+      "inputs": "the same rows cleaned as adapter 1.1 cleaned them (cancellation lines dropped, the purchases they reverse kept) -- the inputs of the numbers published before adapter 1.2 -- re-keyed onto this run's fixtures and scored at this run's layouts (the published layouts were not stored)",
+      "cleaning": {
+        "cancellation_lines": 19165,
+        "reversal_pairs": 0,
+        "cancellation_lines_anonymous": 0,
+        "cancellation_lines_unmatched": 19165,
+        "reversal_matching": false,
+        "reversed_purchase_lines_removed": 0,
+        "reversed_units_removed": 0.0,
+        "reversed_revenue_removed": 0.0
+      },
+      "n_absent_fixtures": 0,
+      "asbuilt": 1039.105957914656,
+      "spend_cv": 3.02015165213725,
+      "ga": 1007.1000085882907,
+      "rs": 1011.7680103471466,
+      "sa": 1016.4951085502672,
+      "lift": -32.00594932636534,
+      "frac_of_asbuilt_level": 0.0013082962348344564,
+      "frac_of_lift": -0.002223192093468484
+    }
+  },
+  "feasibility": {
+    "invariants": {
+      "baseline": {
+        "n_outside_zone": 0,
+        "n_overlap": 0,
+        "n_clearance": 0,
+        "n_unshoppable": 0,
+        "min_clearance_kept_apart_m": 1.6000000000000005,
+        "required_clearance_m": 1.6
+      },
+      "optimized": {
+        "n_outside_zone": 0,
+        "n_overlap": 0,
+        "n_clearance": 0,
+        "n_unshoppable": 0,
+        "min_clearance_kept_apart_m": 1.6000000000000005,
+        "required_clearance_m": 1.6
+      },
+      "rs": {
+        "n_outside_zone": 0,
+        "n_overlap": 0,
+        "n_clearance": 0,
+        "n_unshoppable": 0,
+        "min_clearance_kept_apart_m": 1.6000000000000005,
+        "required_clearance_m": 1.6
+      },
+      "sa": {
+        "n_outside_zone": 0,
+        "n_overlap": 0,
+        "n_clearance": 0,
+        "n_unshoppable": 0,
+        "min_clearance_kept_apart_m": 1.6000000000000005,
+        "required_clearance_m": 1.6
+      }
+    },
+    "repair_stats": {
+      "calls": 2110,
+      "aisle_clip_calls": 0,
+      "aisle_clip_items": 0,
+      "aisle_clip_max_m": 0.0,
+      "snap_zones": 18781,
+      "reach_single_file": 0,
+      "reach_as_built_zone": 0,
+      "reach_as_built_store": 0
+    },
+    "aisle_rule": {
+      "n_items": 108,
+      "n_zones": 15,
+      "n_zones_narrowed": 15,
+      "n_pairs_kept_apart": 105,
+      "min_aisle_m": 1.6,
+      "n_items_narrowed": 108,
+      "per_axis": {
+        "x": {
+          "n_items_narrowed": 96,
+          "zone_room_median_m": 1.9916666666666667,
+          "region_room_median_m": 0.49166666666666714,
+          "share_kept_median": 0.2468619246861928,
+          "share_kept_min": 0.2468619246861918
+        },
+        "y": {
+          "n_items_narrowed": 12,
+          "zone_room_median_m": 1.5000000000000007,
+          "region_room_median_m": 0.0,
+          "share_kept_median": 0.0,
+          "share_kept_min": 0.0
+        }
+      },
+      "area_share_kept_median_narrowed": 0.2468619246861927,
+      "area_share_kept_geomean_unpinned": 0.2878492878622345,
+      "n_items_pinned": 12
+    }
+  },
+  "store": {
+    "fingerprint": "8311616908a9a61c66e1b4e5e9eb0f0d6e4ed1666ffe391bb62ea09db7bf45e9",
+    "width_m": 42.1,
+    "height_m": 30.1,
+    "sections": 15,
+    "items_placed": 108
+  }
+}

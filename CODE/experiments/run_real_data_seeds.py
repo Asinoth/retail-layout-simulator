@@ -48,12 +48,20 @@ Outputs (under ``--out-root``, one ``real_data_seeds_<time>`` directory):
   * results.csv  -- one row per (search seed, replicate): baseline, GA,
                     random-search and annealing revenue and the paired
                     differences, in Figure C's column names;
+  * layouts.json -- every seed's reported layouts (as-built baseline, GA,
+                    random search, annealing), each checked against the
+                    floor-plan invariants before it was scored;
+  * traces.json  -- every seed's convergence traces, one per search;
   * sidecar.json -- provenance (checkout at start, dataset SHA-256), the
                     calibration and store, wall times; written before
-  * summary.json -- per-seed and across-seed results, the equal-budget
-                    evaluation counts per method and seed, the searches'
-                    starts and the design. Written last: it marks a
-                    finished run.
+  * summary.json -- per-seed and across-seed results, the same comparison
+                    with every layout at its closed-form mean
+                    (``results.closed_form``, with whether each conclusion
+                    is unchanged) and each seed's closed-form scan (score
+                    breakdowns, band box, conversion scan), the
+                    equal-budget evaluation counts per method and seed, the
+                    searches' starts and the design. Written last: it marks
+                    a finished run.
 
 Smoke (one sheet, tiny budget; a few minutes, mostly the workbook read):
     python -m experiments.run_real_data_seeds ^
@@ -93,8 +101,13 @@ from dataset_provenance import stamp as stamp_provenance
 
 from experiments._common import (
     GA_N_FINAL_SEEDS,
+    aisle_rule_summary,
+    base_params_record,
+    layout_json,
     make_run_dir,
     provenance_snapshot,
+    repair_stats,
+    write_json,
     write_sidecar,
 )
 from experiments.run_real_data_example import (
@@ -104,10 +117,17 @@ from experiments.run_real_data_example import (
     add_arguments,
     build_store,
     calibrate_from_file,
+    check_reported,
     check_search_arguments,
+    closed_form_scan,
+    reported_layouts,
+    data_provenance_extra,
+    experiment_name,
     resolve_workbook,
+    run_dir_prefix,
     run_searches,
     score_layouts,
+    search_operators,
     search_seed_ranges,
     search_seeds_fit,
 )
@@ -272,6 +292,8 @@ def run_search_seed(params: CalibratedParams, seed: int,
         store, seed=seed, n_gens=design.n_gens, pop_size=design.pop_size,
         mc_iters=design.mc_iters, mc_days=design.mc_days,
         sa_initial_accept=design.sa_initial_accept, verbose=False)
+    reported = reported_layouts(store, searches)
+    invariants = check_reported(store, reported, f"search seed {seed} ")
     revs = score_layouts(
         store, (('baseline', store.baseline_layout),
                 ('optimized', searches['optimized']),
@@ -279,6 +301,7 @@ def run_search_seed(params: CalibratedParams, seed: int,
                 ('sa', searches['sa'])),
         n_replicates=design.n_mc_replicates, mc_iters=design.mc_iters,
         mc_days=design.mc_days)
+    cf_scan = closed_form_scan(store, reported, design.mc_days)
     walls = {**searches['walls'], 'total': time.perf_counter() - t0}
     out = {
         'search_seed':             int(seed),
@@ -290,6 +313,12 @@ def run_search_seed(params: CalibratedParams, seed: int,
         'ga_best_fit':             float(searches['ga_out']['best_fit']),
         'sa_T0':                   searches['sa_stats'].get('sa_T0'),
         'wall_seconds':            walls,
+        'closed_form':             cf_scan,
+        'invariants':              invariants,
+        'layouts':                 {k: layout_json(lay)
+                                    for k, lay in reported.items()},
+        'traces':                  searches['traces'],
+        'repair_stats':            repair_stats(store.shop),
     }
     o, b = revs['optimized'], revs['baseline']
     print(f"[seeds] search seed {seed}: lift={float((o - b).mean()):+.2f}  "
@@ -464,6 +493,74 @@ def summarize_seeds(per_seed: Sequence[Mapping[str, Any]],
                   f'the same evaluation seeds'}
 
 
+def summarize_closed_form(per_seed: Sequence[Mapping[str, Any]],
+                          mc_across: Mapping[str, Any],
+                          level: float = CI_LEVEL) -> Dict[str, Any]:
+    """The across-seed comparison with every layout at the exact mean of
+    its fitness (each seed's ``closed_form`` scan): per seed the GA minus
+    each other layout, and across seeds their mean, t-interval, range and
+    win count, as ``summarize_seeds`` gives them from the Monte Carlo
+    replicates; the band-box range of each seed's lift; and whether each
+    conclusion is the same as under Monte Carlo -- the sign of the across-
+    seed mean, whether its interval excludes zero, and the number of seeds
+    in which the GA led."""
+    per: List[Dict[str, Any]] = []
+    diffs = {key: [] for key, _ in COMPARISONS}
+    base = {key: [] for key, _ in COMPARISONS}
+    for rec in per_seed:
+        v = rec['closed_form']['values']
+        row = {'search_seed': int(rec['search_seed'])}
+        for key, other in COMPARISONS:
+            d = v['optimized'] - v[other]
+            row[key] = {'diff': d,
+                        'pct': d / max(v[other], 1e-9) * 100.0}
+            diffs[key].append(d)
+            base[key].append(v[other])
+        bb = rec['closed_form']['band_box']['range_all'].get('optimized', {})
+        row['lift_band_box_pct'] = bb
+        row['clamp_onset'] = rec['closed_form']['conversion_scan'][
+            'clamp_onset']
+        per.append(row)
+    across: Dict[str, Any] = {}
+    unchanged: Dict[str, Any] = {}
+    for key, _ in COMPARISONS:
+        x = np.asarray(diffs[key], dtype=np.float64)
+        mean, lo, hi, sd = t_interval(x, level)
+        denom = max(float(np.mean(base[key])), 1e-9)
+        across[key] = {'n_seeds': int(x.size), 'mean': mean, 'ci_lo': lo,
+                       'ci_hi': hi, 'sd': sd, 'min': float(x.min()),
+                       'max': float(x.max()),
+                       'n_ga_leads': int((x > 0).sum()),
+                       'excludes_zero': bool(lo > 0 or hi < 0),
+                       'pct': mean / denom * 100.0}
+        m = mc_across[key]
+        unchanged[key] = {
+            'sign': bool(np.sign(mean) == np.sign(m['mean'])),
+            'excludes_zero': bool(across[key]['excludes_zero']
+                                  == m['excludes_zero']),
+            'n_ga_leads_mc': int(m['n_ga_leads']),
+            'n_ga_leads_cf': int(across[key]['n_ga_leads'])}
+        unchanged[key]['unchanged'] = bool(
+            unchanged[key]['sign'] and unchanged[key]['excludes_zero']
+            and unchanged[key]['n_ga_leads_mc']
+            == unchanged[key]['n_ga_leads_cf'])
+    lifts = [r['lift_band_box_pct'] for r in per if r['lift_band_box_pct']]
+    return {
+        'per_seed': per, 'across_seeds': across,
+        'lift_band_box_pct': ({'min': float(min(b['min'] for b in lifts)),
+                               'max': float(max(b['max'] for b in lifts))}
+                              if lifts else None),
+        'clamp_onset_min': (min(r['clamp_onset'] for r in per
+                                if r['clamp_onset'] is not None)
+                            if any(r['clamp_onset'] is not None for r in per)
+                            else None),
+        'conclusions_unchanged': {**unchanged,
+                                  'all_unchanged': bool(all(
+                                      u['unchanged']
+                                      for u in unchanged.values()))},
+    }
+
+
 def search_start(per_seed: Sequence[Mapping[str, Any]]) -> Dict[str, str]:
     """Each search's start over the seeds; a search that started from
     different layouts in different seeds is recorded as their '/'-joined
@@ -498,7 +595,9 @@ def write_results_csv(out_dir: str,
 
 def main(argv: Optional[Sequence[str]] = None) -> int:
     args = parse_args(argv)
-    out_dir = make_run_dir(args.out_root, 'real_data_seeds')
+    out_dir = make_run_dir(args.out_root,
+                           run_dir_prefix('real_data_seeds', args))
+    experiment = experiment_name('real_data_uci_search_seeds', args)
     # The checkout as the run starts, so the sidecar names the code that
     # produced the numbers and says whether it moved while they were made.
     prov_run = provenance_snapshot()
@@ -533,6 +632,22 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     # -- 3. Aggregate in seed order --------------------------------------
     results = summarize_seeds(per_seed)
     across = results['across_seeds']
+    # The same comparison at the layouts' exact means, and every seed's
+    # closed-form scan (values, score breakdowns, band box, conversion
+    # scan) and floor-plan invariants.
+    results['closed_form'] = summarize_closed_form(per_seed, across)
+    results['closed_form_per_seed'] = {str(r['search_seed']): r['closed_form']
+                                       for r in per_seed}
+    feasibility = {
+        'invariants': {str(r['search_seed']): r['invariants']
+                       for r in per_seed},
+        'repair_stats': {str(r['search_seed']): r['repair_stats']
+                         for r in per_seed},
+        'aisle_rule': aisle_rule_summary(store.shop, store.item_names)}
+    write_json(out_dir, 'layouts.json', {str(r['search_seed']): r['layouts']
+                                         for r in per_seed})
+    write_json(out_dir, 'traces.json', {str(r['search_seed']): r['traces']
+                                        for r in per_seed})
     starts = search_start(per_seed)
     eval_counts = {str(r['search_seed']): r['evaluation_counts']
                    for r in per_seed}
@@ -559,9 +674,11 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         'sheets':                 args.sheets,
         'max_items_per_category': args.max_items_per_category,
         'assumed_conversion':     args.assumed_conversion,
+        'exclude_anonymous':      bool(args.exclude_anonymous),
         'layout':                 'naive',
         'rs_sampler':             'zone_sampler',
         'sa_neighbor':            f'zone_neighbor(step_frac={SA_STEP_FRAC})',
+        'operators':              search_operators(),
         'seeding':                'search seed s seeds the GA, random search '
                                   'and annealing as run_real_data_example '
                                   'seeds them from --ga-seed',
@@ -609,6 +726,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             'shop_dims_m':            [store.shop.width, store.shop.height],
             'sections':               store.n_sections,
             'items_placed':           len(store.item_names),
+            # Reader version, cleaning counts, anonymous invoices.
+            **data_provenance_extra(report, params, args),
         },
     )
     csv_path = write_results_csv(out_dir, per_seed)
@@ -616,7 +735,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     # The sidecar goes first: summary.json is the file that marks a run as
     # finished, so it is written last.
     write_sidecar(out_dir, {
-        'experiment':          'real_data_uci_search_seeds',
+        'experiment':          experiment,
         'args':                vars(args),
         'wall_seconds':        time.perf_counter() - wall_t0,
         'search_wall_seconds': search_wall,
@@ -638,6 +757,9 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             'currency':                params.currency,
         },
         'store':                   store_block,
+        # The inputs every layout was scored with, the as-built anchor
+        # included (lists as length, moments and a hash).
+        'base_params':             base_params_record(store.base_params),
         'seed_design':             asdict(design),
         'results':                 results,
         'evaluation_counts':       eval_counts,
@@ -645,12 +767,15 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         'search_start':            starts,
         'sa_schedule':             sa_schedule,
         'design':                  design_block,
+        'feasibility':             feasibility,
+        'layouts_path':            'layouts.json',
+        'traces_path':             'traces.json',
     }, provenance=prov_run)
 
     with open(os.path.join(out_dir, 'summary.json'), 'w',
               encoding='utf-8') as f:
         json.dump({
-            'experiment':              'real_data_uci_search_seeds',
+            'experiment':              experiment,
             'results':                 results,
             'evaluation_counts':       eval_counts,
             'final_evaluation_counts': final_eval_counts,
@@ -658,6 +783,9 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             'sa_schedule':             sa_schedule,
             'design':                  design_block,
             'store':                   store_block,
+            'feasibility':             feasibility,
+            'layouts_path':            'layouts.json',
+            'traces_path':             'traces.json',
         }, f, indent=2)
 
     print(f"\nArtifacts in: {out_dir}")

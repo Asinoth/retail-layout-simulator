@@ -1,13 +1,130 @@
 {
   "score_baseline": 0.5506,
-  "score_ga": 0.5693,
-  "conv_lift_pct": 0.6,
-  "impulse_lift_pct": 1.8,
-  "basket_lift_pct": 0.3,
+  "score_ga": 0.5697,
+  "score_anchor": 0.5458,
+  "conv_lift_pct": 0.7,
+  "impulse_lift_pct": 2.5,
+  "basket_lift_pct": 0.4,
   "elasticity_midpoints": {
     "conv": 0.35,
     "impulse": 0.5,
     "basket": 0.2
+  },
+  "base_params": {
+    "customers_per_hour": 20.0,
+    "conversion_rate": 0.3,
+    "rev_per_converting_customer": 31.857275958708602,
+    "rev_per_customer_gross": 32.24530798700079,
+    "rev_std": 11.285857795450276,
+    "impulse_rate": 0.2,
+    "avg_impulse_value": 1.9401601414609568,
+    "avg_basket_size": 3.0,
+    "std_basket_size": 1.0,
+    "basket_sizes_observed": {
+      "n": 30,
+      "mean": 3.0,
+      "std": 0.0,
+      "sha256": "11f8bf9dfc27fec904ef369ec4012a6b30c709bf2a18265b8b87989ad921b8c7"
+    },
+    "abandonment_rate": 0.05,
+    "avg_queue_time": 5.0,
+    "score_anchor": {
+      "score": 0.5457555679437716,
+      "breakdown": {
+        "traffic": 0.1387159488396627,
+        "cross_merch": 0.668917702282038,
+        "impulse": 0.7820208343019103,
+        "flow": 0.6946747123333327,
+        "revenue_placement": 0.026420557615353647,
+        "bottleneck_penalty": 0.0,
+        "section_compliance": 1.0,
+        "accessibility": 0.4008901771050994,
+        "overlap_penalty": 0.0,
+        "composite": 0.5457555679437716
+      },
+      "source": "as_built_repaired"
+    }
+  },
+  "elasticities": {
+    "GA_weights": {
+      "traffic": 0.16,
+      "cross_merch": 0.16,
+      "impulse": 0.16,
+      "flow": 0.16,
+      "revenue_placement": 0.16,
+      "section_compliance": 0.16,
+      "accessibility": 0.04,
+      "overlap_penalty": 0.8,
+      "bottleneck_penalty": 0.2
+    },
+    "ELASTICITY_CONV_BASE": 0.2,
+    "ELASTICITY_CONV_GAIN_MAX": 0.3,
+    "ELASTICITY_IMP_BASE": 0.3,
+    "ELASTICITY_IMP_GAIN_MAX": 0.4,
+    "ELASTICITY_BSK_BASE": 0.1,
+    "ELASTICITY_BSK_GAIN_MAX": 0.2,
+    "anchoring": "difference from base_params[\"score_anchor\"]",
+    "objective_constants": {
+      "ABANDON_FLOW_COEF": 0.4,
+      "ABANDON_SECTION_COEF": 0.2,
+      "ABANDON_BOTTLENECK_COEF": 0.5,
+      "ABANDON_FLOOR_FRAC": 0.3,
+      "CONV_CLAMP_LO": 0.01,
+      "CONV_CLAMP_HI": 0.99,
+      "IMPULSE_RATE_CLAMP_HI": 0.99,
+      "ABANDON_RATE_CLAMP_HI": 0.5,
+      "ABANDON_BASE_CAP": 0.95,
+      "NET_BASE_REVENUE_MIN_FRAC": 0.05,
+      "QUEUE_BOTTLENECK_FACTOR": 0.3,
+      "QUEUE_PENALTY_SLOPE": 0.15,
+      "QUEUE_PENALTY_FLOOR": 0.85,
+      "DEFAULT_QUEUE_TIME_S": 5.0,
+      "ASSUMED_CONVERSION_RATE": 0.3,
+      "IMPULSE_RATE_STANDIN": 0.2,
+      "IMPULSE_VALUE_FRAC_OF_GROSS": 0.15,
+      "IMPULSE_VALUE_CV": 0.3,
+      "REV_STD_FRAC_OF_MEAN": 0.35,
+      "ABANDON_RATE_SYNTHETIC": 0.05,
+      "ABANDON_FRAC_OF_NONCONVERTERS": 0.1,
+      "STANDIN_AVG_BASKET": 3.0,
+      "STANDIN_STD_BASKET": 1.0,
+      "HEAT_PRIOR_SYNTH_ENTRANCE": 5.0,
+      "HEAT_PRIOR_SYNTH_CHECKOUT": 3.0,
+      "HEAT_PRIOR_CAL_ENTRANCE": 3.0,
+      "HEAT_PRIOR_CAL_CHECKOUT": 2.0,
+      "HEAT_PRIOR_CAL_WALL": 1.5,
+      "HEAT_PRIOR_WALL_MIN_D": 0.1,
+      "DEFAULT_OP_HOURS_PER_DAY": 10.0,
+      "DEFAULT_WEEKEND_MULTIPLIER": 1.4,
+      "DEFAULT_DAY_NOISE_STD": 0.08,
+      "MC_LAMBDA_FLOOR": 0.1,
+      "MC_LAMBDA_CAP": 1000000.0,
+      "MC_CONV_CLAMP_LO": 0.001,
+      "MC_CONV_CLAMP_HI": 0.999,
+      "MC_SD_FLOOR": 0.01,
+      "MC_SPEND_LAW": "lognormal_moment_matched",
+      "SYNTH_DETOUR_ELASTICITY_RANGE": [
+        0.3,
+        0.5
+      ],
+      "SYNTH_DETOUR_ELASTICITY_DEFAULT": 0.4,
+      "SYNTH_IMPULSE_ELASTICITY_RANGE": [
+        0.4,
+        0.7
+      ],
+      "SYNTH_IMPULSE_ELASTICITY_DEFAULT": 0.5,
+      "SYNTH_PERIMETER_ELASTICITY_RANGE": [
+        0.15,
+        0.3
+      ],
+      "SYNTH_PERIMETER_ELASTICITY_DEFAULT": 0.2,
+      "SYNTH_AFFINITY_RANGE": [
+        0.1,
+        0.3
+      ],
+      "SYNTH_AFFINITY_DENSITY": 0.15,
+      "SYNTH_DAILY_CUSTOMERS": 200.0
+    }
   },
   "config": {
     "scenario_seed": 10007,
@@ -20,20 +137,48 @@
     "figs_dir": "figs"
   },
   "provenance": {
-    "git_sha": "1292e1eb95b09102121c5894798bb216a8f71935",
+    "git_sha": "81291699f516557f73f311759e422aec7e75b88c",
     "git_dirty": false,
     "git_diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
     "git_modified": [],
     "git_untracked_py": [],
     "python": "3.13.2",
     "packages": {
-      "numpy": "2.2.4",
-      "scipy": "1.15.3",
-      "pandas": "2.2.3",
+      "charset-normalizer": "3.4.1",
+      "colorama": "0.4.6",
+      "contourpy": "1.3.2",
+      "cycler": "0.12.1",
+      "et-xmlfile": "2.0.0",
+      "fonttools": "4.57.0",
+      "iniconfig": "2.3.0",
+      "kiwisolver": "1.4.8",
       "matplotlib": "3.10.1",
-      "openpyxl": "3.1.5"
-    }
+      "numpy": "2.2.4",
+      "openpyxl": "3.1.5",
+      "packaging": "24.2",
+      "pandas": "2.2.3",
+      "pillow": "11.1.0",
+      "pluggy": "1.6.0",
+      "pygments": "2.19.1",
+      "pyparsing": "3.2.3",
+      "pytest": "9.0.3",
+      "python-dateutil": "2.9.0.post0",
+      "pytz": "2025.1",
+      "reportlab": "4.5.1",
+      "scipy": "1.15.3",
+      "six": "1.17.0",
+      "tzdata": "2025.1"
+    },
+    "git_state_changed_during_run": false
   },
   "mc_rse_pct": 0.063,
-  "mc_rse_iters": 2000
+  "mc_rse_iters": 2000,
+  "mc_trace_iters": 20000,
+  "hardware": {
+    "cpu_count": 16,
+    "processor": "Intel64 Family 6 Model 165 Stepping 5, GenuineIntel",
+    "machine": "AMD64",
+    "ram_gib": 15.9
+  },
+  "wall_seconds": 127.64686799999981
 }

@@ -1,0 +1,7 @@
+scenario,ga_normal_mc,best_known_mc,mc_regret_pct,best_known_source,ga_normal_cf,best_known_cf,cf_regret_pct,cf_best_source
+0,65317.0491,65330.3614,0.0204,GA_big,65295.8318,65309.1370,0.0204,GA_big
+1,25316.0033,25323.7930,0.0308,simulated_annealing_big,25303.6926,25311.3651,0.0303,simulated_annealing_big
+2,32586.3686,32717.2874,0.4002,simulated_annealing_big_popstart,32585.0922,32716.1202,0.4005,simulated_annealing_big_popstart
+3,59135.1811,59316.6519,0.3059,simulated_annealing_big_popstart,59158.3291,59339.6782,0.3056,simulated_annealing_big_popstart
+4,30707.9855,30749.4374,0.1348,simulated_annealing_big_popstart,30715.3075,30756.7743,0.1348,simulated_annealing_big_popstart
+5,49833.9492,50046.6799,0.4251,simulated_annealing_big,49833.7134,50046.4700,0.4251,simulated_annealing_big

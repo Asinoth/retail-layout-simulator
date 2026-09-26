@@ -371,7 +371,7 @@ def test_seed_macros_need_figure_cs_own_design(tmp_path):
                  'max_items_per_category': 12, 'assumed_conversion': 0.30,
                  'n_gens': 25, 'pop_size': 30, 'mc_iters': 2000,
                  'mc_days': 30, 'n_mc_replicates': 30,
-                 'sa_initial_accept': 0.8}
+                 'sa_initial_accept': 0.8, 'exclude_anonymous': False}
     figc = tmp_path / 'real_data_uci_x'
     seeds = tmp_path / 'real_data_seeds_x'
     figc.mkdir()
@@ -391,6 +391,7 @@ def test_seed_macros_need_figure_cs_own_design(tmp_path):
     assert not summary(max_items_per_category=8)       # another store
     assert not summary(sheets='Year 2010-2011')
     assert not summary(mc_days=5)
+    assert not summary(exclude_anonymous=True)          # a sensitivity run
     assert summary() and not MRM._figc_seeds_match_figc(str(seeds), None)
 
 

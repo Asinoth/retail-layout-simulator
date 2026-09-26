@@ -1,0 +1,2539 @@
+{
+  "alpha": 0.05,
+  "design": {
+    "in_sample": {
+      "label": "in_sample_pipeline_transfer",
+      "store_period": "current",
+      "reference_period": "current",
+      "n_placed_products": 72,
+      "n_placed_products_in_reference": 72,
+      "n_reference_invoices": 19646,
+      "n_reference_invoices_with_placed": 14707,
+      "list_length_agents": {
+        "n": 14707,
+        "median": 3.0,
+        "mean": 4.602026246005304,
+        "p90": 10.0
+      },
+      "list_length_reference": {
+        "n": 14707,
+        "median": 3.0,
+        "mean": 4.602026246005304,
+        "p90": 10.0
+      },
+      "year_shift": {
+        "basket": {
+          "statistic": 0.0,
+          "p_value": 1.0,
+          "n_store": 14707,
+          "n_reference": 14707,
+          "mean_store": 4.602026246005304,
+          "mean_reference": 4.602026246005304
+        },
+        "revenue": {
+          "statistic": 0.0,
+          "p_value": 1.0,
+          "n_store": 14707,
+          "n_reference": 14707,
+          "mean_store": 11.66760182226151,
+          "mean_reference": 11.66760182226151
+        },
+        "category": {
+          "statistic": 0.0,
+          "p_value": 1.0,
+          "naive_p_value": 1.0,
+          "share_tv_distance": 0.0,
+          "cramers_v": 0.0,
+          "cramers_v_balanced": 0.0,
+          "n_store": 14707,
+          "n_reference": 14707,
+          "n_categories": 9,
+          "n_permutations": 2000,
+          "permutation_seed": 20260924
+        }
+      },
+      "anonymous_list_share": 0.06656694091249066,
+      "anonymous_list_item_share": 0.19839839248249166,
+      "anonymous_lists_reference": {
+        "anonymous_list_share": 0.06656694091249066,
+        "anonymous_list_item_share": 0.19839839248249166,
+        "n_invoices_with_placed": 14707,
+        "n_anonymous_with_placed": 979
+      },
+      "fixed_assortment": {
+        "n_products": 38,
+        "n_products_store": 72
+      },
+      "year_shift_fixed_assortment": {
+        "basket": {
+          "statistic": 0.0,
+          "p_value": 1.0,
+          "n_store": 12471,
+          "n_reference": 12471,
+          "mean_store": 3.194771870740117,
+          "mean_reference": 3.194771870740117
+        },
+        "revenue": {
+          "statistic": 0.0,
+          "p_value": 1.0,
+          "n_store": 12471,
+          "n_reference": 12471,
+          "mean_store": 8.23102557934408,
+          "mean_reference": 8.23102557934408
+        },
+        "category": {
+          "statistic": 0.0,
+          "p_value": 1.0,
+          "naive_p_value": 1.0,
+          "share_tv_distance": 0.0,
+          "cramers_v": 0.0,
+          "cramers_v_balanced": 0.0,
+          "n_store": 12471,
+          "n_reference": 12471,
+          "n_categories": 9,
+          "n_permutations": 2000,
+          "permutation_seed": 20260924
+        }
+      },
+      "popularity_turnover": {
+        "basket": {
+          "measure": "ks_distance",
+          "store_assortment": 0.0,
+          "fixed_assortment": 0.0,
+          "popularity_turnover": 0.0
+        },
+        "revenue": {
+          "measure": "ks_distance",
+          "store_assortment": 0.0,
+          "fixed_assortment": 0.0,
+          "popularity_turnover": 0.0
+        },
+        "category": {
+          "measure": "share_tv_distance",
+          "store_assortment": 0.0,
+          "fixed_assortment": 0.0,
+          "popularity_turnover": 0.0
+        }
+      },
+      "stocked_per_invoice": {
+        "store": {
+          "n_products": 72,
+          "store_period": 4.602026246005304,
+          "reference_period": 4.602026246005304
+        },
+        "fixed": {
+          "n_products": 38,
+          "store_period": 3.194771870740117,
+          "reference_period": 3.194771870740117
+        },
+        "other_design_store": {
+          "n_products": 72,
+          "store_period": 4.018737672583827,
+          "reference_period": 4.018737672583827
+        }
+      },
+      "replica": {
+        "basket": {
+          "n_replicas": 200,
+          "n_per_replica": 1793,
+          "seed": 20260925,
+          "median": 0.014564242810797962,
+          "lo": 0.007042502193146244,
+          "hi": 0.030898113706548522,
+          "reject_rate": 0.005,
+          "simulator_statistic": 0.011829432251492467,
+          "simulator_percentile": 0.275,
+          "simulator_minus_median": -0.002734810559305495,
+          "simulator_vs_median": "below",
+          "replica_mean_minus_reference": {
+            "median": -0.009165119401845612,
+            "lo": -0.21783773512967575,
+            "hi": 0.22595757998465707
+          },
+          "simulator_mean_minus_reference": 0.01704793135108229,
+          "simulator_mean_percentile": 0.585
+        },
+        "revenue": {
+          "n_replicas": 200,
+          "n_per_replica": 1793,
+          "seed": 20260925,
+          "median": 0.01938186440161835,
+          "lo": 0.012300004463464497,
+          "hi": 0.0364363866628345,
+          "reject_rate": 0.045,
+          "simulator_statistic": 0.02111093544620668,
+          "simulator_percentile": 0.62,
+          "simulator_minus_median": 0.0017290710445883317,
+          "simulator_vs_median": "above",
+          "replica_mean_minus_reference": {
+            "median": 0.01011987322092267,
+            "lo": -0.4274055032431054,
+            "hi": 0.6153375252008456
+          },
+          "simulator_mean_minus_reference": 0.12630224912722454,
+          "simulator_mean_percentile": 0.655
+        },
+        "category": {
+          "n_replicas": 200,
+          "n_per_replica": 1793,
+          "seed": 20260925,
+          "median": 10.173458020648953,
+          "lo": 2.86980822959382,
+          "hi": 31.604420209617103,
+          "reject_rate": 0.065,
+          "simulator_statistic": 3.9149931015919606,
+          "simulator_percentile": 0.05,
+          "simulator_minus_median": -6.258464919056992,
+          "simulator_vs_median": "below",
+          "effect_sizes": {
+            "share_tv_distance": {
+              "median": 0.014827406893593178,
+              "lo": 0.008006300884571623,
+              "hi": 0.024935746637225396,
+              "simulator": 0.009558211343912711,
+              "simulator_percentile": 0.065
+            },
+            "cramers_v": {
+              "median": 0.011560098159224276,
+              "lo": 0.006153055185600474,
+              "hi": 0.020410689726014453,
+              "simulator": 0.0071789609008932964,
+              "simulator_percentile": 0.05
+            },
+            "cramers_v_balanced": {
+              "median": 0.018479559755993046,
+              "lo": 0.009952950516149785,
+              "hi": 0.0328998742739498,
+              "simulator": 0.011516889834227438,
+              "simulator_percentile": 0.045
+            }
+          }
+        }
+      }
+    },
+    "held_out": {
+      "label": "held_out_prior_period_store",
+      "store_period": "prior",
+      "reference_period": "current",
+      "n_placed_products": 72,
+      "n_placed_products_in_reference": 72,
+      "n_reference_invoices": 19646,
+      "n_reference_invoices_with_placed": 14196,
+      "list_length_agents": {
+        "n": 14740,
+        "median": 3.0,
+        "mean": 4.377815468113975,
+        "p90": 9.0
+      },
+      "list_length_reference": {
+        "n": 14196,
+        "median": 3.0,
+        "mean": 4.018737672583827,
+        "p90": 8.0
+      },
+      "year_shift": {
+        "basket": {
+          "statistic": 0.0617412438307961,
+          "p_value": 2.095955706422826e-24,
+          "n_store": 14740,
+          "n_reference": 14196,
+          "mean_store": 4.377815468113975,
+          "mean_reference": 4.018737672583827
+        },
+        "revenue": {
+          "statistic": 0.06035294594422036,
+          "p_value": 2.444167457398446e-23,
+          "n_store": 14740,
+          "n_reference": 14196,
+          "mean_store": 12.033724559023067,
+          "mean_reference": 10.818605240912932
+        },
+        "category": {
+          "statistic": 559.5632049789489,
+          "p_value": 0.0004997501249375312,
+          "naive_p_value": 1.1464765083429247e-115,
+          "share_tv_distance": 0.0508113758824834,
+          "cramers_v": 0.06784147645305769,
+          "cramers_v_balanced": 0.0679702035431372,
+          "n_store": 14740,
+          "n_reference": 14196,
+          "n_categories": 9,
+          "n_permutations": 2000,
+          "permutation_seed": 20260924
+        }
+      },
+      "anonymous_list_share": 0.06261872455902306,
+      "anonymous_list_item_share": 0.15097088130917882,
+      "anonymous_lists_reference": {
+        "anonymous_list_share": 0.06811777965624119,
+        "anonymous_list_item_share": 0.20098159509202454,
+        "n_invoices_with_placed": 14196,
+        "n_anonymous_with_placed": 967
+      },
+      "fixed_assortment": {
+        "n_products": 38,
+        "n_products_store": 72
+      },
+      "year_shift_fixed_assortment": {
+        "basket": {
+          "statistic": 0.012971047640440547,
+          "p_value": 0.24129937134690005,
+          "n_store": 12547,
+          "n_reference": 12471,
+          "mean_store": 3.145931298318323,
+          "mean_reference": 3.194771870740117
+        },
+        "revenue": {
+          "statistic": 0.04548647386524285,
+          "p_value": 1.1062263077814505e-11,
+          "n_store": 12547,
+          "n_reference": 12471,
+          "mean_store": 7.823788953534711,
+          "mean_reference": 8.23102557934408
+        },
+        "category": {
+          "statistic": 304.97967334128055,
+          "p_value": 0.0004997501249375312,
+          "naive_p_value": 3.58631595601431e-61,
+          "share_tv_distance": 0.05343639678106714,
+          "cramers_v": 0.06200982717952139,
+          "cramers_v_balanced": 0.06201050192713305,
+          "n_store": 12547,
+          "n_reference": 12471,
+          "n_categories": 9,
+          "n_permutations": 2000,
+          "permutation_seed": 20260924
+        }
+      },
+      "popularity_turnover": {
+        "basket": {
+          "measure": "ks_distance",
+          "store_assortment": 0.0617412438307961,
+          "fixed_assortment": 0.012971047640440547,
+          "popularity_turnover": 0.04877019619035555
+        },
+        "revenue": {
+          "measure": "ks_distance",
+          "store_assortment": 0.06035294594422036,
+          "fixed_assortment": 0.04548647386524285,
+          "popularity_turnover": 0.01486647207897751
+        },
+        "category": {
+          "measure": "share_tv_distance",
+          "store_assortment": 0.0508113758824834,
+          "fixed_assortment": 0.05343639678106714,
+          "popularity_turnover": -0.002625020898583741
+        }
+      },
+      "stocked_per_invoice": {
+        "store": {
+          "n_products": 72,
+          "store_period": 4.377815468113975,
+          "reference_period": 4.018737672583827
+        },
+        "fixed": {
+          "n_products": 38,
+          "store_period": 3.145931298318323,
+          "reference_period": 3.194771870740117
+        },
+        "other_design_store": {
+          "n_products": 72,
+          "store_period": 3.588332457391696,
+          "reference_period": 4.602026246005304
+        }
+      },
+      "replica": {
+        "basket": {
+          "n_replicas": 200,
+          "n_per_replica": 1541,
+          "seed": 20260925,
+          "median": 0.0651081850477847,
+          "lo": 0.043265932639715926,
+          "hi": 0.08761558995423119,
+          "reject_rate": 0.99,
+          "simulator_statistic": 0.07507968994017017,
+          "simulator_percentile": 0.785,
+          "simulator_minus_median": 0.009971504892385463,
+          "simulator_vs_median": "above",
+          "replica_mean_minus_reference": {
+            "median": 0.3605614838081266,
+            "lo": 0.15880937478800977,
+            "hi": 0.5891305947750317
+          },
+          "simulator_mean_minus_reference": 0.2998865973707483,
+          "simulator_mean_percentile": 0.285
+        },
+        "revenue": {
+          "n_replicas": 200,
+          "n_per_replica": 1541,
+          "seed": 20260925,
+          "median": 0.06709487952936266,
+          "lo": 0.0453596037691655,
+          "hi": 0.09059122617095716,
+          "reject_rate": 1.0,
+          "simulator_statistic": 0.05802253205288199,
+          "simulator_percentile": 0.22,
+          "simulator_minus_median": -0.009072347476480669,
+          "simulator_vs_median": "below",
+          "replica_mean_minus_reference": {
+            "median": 1.2187633509105584,
+            "lo": 0.6277766539605251,
+            "hi": 1.7521199375426162
+          },
+          "simulator_mean_minus_reference": 1.1799152003589697,
+          "simulator_mean_percentile": 0.46
+        },
+        "category": {
+          "n_replicas": 200,
+          "n_per_replica": 1541,
+          "seed": 20260925,
+          "median": 127.64869489216011,
+          "lo": 80.7903183351412,
+          "hi": 172.32032037486016,
+          "reject_rate": 1.0,
+          "simulator_statistic": 127.92542194239996,
+          "simulator_percentile": 0.505,
+          "simulator_minus_median": 0.276727050239856,
+          "simulator_vs_median": "above",
+          "effect_sizes": {
+            "share_tv_distance": {
+              "median": 0.05391039109163441,
+              "lo": 0.041261011667047966,
+              "hi": 0.06707619930922097,
+              "simulator": 0.05677694510529272,
+              "simulator_percentile": 0.7
+            },
+            "cramers_v": {
+              "median": 0.0447891294882286,
+              "lo": 0.03558587742516719,
+              "hi": 0.051917194924613407,
+              "simulator": 0.04481172571105042,
+              "simulator_percentile": 0.5
+            },
+            "cramers_v_balanced": {
+              "median": 0.07263517989453623,
+              "lo": 0.05786304135782345,
+              "hi": 0.08613999198065768,
+              "simulator": 0.07325433650599633,
+              "simulator_percentile": 0.525
+            }
+          }
+        }
+      }
+    },
+    "periods": {
+      "current": {
+        "period": "current",
+        "workbook": "DATASETS/UCI Online Retail II .xlsx.xlsx",
+        "source_sha256": "bcbe73b35f5b7babf197fb0cb983a11f5d9ff929078d4aa53d171b1f2df2e980",
+        "source_bytes": 45622278,
+        "adapter_name": "uci_online_retail_ii",
+        "adapter_version": "1.2",
+        "reader_version": "1.1",
+        "schema_version": "1.0.0",
+        "sheet": "Year 2010-2011",
+        "rows_in": 541910,
+        "rows_adapted": 524832,
+        "rows_calibrated": 524832,
+        "cleaning": {
+          "cancellation_lines": 9288,
+          "reversal_pairs": 2899,
+          "cancellation_lines_anonymous": 383,
+          "cancellation_lines_unmatched": 6006,
+          "reversal_matching": true,
+          "reversed_purchase_lines_removed": 2899,
+          "reversed_units_removed": 225860.0,
+          "reversed_revenue_removed": 447358.04000000004
+        },
+        "exclude_anonymous": false,
+        "n_anonymous_invoices": 1371,
+        "anonymous_invoice_frac": 0.06978519800468289,
+        "anonymous_revenue_frac": 0.1534560870331797,
+        "arrivals_per_hour": 4.714177978883861,
+        "visitors_per_hour": 15.713926596279538,
+        "assumed_conversion_rate": 0.3,
+        "first_date": "2010-12-01",
+        "last_date": "2011-12-09",
+        "first_timestamp": "2010-12-01T08:26:00",
+        "last_timestamp": "2011-12-09T12:50:00",
+        "n_invoices": 19646,
+        "list_law": "stocked-invoice",
+        "max_items_per_category": 8,
+        "naive_layout": true
+      },
+      "prior": {
+        "period": "prior",
+        "workbook": "DATASETS/UCI Online Retail II .xlsx.xlsx",
+        "source_sha256": "bcbe73b35f5b7babf197fb0cb983a11f5d9ff929078d4aa53d171b1f2df2e980",
+        "source_bytes": 45622278,
+        "adapter_name": "uci_online_retail_ii",
+        "adapter_version": "1.2",
+        "reader_version": "1.1",
+        "schema_version": "1.0.0",
+        "sheet": "Year 2009-2010",
+        "rows_in": 525461,
+        "rows_adapted": 484323,
+        "rows_calibrated": 484323,
+        "cleaning": {
+          "cancellation_lines": 9877,
+          "reversal_pairs": 3088,
+          "cancellation_lines_anonymous": 336,
+          "cancellation_lines_unmatched": 6453,
+          "reversal_matching": true,
+          "reversed_purchase_lines_removed": 3088,
+          "reversed_units_removed": 166862.0,
+          "reversed_revenue_removed": 235071.79099999997
+        },
+        "exclude_anonymous": false,
+        "n_anonymous_invoices": 1551,
+        "anonymous_invoice_frac": 0.07909229984701682,
+        "anonymous_revenue_frac": 0.11490980543034868,
+        "arrivals_per_hour": 4.821566561292589,
+        "visitors_per_hour": 16.071888537641964,
+        "assumed_conversion_rate": 0.3,
+        "first_date": "2009-12-01",
+        "last_date": "2010-11-30",
+        "first_timestamp": "2009-12-01T07:45:00",
+        "last_timestamp": "2010-11-30T19:35:00",
+        "n_invoices": 19610,
+        "cut_before": "2010-12-01",
+        "cut_applied_to": "raw rows, before the adapter cleans them",
+        "rows_before_cut": 502938,
+        "n_invoices_dropped_at_cut": 828,
+        "n_invoices_shared_with_current": 0,
+        "reversals_across_cut": {
+          "purchase_lines": 102,
+          "invoices": 46,
+          "units": 11012.0,
+          "revenue": 19287.52
+        },
+        "list_law": "stocked-invoice",
+        "max_items_per_category": 8,
+        "naive_layout": true
+      }
+    },
+    "fixed_assortment_products": [
+      "20724",
+      "20725",
+      "20727",
+      "21080",
+      "21212",
+      "21731",
+      "21733",
+      "21790",
+      "21791",
+      "21892",
+      "21931",
+      "21977",
+      "22029",
+      "22086",
+      "22139",
+      "22178",
+      "22271",
+      "22273",
+      "22381",
+      "22382",
+      "22383",
+      "22384",
+      "22386",
+      "22423",
+      "22457",
+      "22469",
+      "22470",
+      "22909",
+      "22910",
+      "22952",
+      "47566",
+      "82482",
+      "82494L",
+      "84879",
+      "84991",
+      "85099B",
+      "85099C",
+      "85123A"
+    ]
+  },
+  "visits_file": {
+    "path": "visits.jsonl",
+    "n_records": 3433,
+    "fields": [
+      "design",
+      "rep",
+      "seed",
+      "spawn_t",
+      "paid",
+      "drawn",
+      "bought",
+      "impulse",
+      "basket",
+      "revenue"
+    ],
+    "order": "design, replication, exit",
+    "cohort": "window_arrivals_drained"
+  },
+  "pooled": [
+    {
+      "test": "Basket size (items/visit)",
+      "kind": "KS-2sample",
+      "statistic": 0.011829432251492467,
+      "p_value": 0.9768030535216005,
+      "n_observed": 14707,
+      "n_simulated": 1793,
+      "decision": "PASS",
+      "note": "Observed = distinct stocked products per invoice; simulated = distinct items per visit. 14,707 of 19,646 invoices hold at least one of the 72 products placed in the shop; the rest are left out."
+    },
+    {
+      "test": "Per-visit revenue",
+      "kind": "KS-2sample",
+      "statistic": 0.02111093544620668,
+      "p_value": 0.46829263635150364,
+      "n_observed": 14707,
+      "n_simulated": 1793,
+      "decision": "PASS",
+      "note": "Observed = one unit of each stocked product on an invoice, at the shop's calibrated prices; simulated = one unit of each item a visit bought. 14,707 of 19,646 invoices hold at least one of the 72 products placed in the shop; the rest are left out."
+    },
+    {
+      "test": "Category purchase shares",
+      "kind": "Chi-square, cluster permutation",
+      "statistic": 3.9149931015919606,
+      "p_value": 0.960519740129935,
+      "n_observed": 14707,
+      "n_simulated": 1793,
+      "decision": "PASS",
+      "note": "Whole baskets: 14,707 invoices holding at least one of the 72 products placed in the shop against 1,793 simulated visits that bought one, each reduced to its purchases of those products per category (9 categories; 67,682 reference and 8,282 simulated purchases). Statistic = Pearson chi-square of the 2 x K table of category totals; p from 2,000 random reassignments of the visit / invoice labels (seed 20260924), which move each basket whole. Naive item-level p = 0.865 (the chi-square(8) tail, which treats every purchase as independent; the reassigned statistics average 1.54 x its null mean). Effect size: the category shares differ by a total-variation distance of 0.010 (Cramer's V = 0.007 at a 11% simulated share of the purchases, 0.012 balanced; V shrinks as the split grows uneven, so it is not read against conventional benchmarks).",
+      "naive_p_value": 0.8647104376549213,
+      "n_permutations": 2000,
+      "permutation_seed": 20260924,
+      "df": 8,
+      "n_categories": 9,
+      "categories": [
+        "Bags & Accessories",
+        "Baking & Decor",
+        "Cards & Stationery",
+        "General Merchandise",
+        "Gifts & Ornaments",
+        "Home & Candles",
+        "Kitchen & Tableware",
+        "Seasonal",
+        "Toys & Games"
+      ],
+      "unreferenced_categories": [],
+      "n_items_observed": 67682,
+      "n_items_simulated": 8282,
+      "clustering_inflation": 1.5439303191115208,
+      "share_tv_distance": 0.009558211343912711,
+      "effect_size_primary": "share_tv_distance",
+      "cramers_v": 0.0071789609008932964,
+      "cramers_v_balanced": 0.011516889834227438,
+      "sim_share_of_items": 0.1090253277868464,
+      "items_left_out": 0,
+      "visits_without_placed_item": 0
+    },
+    {
+      "test": "Inter-arrival (time-rescaled) vs. Exp(1)",
+      "kind": "KS-2sample",
+      "statistic": 0.07684951272660295,
+      "p_value": 2.335805085834927e-50,
+      "n_observed": 19341,
+      "n_simulated": 19528,
+      "decision": "FAIL",
+      "note": "Informational, a test of the data rather than the simulator: the dataset's same-day inter-arrival gaps, each divided by the local mean gap the calibrated hour-of-day rate implies (the rate integrated over the gap), against a Poisson reference at the same hourly rates over the same number of trading days. Null: non-homogeneous Poisson process whose rate follows the calibrated hour-of-day profile and is the same on every trading day (the live simulator's arrival law); under it the rescaled gaps are Exp(1). Both sides are stamped at the source's 60 s resolution before rescaling. Rescaled data: mean 0.922, coefficient of variation 1.204 (Exp(1): 1 and 1); a CV above 1 points to a rate that varies between days or to bursts, which the null leaves out.",
+      "null": "non-homogeneous Poisson process whose rate follows the calibrated hour-of-day profile and is the same on every trading day (the live simulator's arrival law)",
+      "rescaled": true,
+      "rescaling": "rate integrated over each gap (time-rescaling)",
+      "timestamp_step_s": 60.0,
+      "n_trading_days": 305,
+      "reference_seed": 0,
+      "n_reference_gaps": 19528,
+      "rescaled_mean": 0.9219749404066166,
+      "rescaled_cv": 1.203943787596012,
+      "reference_rescaled_mean": 0.9739858054456766,
+      "reference_rescaled_cv": 0.9997946902382907,
+      "homogeneous_statistic": 0.0635954707615945,
+      "homogeneous_p_value": 1.918521651041943e-34
+    }
+  ],
+  "pooled_notes": [
+    "Traffic (not a test): 7410 of 11814 zone entries fell in a category section; busiest Bags & Accessories 16%, General Merchandise 14%, Gifts & Ornaments 13%."
+  ],
+  "per_test_decisions": {
+    "Basket size (items/visit)": {
+      "PASS": 5,
+      "FAIL": 0,
+      "N/A": 0
+    },
+    "Per-visit revenue": {
+      "PASS": 5,
+      "FAIL": 0,
+      "N/A": 0
+    },
+    "Category purchase shares": {
+      "PASS": 5,
+      "FAIL": 0,
+      "N/A": 0
+    },
+    "Inter-arrival (time-rescaled) vs. Exp(1)": {
+      "PASS": 0,
+      "FAIL": 5,
+      "N/A": 0
+    }
+  },
+  "list_chain": {
+    "tests": [
+      {
+        "test": "Drawn lists vs reference invoices",
+        "kind": "Chi-square, cluster permutation",
+        "statistic": 4.682363647650619,
+        "p_value": 0.9335332333833083,
+        "n_observed": 14707,
+        "n_simulated": 1846,
+        "decision": "PASS",
+        "naive_p_value": 0.7909231009388574,
+        "share_tv_distance": 0.009777503124250884,
+        "effect_size_primary": "share_tv_distance",
+        "cramers_v": 0.007838487815926555,
+        "cramers_v_balanced": 0.01243350576792628,
+        "sim_share_of_items": 0.11187801805584716,
+        "n_items_observed": 67682,
+        "n_items_simulated": 8526,
+        "n_categories": 9,
+        "n_permutations": 2000,
+        "permutation_seed": 20260924,
+        "note": "Every cohort visit's drawn list (the stocked invoice it took at spawn, paying or not) against the reference invoices holding a placed product, per category, whole baskets relabelled."
+      },
+      {
+        "test": "Drawn lists, paying vs unpaid visits",
+        "kind": "Chi-square, cluster permutation",
+        "statistic": 14.320546750903961,
+        "p_value": 0.29535232383808097,
+        "n_observed": 1793,
+        "n_simulated": 53,
+        "decision": "PASS",
+        "naive_p_value": 0.07378368149447181,
+        "share_tv_distance": 0.11311514997961211,
+        "effect_size_primary": "share_tv_distance",
+        "cramers_v": 0.04098331985767967,
+        "cramers_v_balanced": 0.12290228063710298,
+        "sim_share_of_items": 0.02861834388927985,
+        "n_items_observed": 8282,
+        "n_items_simulated": 244,
+        "n_categories": 9,
+        "n_permutations": 2000,
+        "permutation_seed": 20260924,
+        "note": "The drawn lists of the 53 cohort visits that did not pay against those of the 1793 that did, per category, whole baskets relabelled: which drawn invoices end as paid visits. Disjoint samples; the unpaid side is small, so the test has little power and a pass is not evidence of no selection."
+      }
+    ],
+    "counts": {
+      "n_visits": 1846,
+      "n_paying": 1793,
+      "n_abandoned": 53,
+      "n_paying_whole_list": 1793,
+      "items_drawn_by_paying": 8282,
+      "items_bought_from_list": 8282,
+      "share_paying_whole_list": 1.0,
+      "share_listed_items_bought": 1.0
+    },
+    "completion": {
+      "share_tv_distance_drawn_vs_bought": 0.0,
+      "n_paying": 1793,
+      "note": "within-visit, so described rather than tested: the paying visits' drawn and bought category shares"
+    },
+    "per_test_decisions": {
+      "Drawn lists vs reference invoices": {
+        "PASS": 5,
+        "FAIL": 0,
+        "N/A": 0
+      },
+      "Drawn lists, paying vs unpaid visits": {
+        "PASS": 5,
+        "FAIL": 0,
+        "N/A": 0
+      }
+    }
+  },
+  "n_reps": 5,
+  "load": {
+    "arrivals": 1866,
+    "balked": 20,
+    "balked_frac": 0.0107,
+    "window_s_total": 9299.999999991544,
+    "door_rate_per_s": 0.20064516129050503,
+    "offered_rate_per_s": 0.20078896467474294,
+    "profile_multiplier": 0.7436628321286776,
+    "cohort_visits": 1846,
+    "mean_drain_s": 948.0
+  },
+  "protocol": {
+    "mode": "fixed_step",
+    "dt": 0.04,
+    "seed_base": 4000,
+    "seeds": [
+      4000,
+      4001,
+      4002,
+      4003,
+      4004
+    ],
+    "reps": 5,
+    "warmup_s": 1020.0,
+    "collect_s": 1860.0,
+    "spawn": 0.27,
+    "cap": 45,
+    "workers": 4,
+    "cohort": "window_arrivals_drained",
+    "drain_chunk_s": 60.0,
+    "max_drain_s": 3600.0,
+    "framing": "steady_state_replication_deletion"
+  },
+  "held_out": {
+    "alpha": 0.05,
+    "pooled": [
+      {
+        "test": "Basket size (items/visit)",
+        "kind": "KS-2sample",
+        "statistic": 0.07507968994017017,
+        "p_value": 2.924663917428352e-07,
+        "n_observed": 14196,
+        "n_simulated": 1541,
+        "decision": "FAIL",
+        "note": "Observed = distinct stocked products per invoice; simulated = distinct items per visit. 14,196 of 19,646 invoices hold at least one of the 72 products placed in the shop; the rest are left out."
+      },
+      {
+        "test": "Per-visit revenue",
+        "kind": "KS-2sample",
+        "statistic": 0.05802253205288199,
+        "p_value": 0.00016488277764852683,
+        "n_observed": 14196,
+        "n_simulated": 1541,
+        "decision": "FAIL",
+        "note": "Observed = one unit of each stocked product on an invoice, at the shop's calibrated prices; simulated = one unit of each item a visit bought. 14,196 of 19,646 invoices hold at least one of the 72 products placed in the shop; the rest are left out."
+      },
+      {
+        "test": "Category purchase shares",
+        "kind": "Chi-square, cluster permutation",
+        "statistic": 127.92542194239996,
+        "p_value": 0.0004997501249375312,
+        "n_observed": 14196,
+        "n_simulated": 1541,
+        "decision": "FAIL",
+        "note": "Whole baskets: 14,196 invoices holding at least one of the 72 products placed in the shop against 1,541 simulated visits that bought one, each reduced to its purchases of those products per category (9 categories; 57,050 reference and 6,655 simulated purchases). Statistic = Pearson chi-square of the 2 x K table of category totals; p from 2,000 random reassignments of the visit / invoice labels (seed 20260924), which move each basket whole. Naive item-level p = 7.61e-24 (the chi-square(8) tail, which treats every purchase as independent; the reassigned statistics average 1.47 x its null mean). Effect size: the category shares differ by a total-variation distance of 0.057 (Cramer's V = 0.045 at a 10% simulated share of the purchases, 0.073 balanced; V shrinks as the split grows uneven, so it is not read against conventional benchmarks).",
+        "naive_p_value": 7.612030735375691e-24,
+        "n_permutations": 2000,
+        "permutation_seed": 20260924,
+        "df": 8,
+        "n_categories": 9,
+        "categories": [
+          "Bags & Accessories",
+          "Baking & Decor",
+          "Cards & Stationery",
+          "General Merchandise",
+          "Gifts & Ornaments",
+          "Home & Candles",
+          "Kitchen & Tableware",
+          "Seasonal",
+          "Toys & Games"
+        ],
+        "unreferenced_categories": [],
+        "n_items_observed": 57050,
+        "n_items_simulated": 6655,
+        "clustering_inflation": 1.46963584320659,
+        "share_tv_distance": 0.05677694510529272,
+        "effect_size_primary": "share_tv_distance",
+        "cramers_v": 0.04481172571105042,
+        "cramers_v_balanced": 0.07325433650599633,
+        "sim_share_of_items": 0.10446589749627187,
+        "items_left_out": 0,
+        "visits_without_placed_item": 0
+      },
+      {
+        "test": "Inter-arrival (time-rescaled) vs. Exp(1)",
+        "kind": "KS-2sample",
+        "statistic": 0.07684951272660295,
+        "p_value": 2.335805085834927e-50,
+        "n_observed": 19341,
+        "n_simulated": 19528,
+        "decision": "FAIL",
+        "note": "Informational, a test of the data rather than the simulator: the dataset's same-day inter-arrival gaps, each divided by the local mean gap the calibrated hour-of-day rate implies (the rate integrated over the gap), against a Poisson reference at the same hourly rates over the same number of trading days. Null: non-homogeneous Poisson process whose rate follows the calibrated hour-of-day profile and is the same on every trading day (the live simulator's arrival law); under it the rescaled gaps are Exp(1). Both sides are stamped at the source's 60 s resolution before rescaling. Rescaled data: mean 0.922, coefficient of variation 1.204 (Exp(1): 1 and 1); a CV above 1 points to a rate that varies between days or to bursts, which the null leaves out.",
+        "null": "non-homogeneous Poisson process whose rate follows the calibrated hour-of-day profile and is the same on every trading day (the live simulator's arrival law)",
+        "rescaled": true,
+        "rescaling": "rate integrated over each gap (time-rescaling)",
+        "timestamp_step_s": 60.0,
+        "n_trading_days": 305,
+        "reference_seed": 0,
+        "n_reference_gaps": 19528,
+        "rescaled_mean": 0.9219749404066166,
+        "rescaled_cv": 1.203943787596012,
+        "reference_rescaled_mean": 0.9739858054456766,
+        "reference_rescaled_cv": 0.9997946902382907,
+        "homogeneous_statistic": 0.0635954707615945,
+        "homogeneous_p_value": 1.918521651041943e-34
+      }
+    ],
+    "pooled_notes": [
+      "Traffic (not a test): 6256 of 10043 zone entries fell in a category section; busiest Bags & Accessories 17%, General Merchandise 15%, Gifts & Ornaments 13%."
+    ],
+    "per_test_decisions": {
+      "Basket size (items/visit)": {
+        "PASS": 2,
+        "FAIL": 3,
+        "N/A": 0
+      },
+      "Per-visit revenue": {
+        "PASS": 3,
+        "FAIL": 2,
+        "N/A": 0
+      },
+      "Category purchase shares": {
+        "PASS": 1,
+        "FAIL": 4,
+        "N/A": 0
+      },
+      "Inter-arrival (time-rescaled) vs. Exp(1)": {
+        "PASS": 0,
+        "FAIL": 5,
+        "N/A": 0
+      }
+    },
+    "list_chain": {
+      "tests": [
+        {
+          "test": "Drawn lists vs reference invoices",
+          "kind": "Chi-square, cluster permutation",
+          "statistic": 138.6008348238818,
+          "p_value": 0.0004997501249375312,
+          "n_observed": 14196,
+          "n_simulated": 1587,
+          "decision": "FAIL",
+          "naive_p_value": 4.6365999954339384e-26,
+          "share_tv_distance": 0.059590281906232834,
+          "effect_size_primary": "share_tv_distance",
+          "cramers_v": 0.04656771452327699,
+          "cramers_v_balanced": 0.07520287860479678,
+          "sim_share_of_items": 0.10739431110554808,
+          "n_items_observed": 57050,
+          "n_items_simulated": 6864,
+          "n_categories": 9,
+          "n_permutations": 2000,
+          "permutation_seed": 20260924,
+          "note": "Every cohort visit's drawn list (the stocked invoice it took at spawn, paying or not) against the reference invoices holding a placed product, per category, whole baskets relabelled."
+        },
+        {
+          "test": "Drawn lists, paying vs unpaid visits",
+          "kind": "Chi-square, cluster permutation",
+          "statistic": 14.824599347234289,
+          "p_value": 0.26286856571714146,
+          "n_observed": 1541,
+          "n_simulated": 46,
+          "decision": "PASS",
+          "naive_p_value": 0.06264709833808774,
+          "share_tv_distance": 0.09779746134683064,
+          "effect_size_primary": "share_tv_distance",
+          "cramers_v": 0.04647322860702893,
+          "cramers_v_balanced": 0.13523931153384228,
+          "sim_share_of_items": 0.030448717948717948,
+          "n_items_observed": 6655,
+          "n_items_simulated": 209,
+          "n_categories": 9,
+          "n_permutations": 2000,
+          "permutation_seed": 20260924,
+          "note": "The drawn lists of the 46 cohort visits that did not pay against those of the 1541 that did, per category, whole baskets relabelled: which drawn invoices end as paid visits. Disjoint samples; the unpaid side is small, so the test has little power and a pass is not evidence of no selection."
+        }
+      ],
+      "counts": {
+        "n_visits": 1587,
+        "n_paying": 1541,
+        "n_abandoned": 46,
+        "n_paying_whole_list": 1541,
+        "items_drawn_by_paying": 6655,
+        "items_bought_from_list": 6655,
+        "share_paying_whole_list": 1.0,
+        "share_listed_items_bought": 1.0
+      },
+      "completion": {
+        "share_tv_distance_drawn_vs_bought": 0.0,
+        "n_paying": 1541,
+        "note": "within-visit, so described rather than tested: the paying visits' drawn and bought category shares"
+      },
+      "per_test_decisions": {
+        "Drawn lists vs reference invoices": {
+          "PASS": 0,
+          "FAIL": 5,
+          "N/A": 0
+        },
+        "Drawn lists, paying vs unpaid visits": {
+          "PASS": 5,
+          "FAIL": 0,
+          "N/A": 0
+        }
+      }
+    },
+    "n_reps": 5,
+    "load": {
+      "arrivals": 1587,
+      "balked": 0,
+      "balked_frac": 0.0,
+      "window_s_total": 9299.999999991544,
+      "door_rate_per_s": 0.17064516129047774,
+      "offered_rate_per_s": 0.1701784803671596,
+      "profile_multiplier": 0.630290668026517,
+      "cohort_visits": 1587,
+      "mean_drain_s": 744.0
+    },
+    "protocol": {
+      "mode": "fixed_step",
+      "dt": 0.04,
+      "seed_base": 4000,
+      "seeds": [
+        4005,
+        4006,
+        4007,
+        4008,
+        4009
+      ],
+      "reps": 5,
+      "warmup_s": 1020.0,
+      "collect_s": 1860.0,
+      "spawn": 0.27,
+      "cap": 45,
+      "workers": 4,
+      "cohort": "window_arrivals_drained",
+      "drain_chunk_s": 60.0,
+      "max_drain_s": 3600.0,
+      "framing": "steady_state_replication_deletion"
+    },
+    "per_rep": [
+      {
+        "rep": 0,
+        "seed": 4005,
+        "load": {
+          "arrivals": 334,
+          "balked": 0,
+          "window_s": 1859.9999999983088,
+          "profile_multiplier": 0.630290668026517,
+          "offered_rate_per_s": 0.1701784803671596,
+          "door_rate_per_s": 0.17956989247328156,
+          "cohort_visits": 334,
+          "drain_s": 1080.0
+        },
+        "tests": [
+          {
+            "test": "Basket size (items/visit)",
+            "kind": "KS-2sample",
+            "statistic": 0.09436215957955091,
+            "p_value": 0.006827837017486066,
+            "n_observed": 14196,
+            "n_simulated": 322,
+            "decision": "FAIL",
+            "note": "Observed = distinct stocked products per invoice; simulated = distinct items per visit. 14,196 of 19,646 invoices hold at least one of the 72 products placed in the shop; the rest are left out."
+          },
+          {
+            "test": "Per-visit revenue",
+            "kind": "KS-2sample",
+            "statistic": 0.07571330564641598,
+            "p_value": 0.05125451020524363,
+            "n_observed": 14196,
+            "n_simulated": 322,
+            "decision": "PASS",
+            "note": "Observed = one unit of each stocked product on an invoice, at the shop's calibrated prices; simulated = one unit of each item a visit bought. 14,196 of 19,646 invoices hold at least one of the 72 products placed in the shop; the rest are left out."
+          },
+          {
+            "test": "Category purchase shares",
+            "kind": "Chi-square, cluster permutation",
+            "statistic": 24.454780501459446,
+            "p_value": 0.03548225887056472,
+            "n_observed": 14196,
+            "n_simulated": 322,
+            "decision": "FAIL",
+            "note": "Whole baskets: 14,196 invoices holding at least one of the 72 products placed in the shop against 322 simulated visits that bought one, each reduced to its purchases of those products per category (9 categories; 57,050 reference and 1,444 simulated purchases). Statistic = Pearson chi-square of the 2 x K table of category totals; p from 2,000 random reassignments of the visit / invoice labels (seed 20260924), which move each basket whole. Naive item-level p = 0.00192 (the chi-square(8) tail, which treats every purchase as independent; the reassigned statistics average 1.45 x its null mean). Effect size: the category shares differ by a total-variation distance of 0.053 (Cramer's V = 0.020 at a 2% simulated share of the purchases, 0.066 balanced; V shrinks as the split grows uneven, so it is not read against conventional benchmarks).",
+            "naive_p_value": 0.001921920547822979,
+            "n_permutations": 2000,
+            "permutation_seed": 20260924,
+            "df": 8,
+            "n_categories": 9,
+            "categories": [
+              "Bags & Accessories",
+              "Baking & Decor",
+              "Cards & Stationery",
+              "General Merchandise",
+              "Gifts & Ornaments",
+              "Home & Candles",
+              "Kitchen & Tableware",
+              "Seasonal",
+              "Toys & Games"
+            ],
+            "unreferenced_categories": [],
+            "n_items_observed": 57050,
+            "n_items_simulated": 1444,
+            "clustering_inflation": 1.450274131055719,
+            "share_tv_distance": 0.05272359134840654,
+            "effect_size_primary": "share_tv_distance",
+            "cramers_v": 0.02044684120437108,
+            "cramers_v_balanced": 0.06588645305387375,
+            "sim_share_of_items": 0.024686292611207986,
+            "items_left_out": 0,
+            "visits_without_placed_item": 0
+          },
+          {
+            "test": "Inter-arrival (time-rescaled) vs. Exp(1)",
+            "kind": "KS-2sample",
+            "statistic": 0.07684951272660295,
+            "p_value": 2.335805085834927e-50,
+            "n_observed": 19341,
+            "n_simulated": 19528,
+            "decision": "FAIL",
+            "note": "Informational, a test of the data rather than the simulator: the dataset's same-day inter-arrival gaps, each divided by the local mean gap the calibrated hour-of-day rate implies (the rate integrated over the gap), against a Poisson reference at the same hourly rates over the same number of trading days. Null: non-homogeneous Poisson process whose rate follows the calibrated hour-of-day profile and is the same on every trading day (the live simulator's arrival law); under it the rescaled gaps are Exp(1). Both sides are stamped at the source's 60 s resolution before rescaling. Rescaled data: mean 0.922, coefficient of variation 1.204 (Exp(1): 1 and 1); a CV above 1 points to a rate that varies between days or to bursts, which the null leaves out.",
+            "null": "non-homogeneous Poisson process whose rate follows the calibrated hour-of-day profile and is the same on every trading day (the live simulator's arrival law)",
+            "rescaled": true,
+            "rescaling": "rate integrated over each gap (time-rescaling)",
+            "timestamp_step_s": 60.0,
+            "n_trading_days": 305,
+            "reference_seed": 0,
+            "n_reference_gaps": 19528,
+            "rescaled_mean": 0.9219749404066166,
+            "rescaled_cv": 1.203943787596012,
+            "reference_rescaled_mean": 0.9739858054456766,
+            "reference_rescaled_cv": 0.9997946902382907,
+            "homogeneous_statistic": 0.0635954707615945,
+            "homogeneous_p_value": 1.918521651041943e-34
+          }
+        ],
+        "list_chain": [
+          {
+            "test": "Drawn lists vs reference invoices",
+            "kind": "Chi-square, cluster permutation",
+            "statistic": 28.679422203202318,
+            "p_value": 0.01249375312343828,
+            "n_observed": 14196,
+            "n_simulated": 334,
+            "decision": "FAIL",
+            "naive_p_value": 0.0003608962662916083,
+            "share_tv_distance": 0.057662051539872,
+            "effect_size_primary": "share_tv_distance",
+            "cramers_v": 0.02213451284578088,
+            "cramers_v_balanced": 0.07033753188729996,
+            "sim_share_of_items": 0.025402736730614824,
+            "n_items_observed": 57050,
+            "n_items_simulated": 1487,
+            "n_categories": 9,
+            "n_permutations": 2000,
+            "permutation_seed": 20260924,
+            "note": "Every cohort visit's drawn list (the stocked invoice it took at spawn, paying or not) against the reference invoices holding a placed product, per category, whole baskets relabelled."
+          },
+          {
+            "test": "Drawn lists, paying vs unpaid visits",
+            "kind": "Chi-square, cluster permutation",
+            "statistic": 8.840908293875312,
+            "p_value": 0.6316841579210395,
+            "n_observed": 322,
+            "n_simulated": 12,
+            "decision": "PASS",
+            "naive_p_value": 0.3558941174975068,
+            "share_tv_distance": 0.171358629130967,
+            "effect_size_primary": "share_tv_distance",
+            "cramers_v": 0.07710684947937098,
+            "cramers_v_balanced": 0.23006794166675268,
+            "sim_share_of_items": 0.028917283120376596,
+            "n_items_observed": 1444,
+            "n_items_simulated": 43,
+            "n_categories": 9,
+            "n_permutations": 2000,
+            "permutation_seed": 20260924,
+            "note": "The drawn lists of the 12 cohort visits that did not pay against those of the 322 that did, per category, whole baskets relabelled: which drawn invoices end as paid visits. Disjoint samples; the unpaid side is small, so the test has little power and a pass is not evidence of no selection."
+          }
+        ],
+        "chain": {
+          "n_visits": 334,
+          "n_paying": 322,
+          "n_abandoned": 12,
+          "n_paying_whole_list": 322,
+          "items_drawn_by_paying": 1444,
+          "items_bought_from_list": 1444
+        },
+        "completion": {
+          "share_tv_distance_drawn_vs_bought": 0.0,
+          "n_paying": 322,
+          "note": "within-visit, so described rather than tested: the paying visits' drawn and bought category shares"
+        }
+      },
+      {
+        "rep": 1,
+        "seed": 4006,
+        "load": {
+          "arrivals": 321,
+          "balked": 0,
+          "window_s": 1859.9999999983088,
+          "profile_multiplier": 0.630290668026517,
+          "offered_rate_per_s": 0.1701784803671596,
+          "door_rate_per_s": 0.17258064516144725,
+          "cohort_visits": 321,
+          "drain_s": 540.0
+        },
+        "tests": [
+          {
+            "test": "Basket size (items/visit)",
+            "kind": "KS-2sample",
+            "statistic": 0.08095701766587843,
+            "p_value": 0.03289915641809826,
+            "n_observed": 14196,
+            "n_simulated": 316,
+            "decision": "FAIL",
+            "note": "Observed = distinct stocked products per invoice; simulated = distinct items per visit. 14,196 of 19,646 invoices hold at least one of the 72 products placed in the shop; the rest are left out."
+          },
+          {
+            "test": "Per-visit revenue",
+            "kind": "KS-2sample",
+            "statistic": 0.07933862632012584,
+            "p_value": 0.03867506695883682,
+            "n_observed": 14196,
+            "n_simulated": 316,
+            "decision": "FAIL",
+            "note": "Observed = one unit of each stocked product on an invoice, at the shop's calibrated prices; simulated = one unit of each item a visit bought. 14,196 of 19,646 invoices hold at least one of the 72 products placed in the shop; the rest are left out."
+          },
+          {
+            "test": "Category purchase shares",
+            "kind": "Chi-square, cluster permutation",
+            "statistic": 23.271753580797995,
+            "p_value": 0.050974512743628186,
+            "n_observed": 14196,
+            "n_simulated": 316,
+            "decision": "PASS",
+            "note": "Whole baskets: 14,196 invoices holding at least one of the 72 products placed in the shop against 316 simulated visits that bought one, each reduced to its purchases of those products per category (9 categories; 57,050 reference and 1,349 simulated purchases). Statistic = Pearson chi-square of the 2 x K table of category totals; p from 2,000 random reassignments of the visit / invoice labels (seed 20260924), which move each basket whole. Naive item-level p = 0.00303 (the chi-square(8) tail, which treats every purchase as independent; the reassigned statistics average 1.48 x its null mean). Effect size: the category shares differ by a total-variation distance of 0.060 (Cramer's V = 0.020 at a 2% simulated share of the purchases, 0.066 balanced; V shrinks as the split grows uneven, so it is not read against conventional benchmarks).",
+            "naive_p_value": 0.003032316767119531,
+            "n_permutations": 2000,
+            "permutation_seed": 20260924,
+            "df": 8,
+            "n_categories": 9,
+            "categories": [
+              "Bags & Accessories",
+              "Baking & Decor",
+              "Cards & Stationery",
+              "General Merchandise",
+              "Gifts & Ornaments",
+              "Home & Candles",
+              "Kitchen & Tableware",
+              "Seasonal",
+              "Toys & Games"
+            ],
+            "unreferenced_categories": [],
+            "n_items_observed": 57050,
+            "n_items_simulated": 1349,
+            "clustering_inflation": 1.4758902257347213,
+            "share_tv_distance": 0.0603812607644576,
+            "effect_size_primary": "share_tv_distance",
+            "cramers_v": 0.01996235844622303,
+            "cramers_v_balanced": 0.0664436474474649,
+            "sim_share_of_items": 0.023099710611483075,
+            "items_left_out": 0,
+            "visits_without_placed_item": 0
+          },
+          {
+            "test": "Inter-arrival (time-rescaled) vs. Exp(1)",
+            "kind": "KS-2sample",
+            "statistic": 0.07684951272660295,
+            "p_value": 2.335805085834927e-50,
+            "n_observed": 19341,
+            "n_simulated": 19528,
+            "decision": "FAIL",
+            "note": "Informational, a test of the data rather than the simulator: the dataset's same-day inter-arrival gaps, each divided by the local mean gap the calibrated hour-of-day rate implies (the rate integrated over the gap), against a Poisson reference at the same hourly rates over the same number of trading days. Null: non-homogeneous Poisson process whose rate follows the calibrated hour-of-day profile and is the same on every trading day (the live simulator's arrival law); under it the rescaled gaps are Exp(1). Both sides are stamped at the source's 60 s resolution before rescaling. Rescaled data: mean 0.922, coefficient of variation 1.204 (Exp(1): 1 and 1); a CV above 1 points to a rate that varies between days or to bursts, which the null leaves out.",
+            "null": "non-homogeneous Poisson process whose rate follows the calibrated hour-of-day profile and is the same on every trading day (the live simulator's arrival law)",
+            "rescaled": true,
+            "rescaling": "rate integrated over each gap (time-rescaling)",
+            "timestamp_step_s": 60.0,
+            "n_trading_days": 305,
+            "reference_seed": 0,
+            "n_reference_gaps": 19528,
+            "rescaled_mean": 0.9219749404066166,
+            "rescaled_cv": 1.203943787596012,
+            "reference_rescaled_mean": 0.9739858054456766,
+            "reference_rescaled_cv": 0.9997946902382907,
+            "homogeneous_statistic": 0.0635954707615945,
+            "homogeneous_p_value": 1.918521651041943e-34
+          }
+        ],
+        "list_chain": [
+          {
+            "test": "Drawn lists vs reference invoices",
+            "kind": "Chi-square, cluster permutation",
+            "statistic": 23.428269910027588,
+            "p_value": 0.047976011994003,
+            "n_observed": 14196,
+            "n_simulated": 321,
+            "decision": "FAIL",
+            "naive_p_value": 0.0028557870400561392,
+            "share_tv_distance": 0.06013452033215336,
+            "effect_size_primary": "share_tv_distance",
+            "cramers_v": 0.02002371861214217,
+            "cramers_v_balanced": 0.06588455903906346,
+            "sim_share_of_items": 0.023651423877327493,
+            "n_items_observed": 57050,
+            "n_items_simulated": 1382,
+            "n_categories": 9,
+            "n_permutations": 2000,
+            "permutation_seed": 20260924,
+            "note": "Every cohort visit's drawn list (the stocked invoice it took at spawn, paying or not) against the reference invoices holding a placed product, per category, whole baskets relabelled."
+          },
+          {
+            "test": "Drawn lists, paying vs unpaid visits",
+            "kind": "Chi-square, cluster permutation",
+            "statistic": 4.126515186059143,
+            "p_value": 0.9560219890054973,
+            "n_observed": 316,
+            "n_simulated": 5,
+            "decision": "PASS",
+            "naive_p_value": 0.8455321339740047,
+            "share_tv_distance": 0.15349192443336251,
+            "effect_size_primary": "share_tv_distance",
+            "cramers_v": 0.054643398530263024,
+            "cramers_v_balanced": 0.1789586953244802,
+            "sim_share_of_items": 0.023878437047756874,
+            "n_items_observed": 1349,
+            "n_items_simulated": 33,
+            "n_categories": 9,
+            "n_permutations": 2000,
+            "permutation_seed": 20260924,
+            "note": "The drawn lists of the 5 cohort visits that did not pay against those of the 316 that did, per category, whole baskets relabelled: which drawn invoices end as paid visits. Disjoint samples; the unpaid side is small, so the test has little power and a pass is not evidence of no selection."
+          }
+        ],
+        "chain": {
+          "n_visits": 321,
+          "n_paying": 316,
+          "n_abandoned": 5,
+          "n_paying_whole_list": 316,
+          "items_drawn_by_paying": 1349,
+          "items_bought_from_list": 1349
+        },
+        "completion": {
+          "share_tv_distance_drawn_vs_bought": 0.0,
+          "n_paying": 316,
+          "note": "within-visit, so described rather than tested: the paying visits' drawn and bought category shares"
+        }
+      },
+      {
+        "rep": 2,
+        "seed": 4007,
+        "load": {
+          "arrivals": 299,
+          "balked": 0,
+          "window_s": 1859.9999999983088,
+          "profile_multiplier": 0.630290668026517,
+          "offered_rate_per_s": 0.1701784803671596,
+          "door_rate_per_s": 0.16075268817218918,
+          "cohort_visits": 299,
+          "drain_s": 420.0
+        },
+        "tests": [
+          {
+            "test": "Basket size (items/visit)",
+            "kind": "KS-2sample",
+            "statistic": 0.061534685246025456,
+            "p_value": 0.22142010829595682,
+            "n_observed": 14196,
+            "n_simulated": 291,
+            "decision": "PASS",
+            "note": "Observed = distinct stocked products per invoice; simulated = distinct items per visit. 14,196 of 19,646 invoices hold at least one of the 72 products placed in the shop; the rest are left out."
+          },
+          {
+            "test": "Per-visit revenue",
+            "kind": "KS-2sample",
+            "statistic": 0.09172469085236723,
+            "p_value": 0.015467122468215674,
+            "n_observed": 14196,
+            "n_simulated": 291,
+            "decision": "FAIL",
+            "note": "Observed = one unit of each stocked product on an invoice, at the shop's calibrated prices; simulated = one unit of each item a visit bought. 14,196 of 19,646 invoices hold at least one of the 72 products placed in the shop; the rest are left out."
+          },
+          {
+            "test": "Category purchase shares",
+            "kind": "Chi-square, cluster permutation",
+            "statistic": 38.56912756854968,
+            "p_value": 0.0014992503748125937,
+            "n_observed": 14196,
+            "n_simulated": 291,
+            "decision": "FAIL",
+            "note": "Whole baskets: 14,196 invoices holding at least one of the 72 products placed in the shop against 291 simulated visits that bought one, each reduced to its purchases of those products per category (9 categories; 57,050 reference and 1,261 simulated purchases). Statistic = Pearson chi-square of the 2 x K table of category totals; p from 2,000 random reassignments of the visit / invoice labels (seed 20260924), which move each basket whole. Naive item-level p = 5.91e-06 (the chi-square(8) tail, which treats every purchase as independent; the reassigned statistics average 1.46 x its null mean). Effect size: the category shares differ by a total-variation distance of 0.059 (Cramer's V = 0.026 at a 2% simulated share of the purchases, 0.088 balanced; V shrinks as the split grows uneven, so it is not read against conventional benchmarks).",
+            "naive_p_value": 5.907781258760578e-06,
+            "n_permutations": 2000,
+            "permutation_seed": 20260924,
+            "df": 8,
+            "n_categories": 9,
+            "categories": [
+              "Bags & Accessories",
+              "Baking & Decor",
+              "Cards & Stationery",
+              "General Merchandise",
+              "Gifts & Ornaments",
+              "Home & Candles",
+              "Kitchen & Tableware",
+              "Seasonal",
+              "Toys & Games"
+            ],
+            "unreferenced_categories": [],
+            "n_items_observed": 57050,
+            "n_items_simulated": 1261,
+            "clustering_inflation": 1.4634142138522157,
+            "share_tv_distance": 0.058658549722998526,
+            "effect_size_primary": "share_tv_distance",
+            "cramers_v": 0.025718442417893263,
+            "cramers_v_balanced": 0.08840560264341131,
+            "sim_share_of_items": 0.02162542230453945,
+            "items_left_out": 0,
+            "visits_without_placed_item": 0
+          },
+          {
+            "test": "Inter-arrival (time-rescaled) vs. Exp(1)",
+            "kind": "KS-2sample",
+            "statistic": 0.07684951272660295,
+            "p_value": 2.335805085834927e-50,
+            "n_observed": 19341,
+            "n_simulated": 19528,
+            "decision": "FAIL",
+            "note": "Informational, a test of the data rather than the simulator: the dataset's same-day inter-arrival gaps, each divided by the local mean gap the calibrated hour-of-day rate implies (the rate integrated over the gap), against a Poisson reference at the same hourly rates over the same number of trading days. Null: non-homogeneous Poisson process whose rate follows the calibrated hour-of-day profile and is the same on every trading day (the live simulator's arrival law); under it the rescaled gaps are Exp(1). Both sides are stamped at the source's 60 s resolution before rescaling. Rescaled data: mean 0.922, coefficient of variation 1.204 (Exp(1): 1 and 1); a CV above 1 points to a rate that varies between days or to bursts, which the null leaves out.",
+            "null": "non-homogeneous Poisson process whose rate follows the calibrated hour-of-day profile and is the same on every trading day (the live simulator's arrival law)",
+            "rescaled": true,
+            "rescaling": "rate integrated over each gap (time-rescaling)",
+            "timestamp_step_s": 60.0,
+            "n_trading_days": 305,
+            "reference_seed": 0,
+            "n_reference_gaps": 19528,
+            "rescaled_mean": 0.9219749404066166,
+            "rescaled_cv": 1.203943787596012,
+            "reference_rescaled_mean": 0.9739858054456766,
+            "reference_rescaled_cv": 0.9997946902382907,
+            "homogeneous_statistic": 0.0635954707615945,
+            "homogeneous_p_value": 1.918521651041943e-34
+          }
+        ],
+        "list_chain": [
+          {
+            "test": "Drawn lists vs reference invoices",
+            "kind": "Chi-square, cluster permutation",
+            "statistic": 43.15046485357563,
+            "p_value": 0.0009995002498750624,
+            "n_observed": 14196,
+            "n_simulated": 299,
+            "decision": "FAIL",
+            "naive_p_value": 8.229341329915847e-07,
+            "share_tv_distance": 0.06307244453424171,
+            "effect_size_primary": "share_tv_distance",
+            "cramers_v": 0.027194650004543512,
+            "cramers_v_balanced": 0.09223042221575999,
+            "sim_share_of_items": 0.02222907775892505,
+            "n_items_observed": 57050,
+            "n_items_simulated": 1297,
+            "n_categories": 9,
+            "n_permutations": 2000,
+            "permutation_seed": 20260924,
+            "note": "Every cohort visit's drawn list (the stocked invoice it took at spawn, paying or not) against the reference invoices holding a placed product, per category, whole baskets relabelled."
+          },
+          {
+            "test": "Drawn lists, paying vs unpaid visits",
+            "kind": "Chi-square, cluster permutation",
+            "statistic": 21.04017296513129,
+            "p_value": 0.06946526736631684,
+            "n_observed": 291,
+            "n_simulated": 8,
+            "decision": "PASS",
+            "naive_p_value": 0.007041475990870368,
+            "share_tv_distance": 0.260639703938673,
+            "effect_size_primary": "share_tv_distance",
+            "cramers_v": 0.12736633874188033,
+            "cramers_v_balanced": 0.3876643382799354,
+            "sim_share_of_items": 0.027756360832690823,
+            "n_items_observed": 1261,
+            "n_items_simulated": 36,
+            "n_categories": 9,
+            "n_permutations": 2000,
+            "permutation_seed": 20260924,
+            "note": "The drawn lists of the 8 cohort visits that did not pay against those of the 291 that did, per category, whole baskets relabelled: which drawn invoices end as paid visits. Disjoint samples; the unpaid side is small, so the test has little power and a pass is not evidence of no selection."
+          }
+        ],
+        "chain": {
+          "n_visits": 299,
+          "n_paying": 291,
+          "n_abandoned": 8,
+          "n_paying_whole_list": 291,
+          "items_drawn_by_paying": 1261,
+          "items_bought_from_list": 1261
+        },
+        "completion": {
+          "share_tv_distance_drawn_vs_bought": 0.0,
+          "n_paying": 291,
+          "note": "within-visit, so described rather than tested: the paying visits' drawn and bought category shares"
+        }
+      },
+      {
+        "rep": 3,
+        "seed": 4008,
+        "load": {
+          "arrivals": 328,
+          "balked": 0,
+          "window_s": 1859.9999999983088,
+          "profile_multiplier": 0.630290668026517,
+          "offered_rate_per_s": 0.1701784803671596,
+          "door_rate_per_s": 0.1763440860216657,
+          "cohort_visits": 328,
+          "drain_s": 600.0
+        },
+        "tests": [
+          {
+            "test": "Basket size (items/visit)",
+            "kind": "KS-2sample",
+            "statistic": 0.06302484058486024,
+            "p_value": 0.16716834844721673,
+            "n_observed": 14196,
+            "n_simulated": 314,
+            "decision": "PASS",
+            "note": "Observed = distinct stocked products per invoice; simulated = distinct items per visit. 14,196 of 19,646 invoices hold at least one of the 72 products placed in the shop; the rest are left out."
+          },
+          {
+            "test": "Per-visit revenue",
+            "kind": "KS-2sample",
+            "statistic": 0.06171604811977183,
+            "p_value": 0.1849369518153875,
+            "n_observed": 14196,
+            "n_simulated": 314,
+            "decision": "PASS",
+            "note": "Observed = one unit of each stocked product on an invoice, at the shop's calibrated prices; simulated = one unit of each item a visit bought. 14,196 of 19,646 invoices hold at least one of the 72 products placed in the shop; the rest are left out."
+          },
+          {
+            "test": "Category purchase shares",
+            "kind": "Chi-square, cluster permutation",
+            "statistic": 31.11424335259448,
+            "p_value": 0.00849575212393803,
+            "n_observed": 14196,
+            "n_simulated": 314,
+            "decision": "FAIL",
+            "note": "Whole baskets: 14,196 invoices holding at least one of the 72 products placed in the shop against 314 simulated visits that bought one, each reduced to its purchases of those products per category (9 categories; 57,050 reference and 1,355 simulated purchases). Statistic = Pearson chi-square of the 2 x K table of category totals; p from 2,000 random reassignments of the visit / invoice labels (seed 20260924), which move each basket whole. Naive item-level p = 0.000134 (the chi-square(8) tail, which treats every purchase as independent; the reassigned statistics average 1.42 x its null mean). Effect size: the category shares differ by a total-variation distance of 0.062 (Cramer's V = 0.023 at a 2% simulated share of the purchases, 0.077 balanced; V shrinks as the split grows uneven, so it is not read against conventional benchmarks).",
+            "naive_p_value": 0.00013407483068946798,
+            "n_permutations": 2000,
+            "permutation_seed": 20260924,
+            "df": 8,
+            "n_categories": 9,
+            "categories": [
+              "Bags & Accessories",
+              "Baking & Decor",
+              "Cards & Stationery",
+              "General Merchandise",
+              "Gifts & Ornaments",
+              "Home & Candles",
+              "Kitchen & Tableware",
+              "Seasonal",
+              "Toys & Games"
+            ],
+            "unreferenced_categories": [],
+            "n_items_observed": 57050,
+            "n_items_simulated": 1355,
+            "clustering_inflation": 1.4200476376061397,
+            "share_tv_distance": 0.06160421201056883,
+            "effect_size_primary": "share_tv_distance",
+            "cramers_v": 0.02308099930543512,
+            "cramers_v_balanced": 0.07666147456472397,
+            "sim_share_of_items": 0.02320006848728705,
+            "items_left_out": 0,
+            "visits_without_placed_item": 0
+          },
+          {
+            "test": "Inter-arrival (time-rescaled) vs. Exp(1)",
+            "kind": "KS-2sample",
+            "statistic": 0.07684951272660295,
+            "p_value": 2.335805085834927e-50,
+            "n_observed": 19341,
+            "n_simulated": 19528,
+            "decision": "FAIL",
+            "note": "Informational, a test of the data rather than the simulator: the dataset's same-day inter-arrival gaps, each divided by the local mean gap the calibrated hour-of-day rate implies (the rate integrated over the gap), against a Poisson reference at the same hourly rates over the same number of trading days. Null: non-homogeneous Poisson process whose rate follows the calibrated hour-of-day profile and is the same on every trading day (the live simulator's arrival law); under it the rescaled gaps are Exp(1). Both sides are stamped at the source's 60 s resolution before rescaling. Rescaled data: mean 0.922, coefficient of variation 1.204 (Exp(1): 1 and 1); a CV above 1 points to a rate that varies between days or to bursts, which the null leaves out.",
+            "null": "non-homogeneous Poisson process whose rate follows the calibrated hour-of-day profile and is the same on every trading day (the live simulator's arrival law)",
+            "rescaled": true,
+            "rescaling": "rate integrated over each gap (time-rescaling)",
+            "timestamp_step_s": 60.0,
+            "n_trading_days": 305,
+            "reference_seed": 0,
+            "n_reference_gaps": 19528,
+            "rescaled_mean": 0.9219749404066166,
+            "rescaled_cv": 1.203943787596012,
+            "reference_rescaled_mean": 0.9739858054456766,
+            "reference_rescaled_cv": 0.9997946902382907,
+            "homogeneous_statistic": 0.0635954707615945,
+            "homogeneous_p_value": 1.918521651041943e-34
+          }
+        ],
+        "list_chain": [
+          {
+            "test": "Drawn lists vs reference invoices",
+            "kind": "Chi-square, cluster permutation",
+            "statistic": 34.953827179723476,
+            "p_value": 0.004997501249375313,
+            "n_observed": 14196,
+            "n_simulated": 328,
+            "decision": "FAIL",
+            "naive_p_value": 2.7261267439804066e-05,
+            "share_tv_distance": 0.06537910690237488,
+            "effect_size_primary": "share_tv_distance",
+            "cramers_v": 0.024446974538202694,
+            "cramers_v_balanced": 0.0790106880650419,
+            "sim_share_of_items": 0.024536205864751647,
+            "n_items_observed": 57050,
+            "n_items_simulated": 1435,
+            "n_categories": 9,
+            "n_permutations": 2000,
+            "permutation_seed": 20260924,
+            "note": "Every cohort visit's drawn list (the stocked invoice it took at spawn, paying or not) against the reference invoices holding a placed product, per category, whole baskets relabelled."
+          },
+          {
+            "test": "Drawn lists, paying vs unpaid visits",
+            "kind": "Chi-square, cluster permutation",
+            "statistic": 7.105719087876136,
+            "p_value": 0.784607696151924,
+            "n_observed": 314,
+            "n_simulated": 14,
+            "decision": "PASS",
+            "naive_p_value": 0.5252705885540201,
+            "share_tv_distance": 0.11203874538745388,
+            "effect_size_primary": "share_tv_distance",
+            "cramers_v": 0.0703684632397853,
+            "cramers_v_balanced": 0.1533505475422533,
+            "sim_share_of_items": 0.05574912891986063,
+            "n_items_observed": 1355,
+            "n_items_simulated": 80,
+            "n_categories": 9,
+            "n_permutations": 2000,
+            "permutation_seed": 20260924,
+            "note": "The drawn lists of the 14 cohort visits that did not pay against those of the 314 that did, per category, whole baskets relabelled: which drawn invoices end as paid visits. Disjoint samples; the unpaid side is small, so the test has little power and a pass is not evidence of no selection."
+          }
+        ],
+        "chain": {
+          "n_visits": 328,
+          "n_paying": 314,
+          "n_abandoned": 14,
+          "n_paying_whole_list": 314,
+          "items_drawn_by_paying": 1355,
+          "items_bought_from_list": 1355
+        },
+        "completion": {
+          "share_tv_distance_drawn_vs_bought": 0.0,
+          "n_paying": 314,
+          "note": "within-visit, so described rather than tested: the paying visits' drawn and bought category shares"
+        }
+      },
+      {
+        "rep": 4,
+        "seed": 4009,
+        "load": {
+          "arrivals": 305,
+          "balked": 0,
+          "window_s": 1859.9999999983088,
+          "profile_multiplier": 0.630290668026517,
+          "offered_rate_per_s": 0.1701784803671596,
+          "door_rate_per_s": 0.163978494623805,
+          "cohort_visits": 305,
+          "drain_s": 1080.0
+        },
+        "tests": [
+          {
+            "test": "Basket size (items/visit)",
+            "kind": "KS-2sample",
+            "statistic": 0.08112692676451067,
+            "p_value": 0.04046248907727834,
+            "n_observed": 14196,
+            "n_simulated": 298,
+            "decision": "FAIL",
+            "note": "Observed = distinct stocked products per invoice; simulated = distinct items per visit. 14,196 of 19,646 invoices hold at least one of the 72 products placed in the shop; the rest are left out."
+          },
+          {
+            "test": "Per-visit revenue",
+            "kind": "KS-2sample",
+            "statistic": 0.05694107991475053,
+            "p_value": 0.2890195362994141,
+            "n_observed": 14196,
+            "n_simulated": 298,
+            "decision": "PASS",
+            "note": "Observed = one unit of each stocked product on an invoice, at the shop's calibrated prices; simulated = one unit of each item a visit bought. 14,196 of 19,646 invoices hold at least one of the 72 products placed in the shop; the rest are left out."
+          },
+          {
+            "test": "Category purchase shares",
+            "kind": "Chi-square, cluster permutation",
+            "statistic": 47.10090161957539,
+            "p_value": 0.0014992503748125937,
+            "n_observed": 14196,
+            "n_simulated": 298,
+            "decision": "FAIL",
+            "note": "Whole baskets: 14,196 invoices holding at least one of the 72 products placed in the shop against 298 simulated visits that bought one, each reduced to its purchases of those products per category (9 categories; 57,050 reference and 1,246 simulated purchases). Statistic = Pearson chi-square of the 2 x K table of category totals; p from 2,000 random reassignments of the visit / invoice labels (seed 20260924), which move each basket whole. Naive item-level p = 1.47e-07 (the chi-square(8) tail, which treats every purchase as independent; the reassigned statistics average 1.44 x its null mean). Effect size: the category shares differ by a total-variation distance of 0.076 (Cramer's V = 0.028 at a 2% simulated share of the purchases, 0.098 balanced; V shrinks as the split grows uneven, so it is not read against conventional benchmarks).",
+            "naive_p_value": 1.4669355376571667e-07,
+            "n_permutations": 2000,
+            "permutation_seed": 20260924,
+            "df": 8,
+            "n_categories": 9,
+            "categories": [
+              "Bags & Accessories",
+              "Baking & Decor",
+              "Cards & Stationery",
+              "General Merchandise",
+              "Gifts & Ornaments",
+              "Home & Candles",
+              "Kitchen & Tableware",
+              "Seasonal",
+              "Toys & Games"
+            ],
+            "unreferenced_categories": [],
+            "n_items_observed": 57050,
+            "n_items_simulated": 1246,
+            "clustering_inflation": 1.4449805343794533,
+            "share_tv_distance": 0.07578745236289872,
+            "effect_size_primary": "share_tv_distance",
+            "cramers_v": 0.028424656952772437,
+            "cramers_v_balanced": 0.09826913819128319,
+            "sim_share_of_items": 0.021373679154658983,
+            "items_left_out": 0,
+            "visits_without_placed_item": 0
+          },
+          {
+            "test": "Inter-arrival (time-rescaled) vs. Exp(1)",
+            "kind": "KS-2sample",
+            "statistic": 0.07684951272660295,
+            "p_value": 2.335805085834927e-50,
+            "n_observed": 19341,
+            "n_simulated": 19528,
+            "decision": "FAIL",
+            "note": "Informational, a test of the data rather than the simulator: the dataset's same-day inter-arrival gaps, each divided by the local mean gap the calibrated hour-of-day rate implies (the rate integrated over the gap), against a Poisson reference at the same hourly rates over the same number of trading days. Null: non-homogeneous Poisson process whose rate follows the calibrated hour-of-day profile and is the same on every trading day (the live simulator's arrival law); under it the rescaled gaps are Exp(1). Both sides are stamped at the source's 60 s resolution before rescaling. Rescaled data: mean 0.922, coefficient of variation 1.204 (Exp(1): 1 and 1); a CV above 1 points to a rate that varies between days or to bursts, which the null leaves out.",
+            "null": "non-homogeneous Poisson process whose rate follows the calibrated hour-of-day profile and is the same on every trading day (the live simulator's arrival law)",
+            "rescaled": true,
+            "rescaling": "rate integrated over each gap (time-rescaling)",
+            "timestamp_step_s": 60.0,
+            "n_trading_days": 305,
+            "reference_seed": 0,
+            "n_reference_gaps": 19528,
+            "rescaled_mean": 0.9219749404066166,
+            "rescaled_cv": 1.203943787596012,
+            "reference_rescaled_mean": 0.9739858054456766,
+            "reference_rescaled_cv": 0.9997946902382907,
+            "homogeneous_statistic": 0.0635954707615945,
+            "homogeneous_p_value": 1.918521651041943e-34
+          }
+        ],
+        "list_chain": [
+          {
+            "test": "Drawn lists vs reference invoices",
+            "kind": "Chi-square, cluster permutation",
+            "statistic": 47.58249006043773,
+            "p_value": 0.0004997501249375312,
+            "n_observed": 14196,
+            "n_simulated": 305,
+            "decision": "FAIL",
+            "naive_p_value": 1.1871586615575653e-07,
+            "share_tv_distance": 0.07551591407295763,
+            "effect_size_primary": "share_tv_distance",
+            "cramers_v": 0.028565438179838032,
+            "cramers_v_balanced": 0.09811756911474491,
+            "sim_share_of_items": 0.02165897827242639,
+            "n_items_observed": 57050,
+            "n_items_simulated": 1263,
+            "n_categories": 9,
+            "n_permutations": 2000,
+            "permutation_seed": 20260924,
+            "note": "Every cohort visit's drawn list (the stocked invoice it took at spawn, paying or not) against the reference invoices holding a placed product, per category, whole baskets relabelled."
+          },
+          {
+            "test": "Drawn lists, paying vs unpaid visits",
+            "kind": "Chi-square, cluster permutation",
+            "statistic": 2.0624230202237515,
+            "p_value": 0.9960019990004998,
+            "n_observed": 298,
+            "n_simulated": 7,
+            "decision": "PASS",
+            "naive_p_value": 0.9790381344787358,
+            "share_tv_distance": 0.12241525823812673,
+            "effect_size_primary": "share_tv_distance",
+            "cramers_v": 0.04040984628944756,
+            "cramers_v_balanced": 0.17533841304627984,
+            "sim_share_of_items": 0.013460015835312747,
+            "n_items_observed": 1246,
+            "n_items_simulated": 17,
+            "n_categories": 9,
+            "n_permutations": 2000,
+            "permutation_seed": 20260924,
+            "note": "The drawn lists of the 7 cohort visits that did not pay against those of the 298 that did, per category, whole baskets relabelled: which drawn invoices end as paid visits. Disjoint samples; the unpaid side is small, so the test has little power and a pass is not evidence of no selection."
+          }
+        ],
+        "chain": {
+          "n_visits": 305,
+          "n_paying": 298,
+          "n_abandoned": 7,
+          "n_paying_whole_list": 298,
+          "items_drawn_by_paying": 1246,
+          "items_bought_from_list": 1246
+        },
+        "completion": {
+          "share_tv_distance_drawn_vs_bought": 0.0,
+          "n_paying": 298,
+          "note": "within-visit, so described rather than tested: the paying visits' drawn and bought category shares"
+        }
+      }
+    ]
+  },
+  "per_rep": [
+    {
+      "rep": 0,
+      "seed": 4000,
+      "load": {
+        "arrivals": 354,
+        "balked": 4,
+        "window_s": 1859.9999999983088,
+        "profile_multiplier": 0.7436628321286776,
+        "offered_rate_per_s": 0.20078896467474294,
+        "door_rate_per_s": 0.19032258064533433,
+        "cohort_visits": 350,
+        "drain_s": 660.0
+      },
+      "tests": [
+        {
+          "test": "Basket size (items/visit)",
+          "kind": "KS-2sample",
+          "statistic": 0.04494678404441266,
+          "p_value": 0.49941432119140583,
+          "n_observed": 14707,
+          "n_simulated": 340,
+          "decision": "PASS",
+          "note": "Observed = distinct stocked products per invoice; simulated = distinct items per visit. 14,707 of 19,646 invoices hold at least one of the 72 products placed in the shop; the rest are left out."
+        },
+        {
+          "test": "Per-visit revenue",
+          "kind": "KS-2sample",
+          "statistic": 0.057415436426831556,
+          "p_value": 0.21536421235846126,
+          "n_observed": 14707,
+          "n_simulated": 340,
+          "decision": "PASS",
+          "note": "Observed = one unit of each stocked product on an invoice, at the shop's calibrated prices; simulated = one unit of each item a visit bought. 14,707 of 19,646 invoices hold at least one of the 72 products placed in the shop; the rest are left out."
+        },
+        {
+          "test": "Category purchase shares",
+          "kind": "Chi-square, cluster permutation",
+          "statistic": 10.497007852861719,
+          "p_value": 0.5317341329335332,
+          "n_observed": 14707,
+          "n_simulated": 340,
+          "decision": "PASS",
+          "note": "Whole baskets: 14,707 invoices holding at least one of the 72 products placed in the shop against 340 simulated visits that bought one, each reduced to its purchases of those products per category (9 categories; 67,682 reference and 1,644 simulated purchases). Statistic = Pearson chi-square of the 2 x K table of category totals; p from 2,000 random reassignments of the visit / invoice labels (seed 20260924), which move each basket whole. Naive item-level p = 0.232 (the chi-square(8) tail, which treats every purchase as independent; the reassigned statistics average 1.51 x its null mean). Effect size: the category shares differ by a total-variation distance of 0.030 (Cramer's V = 0.012 at a 2% simulated share of the purchases, 0.040 balanced; V shrinks as the split grows uneven, so it is not read against conventional benchmarks).",
+          "naive_p_value": 0.2318591349471368,
+          "n_permutations": 2000,
+          "permutation_seed": 20260924,
+          "df": 8,
+          "n_categories": 9,
+          "categories": [
+            "Bags & Accessories",
+            "Baking & Decor",
+            "Cards & Stationery",
+            "General Merchandise",
+            "Gifts & Ornaments",
+            "Home & Candles",
+            "Kitchen & Tableware",
+            "Seasonal",
+            "Toys & Games"
+          ],
+          "unreferenced_categories": [],
+          "n_items_observed": 67682,
+          "n_items_simulated": 1644,
+          "clustering_inflation": 1.509119527032773,
+          "share_tv_distance": 0.03022180224379776,
+          "effect_size_primary": "share_tv_distance",
+          "cramers_v": 0.012305087028935848,
+          "cramers_v_balanced": 0.04043554848045852,
+          "sim_share_of_items": 0.023714046678014022,
+          "items_left_out": 0,
+          "visits_without_placed_item": 0
+        },
+        {
+          "test": "Inter-arrival (time-rescaled) vs. Exp(1)",
+          "kind": "KS-2sample",
+          "statistic": 0.07684951272660295,
+          "p_value": 2.335805085834927e-50,
+          "n_observed": 19341,
+          "n_simulated": 19528,
+          "decision": "FAIL",
+          "note": "Informational, a test of the data rather than the simulator: the dataset's same-day inter-arrival gaps, each divided by the local mean gap the calibrated hour-of-day rate implies (the rate integrated over the gap), against a Poisson reference at the same hourly rates over the same number of trading days. Null: non-homogeneous Poisson process whose rate follows the calibrated hour-of-day profile and is the same on every trading day (the live simulator's arrival law); under it the rescaled gaps are Exp(1). Both sides are stamped at the source's 60 s resolution before rescaling. Rescaled data: mean 0.922, coefficient of variation 1.204 (Exp(1): 1 and 1); a CV above 1 points to a rate that varies between days or to bursts, which the null leaves out.",
+          "null": "non-homogeneous Poisson process whose rate follows the calibrated hour-of-day profile and is the same on every trading day (the live simulator's arrival law)",
+          "rescaled": true,
+          "rescaling": "rate integrated over each gap (time-rescaling)",
+          "timestamp_step_s": 60.0,
+          "n_trading_days": 305,
+          "reference_seed": 0,
+          "n_reference_gaps": 19528,
+          "rescaled_mean": 0.9219749404066166,
+          "rescaled_cv": 1.203943787596012,
+          "reference_rescaled_mean": 0.9739858054456766,
+          "reference_rescaled_cv": 0.9997946902382907,
+          "homogeneous_statistic": 0.0635954707615945,
+          "homogeneous_p_value": 1.918521651041943e-34
+        }
+      ],
+      "list_chain": [
+        {
+          "test": "Drawn lists vs reference invoices",
+          "kind": "Chi-square, cluster permutation",
+          "statistic": 11.674397947103895,
+          "p_value": 0.43928035982008995,
+          "n_observed": 14707,
+          "n_simulated": 350,
+          "decision": "PASS",
+          "naive_p_value": 0.16633333396828054,
+          "share_tv_distance": 0.032309128402993825,
+          "effect_size_primary": "share_tv_distance",
+          "cramers_v": 0.012973478694432931,
+          "cramers_v_balanced": 0.04219459491272615,
+          "sim_share_of_items": 0.024220754880193766,
+          "n_items_observed": 67682,
+          "n_items_simulated": 1680,
+          "n_categories": 9,
+          "n_permutations": 2000,
+          "permutation_seed": 20260924,
+          "note": "Every cohort visit's drawn list (the stocked invoice it took at spawn, paying or not) against the reference invoices holding a placed product, per category, whole baskets relabelled."
+        },
+        {
+          "test": "Drawn lists, paying vs unpaid visits",
+          "kind": "Chi-square, cluster permutation",
+          "statistic": 8.228527579486762,
+          "p_value": 0.6906546726636682,
+          "n_observed": 340,
+          "n_simulated": 10,
+          "decision": "PASS",
+          "naive_p_value": 0.4114713840814566,
+          "share_tv_distance": 0.18207623682076238,
+          "effect_size_primary": "share_tv_distance",
+          "cramers_v": 0.06998523475010879,
+          "cramers_v_balanced": 0.24164819347216535,
+          "sim_share_of_items": 0.02142857142857143,
+          "n_items_observed": 1644,
+          "n_items_simulated": 36,
+          "n_categories": 9,
+          "n_permutations": 2000,
+          "permutation_seed": 20260924,
+          "note": "The drawn lists of the 10 cohort visits that did not pay against those of the 340 that did, per category, whole baskets relabelled: which drawn invoices end as paid visits. Disjoint samples; the unpaid side is small, so the test has little power and a pass is not evidence of no selection."
+        }
+      ],
+      "chain": {
+        "n_visits": 350,
+        "n_paying": 340,
+        "n_abandoned": 10,
+        "n_paying_whole_list": 340,
+        "items_drawn_by_paying": 1644,
+        "items_bought_from_list": 1644
+      },
+      "completion": {
+        "share_tv_distance_drawn_vs_bought": 0.0,
+        "n_paying": 340,
+        "note": "within-visit, so described rather than tested: the paying visits' drawn and bought category shares"
+      }
+    },
+    {
+      "rep": 1,
+      "seed": 4001,
+      "load": {
+        "arrivals": 382,
+        "balked": 4,
+        "window_s": 1859.9999999983088,
+        "profile_multiplier": 0.7436628321286776,
+        "offered_rate_per_s": 0.20078896467474294,
+        "door_rate_per_s": 0.20537634408620825,
+        "cohort_visits": 378,
+        "drain_s": 1080.0
+      },
+      "tests": [
+        {
+          "test": "Basket size (items/visit)",
+          "kind": "KS-2sample",
+          "statistic": 0.03496908428507817,
+          "p_value": 0.7527438071821745,
+          "n_observed": 14707,
+          "n_simulated": 372,
+          "decision": "PASS",
+          "note": "Observed = distinct stocked products per invoice; simulated = distinct items per visit. 14,707 of 19,646 invoices hold at least one of the 72 products placed in the shop; the rest are left out."
+        },
+        {
+          "test": "Per-visit revenue",
+          "kind": "KS-2sample",
+          "statistic": 0.047868910349910254,
+          "p_value": 0.3648270983640941,
+          "n_observed": 14707,
+          "n_simulated": 372,
+          "decision": "PASS",
+          "note": "Observed = one unit of each stocked product on an invoice, at the shop's calibrated prices; simulated = one unit of each item a visit bought. 14,707 of 19,646 invoices hold at least one of the 72 products placed in the shop; the rest are left out."
+        },
+        {
+          "test": "Category purchase shares",
+          "kind": "Chi-square, cluster permutation",
+          "statistic": 7.920706976140791,
+          "p_value": 0.7261369315342329,
+          "n_observed": 14707,
+          "n_simulated": 372,
+          "decision": "PASS",
+          "note": "Whole baskets: 14,707 invoices holding at least one of the 72 products placed in the shop against 372 simulated visits that bought one, each reduced to its purchases of those products per category (9 categories; 67,682 reference and 1,828 simulated purchases). Statistic = Pearson chi-square of the 2 x K table of category totals; p from 2,000 random reassignments of the visit / invoice labels (seed 20260924), which move each basket whole. Naive item-level p = 0.441 (the chi-square(8) tail, which treats every purchase as independent; the reassigned statistics average 1.52 x its null mean). Effect size: the category shares differ by a total-variation distance of 0.027 (Cramer's V = 0.011 at a 3% simulated share of the purchases, 0.033 balanced; V shrinks as the split grows uneven, so it is not read against conventional benchmarks).",
+          "naive_p_value": 0.44125386087354257,
+          "n_permutations": 2000,
+          "permutation_seed": 20260924,
+          "df": 8,
+          "n_categories": 9,
+          "categories": [
+            "Bags & Accessories",
+            "Baking & Decor",
+            "Cards & Stationery",
+            "General Merchandise",
+            "Gifts & Ornaments",
+            "Home & Candles",
+            "Kitchen & Tableware",
+            "Seasonal",
+            "Toys & Games"
+          ],
+          "unreferenced_categories": [],
+          "n_items_observed": 67682,
+          "n_items_simulated": 1828,
+          "clustering_inflation": 1.5156643396450076,
+          "share_tv_distance": 0.027251992633590846,
+          "effect_size_primary": "share_tv_distance",
+          "cramers_v": 0.0106747651533684,
+          "cramers_v_balanced": 0.03335423118340987,
+          "sim_share_of_items": 0.026298374334628113,
+          "items_left_out": 0,
+          "visits_without_placed_item": 0
+        },
+        {
+          "test": "Inter-arrival (time-rescaled) vs. Exp(1)",
+          "kind": "KS-2sample",
+          "statistic": 0.07684951272660295,
+          "p_value": 2.335805085834927e-50,
+          "n_observed": 19341,
+          "n_simulated": 19528,
+          "decision": "FAIL",
+          "note": "Informational, a test of the data rather than the simulator: the dataset's same-day inter-arrival gaps, each divided by the local mean gap the calibrated hour-of-day rate implies (the rate integrated over the gap), against a Poisson reference at the same hourly rates over the same number of trading days. Null: non-homogeneous Poisson process whose rate follows the calibrated hour-of-day profile and is the same on every trading day (the live simulator's arrival law); under it the rescaled gaps are Exp(1). Both sides are stamped at the source's 60 s resolution before rescaling. Rescaled data: mean 0.922, coefficient of variation 1.204 (Exp(1): 1 and 1); a CV above 1 points to a rate that varies between days or to bursts, which the null leaves out.",
+          "null": "non-homogeneous Poisson process whose rate follows the calibrated hour-of-day profile and is the same on every trading day (the live simulator's arrival law)",
+          "rescaled": true,
+          "rescaling": "rate integrated over each gap (time-rescaling)",
+          "timestamp_step_s": 60.0,
+          "n_trading_days": 305,
+          "reference_seed": 0,
+          "n_reference_gaps": 19528,
+          "rescaled_mean": 0.9219749404066166,
+          "rescaled_cv": 1.203943787596012,
+          "reference_rescaled_mean": 0.9739858054456766,
+          "reference_rescaled_cv": 0.9997946902382907,
+          "homogeneous_statistic": 0.0635954707615945,
+          "homogeneous_p_value": 1.918521651041943e-34
+        }
+      ],
+      "list_chain": [
+        {
+          "test": "Drawn lists vs reference invoices",
+          "kind": "Chi-square, cluster permutation",
+          "statistic": 8.01274865181229,
+          "p_value": 0.7106446776611695,
+          "n_observed": 14707,
+          "n_simulated": 378,
+          "decision": "PASS",
+          "naive_p_value": 0.4322257819378845,
+          "share_tv_distance": 0.02647882650356706,
+          "effect_size_primary": "share_tv_distance",
+          "cramers_v": 0.0107342922888991,
+          "cramers_v_balanced": 0.03328270845671244,
+          "sim_share_of_items": 0.026718435432844405,
+          "n_items_observed": 67682,
+          "n_items_simulated": 1858,
+          "n_categories": 9,
+          "n_permutations": 2000,
+          "permutation_seed": 20260924,
+          "note": "Every cohort visit's drawn list (the stocked invoice it took at spawn, paying or not) against the reference invoices holding a placed product, per category, whole baskets relabelled."
+        },
+        {
+          "test": "Drawn lists, paying vs unpaid visits",
+          "kind": "Chi-square, cluster permutation",
+          "statistic": 20.31570339016661,
+          "p_value": 0.0879560219890055,
+          "n_observed": 372,
+          "n_simulated": 6,
+          "decision": "PASS",
+          "naive_p_value": 0.009205401302989217,
+          "share_tv_distance": 0.3678701677607586,
+          "effect_size_primary": "share_tv_distance",
+          "cramers_v": 0.10456662162726507,
+          "cramers_v_balanced": 0.4148203636227168,
+          "sim_share_of_items": 0.016146393972012917,
+          "n_items_observed": 1828,
+          "n_items_simulated": 30,
+          "n_categories": 9,
+          "n_permutations": 2000,
+          "permutation_seed": 20260924,
+          "note": "The drawn lists of the 6 cohort visits that did not pay against those of the 372 that did, per category, whole baskets relabelled: which drawn invoices end as paid visits. Disjoint samples; the unpaid side is small, so the test has little power and a pass is not evidence of no selection."
+        }
+      ],
+      "chain": {
+        "n_visits": 378,
+        "n_paying": 372,
+        "n_abandoned": 6,
+        "n_paying_whole_list": 372,
+        "items_drawn_by_paying": 1828,
+        "items_bought_from_list": 1828
+      },
+      "completion": {
+        "share_tv_distance_drawn_vs_bought": 0.0,
+        "n_paying": 372,
+        "note": "within-visit, so described rather than tested: the paying visits' drawn and bought category shares"
+      }
+    },
+    {
+      "rep": 2,
+      "seed": 4002,
+      "load": {
+        "arrivals": 406,
+        "balked": 11,
+        "window_s": 1859.9999999983088,
+        "profile_multiplier": 0.7436628321286776,
+        "offered_rate_per_s": 0.20078896467474294,
+        "door_rate_per_s": 0.21827956989267158,
+        "cohort_visits": 395,
+        "drain_s": 900.0
+      },
+      "tests": [
+        {
+          "test": "Basket size (items/visit)",
+          "kind": "KS-2sample",
+          "statistic": 0.015261022929881324,
+          "p_value": 0.9999881532228427,
+          "n_observed": 14707,
+          "n_simulated": 383,
+          "decision": "PASS",
+          "note": "Observed = distinct stocked products per invoice; simulated = distinct items per visit. 14,707 of 19,646 invoices hold at least one of the 72 products placed in the shop; the rest are left out."
+        },
+        {
+          "test": "Per-visit revenue",
+          "kind": "KS-2sample",
+          "statistic": 0.030355875721069236,
+          "p_value": 0.8713318076550494,
+          "n_observed": 14707,
+          "n_simulated": 383,
+          "decision": "PASS",
+          "note": "Observed = one unit of each stocked product on an invoice, at the shop's calibrated prices; simulated = one unit of each item a visit bought. 14,707 of 19,646 invoices hold at least one of the 72 products placed in the shop; the rest are left out."
+        },
+        {
+          "test": "Category purchase shares",
+          "kind": "Chi-square, cluster permutation",
+          "statistic": 19.36197965878149,
+          "p_value": 0.12443778110944528,
+          "n_observed": 14707,
+          "n_simulated": 383,
+          "decision": "PASS",
+          "note": "Whole baskets: 14,707 invoices holding at least one of the 72 products placed in the shop against 383 simulated visits that bought one, each reduced to its purchases of those products per category (9 categories; 67,682 reference and 1,810 simulated purchases). Statistic = Pearson chi-square of the 2 x K table of category totals; p from 2,000 random reassignments of the visit / invoice labels (seed 20260924), which move each basket whole. Naive item-level p = 0.013 (the chi-square(8) tail, which treats every purchase as independent; the reassigned statistics average 1.51 x its null mean). Effect size: the category shares differ by a total-variation distance of 0.044 (Cramer's V = 0.017 at a 3% simulated share of the purchases, 0.052 balanced; V shrinks as the split grows uneven, so it is not read against conventional benchmarks).",
+          "naive_p_value": 0.013039161012536063,
+          "n_permutations": 2000,
+          "permutation_seed": 20260924,
+          "df": 8,
+          "n_categories": 9,
+          "categories": [
+            "Bags & Accessories",
+            "Baking & Decor",
+            "Cards & Stationery",
+            "General Merchandise",
+            "Gifts & Ornaments",
+            "Home & Candles",
+            "Kitchen & Tableware",
+            "Seasonal",
+            "Toys & Games"
+          ],
+          "unreferenced_categories": [],
+          "n_items_observed": 67682,
+          "n_items_simulated": 1810,
+          "clustering_inflation": 1.5069309071541608,
+          "share_tv_distance": 0.04414805604565125,
+          "effect_size_primary": "share_tv_distance",
+          "cramers_v": 0.016691965340892,
+          "cramers_v_balanced": 0.05240061816635408,
+          "sim_share_of_items": 0.026046163587175503,
+          "items_left_out": 0,
+          "visits_without_placed_item": 0
+        },
+        {
+          "test": "Inter-arrival (time-rescaled) vs. Exp(1)",
+          "kind": "KS-2sample",
+          "statistic": 0.07684951272660295,
+          "p_value": 2.335805085834927e-50,
+          "n_observed": 19341,
+          "n_simulated": 19528,
+          "decision": "FAIL",
+          "note": "Informational, a test of the data rather than the simulator: the dataset's same-day inter-arrival gaps, each divided by the local mean gap the calibrated hour-of-day rate implies (the rate integrated over the gap), against a Poisson reference at the same hourly rates over the same number of trading days. Null: non-homogeneous Poisson process whose rate follows the calibrated hour-of-day profile and is the same on every trading day (the live simulator's arrival law); under it the rescaled gaps are Exp(1). Both sides are stamped at the source's 60 s resolution before rescaling. Rescaled data: mean 0.922, coefficient of variation 1.204 (Exp(1): 1 and 1); a CV above 1 points to a rate that varies between days or to bursts, which the null leaves out.",
+          "null": "non-homogeneous Poisson process whose rate follows the calibrated hour-of-day profile and is the same on every trading day (the live simulator's arrival law)",
+          "rescaled": true,
+          "rescaling": "rate integrated over each gap (time-rescaling)",
+          "timestamp_step_s": 60.0,
+          "n_trading_days": 305,
+          "reference_seed": 0,
+          "n_reference_gaps": 19528,
+          "rescaled_mean": 0.9219749404066166,
+          "rescaled_cv": 1.203943787596012,
+          "reference_rescaled_mean": 0.9739858054456766,
+          "reference_rescaled_cv": 0.9997946902382907,
+          "homogeneous_statistic": 0.0635954707615945,
+          "homogeneous_p_value": 1.918521651041943e-34
+        }
+      ],
+      "list_chain": [
+        {
+          "test": "Drawn lists vs reference invoices",
+          "kind": "Chi-square, cluster permutation",
+          "statistic": 15.578934199452833,
+          "p_value": 0.2638680659670165,
+          "n_observed": 14707,
+          "n_simulated": 395,
+          "decision": "PASS",
+          "naive_p_value": 0.04881901031141681,
+          "share_tv_distance": 0.0390286007895603,
+          "effect_size_primary": "share_tv_distance",
+          "cramers_v": 0.014965103329446472,
+          "cramers_v_balanced": 0.04613144281575837,
+          "sim_share_of_items": 0.02704023690755143,
+          "n_items_observed": 67682,
+          "n_items_simulated": 1881,
+          "n_categories": 9,
+          "n_permutations": 2000,
+          "permutation_seed": 20260924,
+          "note": "Every cohort visit's drawn list (the stocked invoice it took at spawn, paying or not) against the reference invoices holding a placed product, per category, whole baskets relabelled."
+        },
+        {
+          "test": "Drawn lists, paying vs unpaid visits",
+          "kind": "Chi-square, cluster permutation",
+          "statistic": 20.450111985738893,
+          "p_value": 0.10294852573713144,
+          "n_observed": 383,
+          "n_simulated": 12,
+          "decision": "PASS",
+          "naive_p_value": 0.008760872006526728,
+          "share_tv_distance": 0.23297797836744222,
+          "effect_size_primary": "share_tv_distance",
+          "cramers_v": 0.10426857722518836,
+          "cramers_v_balanced": 0.27355445101936426,
+          "sim_share_of_items": 0.037745879851143006,
+          "n_items_observed": 1810,
+          "n_items_simulated": 71,
+          "n_categories": 9,
+          "n_permutations": 2000,
+          "permutation_seed": 20260924,
+          "note": "The drawn lists of the 12 cohort visits that did not pay against those of the 383 that did, per category, whole baskets relabelled: which drawn invoices end as paid visits. Disjoint samples; the unpaid side is small, so the test has little power and a pass is not evidence of no selection."
+        }
+      ],
+      "chain": {
+        "n_visits": 395,
+        "n_paying": 383,
+        "n_abandoned": 12,
+        "n_paying_whole_list": 383,
+        "items_drawn_by_paying": 1810,
+        "items_bought_from_list": 1810
+      },
+      "completion": {
+        "share_tv_distance_drawn_vs_bought": 0.0,
+        "n_paying": 383,
+        "note": "within-visit, so described rather than tested: the paying visits' drawn and bought category shares"
+      }
+    },
+    {
+      "rep": 3,
+      "seed": 4003,
+      "load": {
+        "arrivals": 347,
+        "balked": 0,
+        "window_s": 1859.9999999983088,
+        "profile_multiplier": 0.7436628321286776,
+        "offered_rate_per_s": 0.20078896467474294,
+        "door_rate_per_s": 0.18655913978511587,
+        "cohort_visits": 347,
+        "drain_s": 780.0
+      },
+      "tests": [
+        {
+          "test": "Basket size (items/visit)",
+          "kind": "KS-2sample",
+          "statistic": 0.057959157234227676,
+          "p_value": 0.20931259393607093,
+          "n_observed": 14707,
+          "n_simulated": 338,
+          "decision": "PASS",
+          "note": "Observed = distinct stocked products per invoice; simulated = distinct items per visit. 14,707 of 19,646 invoices hold at least one of the 72 products placed in the shop; the rest are left out."
+        },
+        {
+          "test": "Per-visit revenue",
+          "kind": "KS-2sample",
+          "statistic": 0.060327912120099025,
+          "p_value": 0.17375410703928162,
+          "n_observed": 14707,
+          "n_simulated": 338,
+          "decision": "PASS",
+          "note": "Observed = one unit of each stocked product on an invoice, at the shop's calibrated prices; simulated = one unit of each item a visit bought. 14,707 of 19,646 invoices hold at least one of the 72 products placed in the shop; the rest are left out."
+        },
+        {
+          "test": "Category purchase shares",
+          "kind": "Chi-square, cluster permutation",
+          "statistic": 5.878674331851319,
+          "p_value": 0.8530734632683659,
+          "n_observed": 14707,
+          "n_simulated": 338,
+          "decision": "PASS",
+          "note": "Whole baskets: 14,707 invoices holding at least one of the 72 products placed in the shop against 338 simulated visits that bought one, each reduced to its purchases of those products per category (9 categories; 67,682 reference and 1,357 simulated purchases). Statistic = Pearson chi-square of the 2 x K table of category totals; p from 2,000 random reassignments of the visit / invoice labels (seed 20260924), which move each basket whole. Naive item-level p = 0.661 (the chi-square(8) tail, which treats every purchase as independent; the reassigned statistics average 1.51 x its null mean). Effect size: the category shares differ by a total-variation distance of 0.030 (Cramer's V = 0.009 at a 2% simulated share of the purchases, 0.033 balanced; V shrinks as the split grows uneven, so it is not read against conventional benchmarks).",
+          "naive_p_value": 0.660820093279094,
+          "n_permutations": 2000,
+          "permutation_seed": 20260924,
+          "df": 8,
+          "n_categories": 9,
+          "categories": [
+            "Bags & Accessories",
+            "Baking & Decor",
+            "Cards & Stationery",
+            "General Merchandise",
+            "Gifts & Ornaments",
+            "Home & Candles",
+            "Kitchen & Tableware",
+            "Seasonal",
+            "Toys & Games"
+          ],
+          "unreferenced_categories": [],
+          "n_items_observed": 67682,
+          "n_items_simulated": 1357,
+          "clustering_inflation": 1.512350645507528,
+          "share_tv_distance": 0.029809087915294734,
+          "effect_size_primary": "share_tv_distance",
+          "cramers_v": 0.009227678496410006,
+          "cramers_v_balanced": 0.033237659593913386,
+          "sim_share_of_items": 0.019655557004012225,
+          "items_left_out": 0,
+          "visits_without_placed_item": 0
+        },
+        {
+          "test": "Inter-arrival (time-rescaled) vs. Exp(1)",
+          "kind": "KS-2sample",
+          "statistic": 0.07684951272660295,
+          "p_value": 2.335805085834927e-50,
+          "n_observed": 19341,
+          "n_simulated": 19528,
+          "decision": "FAIL",
+          "note": "Informational, a test of the data rather than the simulator: the dataset's same-day inter-arrival gaps, each divided by the local mean gap the calibrated hour-of-day rate implies (the rate integrated over the gap), against a Poisson reference at the same hourly rates over the same number of trading days. Null: non-homogeneous Poisson process whose rate follows the calibrated hour-of-day profile and is the same on every trading day (the live simulator's arrival law); under it the rescaled gaps are Exp(1). Both sides are stamped at the source's 60 s resolution before rescaling. Rescaled data: mean 0.922, coefficient of variation 1.204 (Exp(1): 1 and 1); a CV above 1 points to a rate that varies between days or to bursts, which the null leaves out.",
+          "null": "non-homogeneous Poisson process whose rate follows the calibrated hour-of-day profile and is the same on every trading day (the live simulator's arrival law)",
+          "rescaled": true,
+          "rescaling": "rate integrated over each gap (time-rescaling)",
+          "timestamp_step_s": 60.0,
+          "n_trading_days": 305,
+          "reference_seed": 0,
+          "n_reference_gaps": 19528,
+          "rescaled_mean": 0.9219749404066166,
+          "rescaled_cv": 1.203943787596012,
+          "reference_rescaled_mean": 0.9739858054456766,
+          "reference_rescaled_cv": 0.9997946902382907,
+          "homogeneous_statistic": 0.0635954707615945,
+          "homogeneous_p_value": 1.918521651041943e-34
+        }
+      ],
+      "list_chain": [
+        {
+          "test": "Drawn lists vs reference invoices",
+          "kind": "Chi-square, cluster permutation",
+          "statistic": 6.5336992260607145,
+          "p_value": 0.8185907046476761,
+          "n_observed": 14707,
+          "n_simulated": 347,
+          "decision": "PASS",
+          "naive_p_value": 0.5876721807653935,
+          "share_tv_distance": 0.031660412777945214,
+          "effect_size_primary": "share_tv_distance",
+          "cramers_v": 0.009726012896233018,
+          "cramers_v_balanced": 0.03465476646834737,
+          "sim_share_of_items": 0.020095555233820762,
+          "n_items_observed": 67682,
+          "n_items_simulated": 1388,
+          "n_categories": 9,
+          "n_permutations": 2000,
+          "permutation_seed": 20260924,
+          "note": "Every cohort visit's drawn list (the stocked invoice it took at spawn, paying or not) against the reference invoices holding a placed product, per category, whole baskets relabelled."
+        },
+        {
+          "test": "Drawn lists, paying vs unpaid visits",
+          "kind": "Chi-square, cluster permutation",
+          "statistic": 6.054956698314076,
+          "p_value": 0.8535732133933034,
+          "n_observed": 338,
+          "n_simulated": 9,
+          "decision": "PASS",
+          "naive_p_value": 0.6410758468227815,
+          "share_tv_distance": 0.15052178667363963,
+          "effect_size_primary": "share_tv_distance",
+          "cramers_v": 0.06604816979792608,
+          "cramers_v_balanced": 0.22348557030791572,
+          "sim_share_of_items": 0.0223342939481268,
+          "n_items_observed": 1357,
+          "n_items_simulated": 31,
+          "n_categories": 9,
+          "n_permutations": 2000,
+          "permutation_seed": 20260924,
+          "note": "The drawn lists of the 9 cohort visits that did not pay against those of the 338 that did, per category, whole baskets relabelled: which drawn invoices end as paid visits. Disjoint samples; the unpaid side is small, so the test has little power and a pass is not evidence of no selection."
+        }
+      ],
+      "chain": {
+        "n_visits": 347,
+        "n_paying": 338,
+        "n_abandoned": 9,
+        "n_paying_whole_list": 338,
+        "items_drawn_by_paying": 1357,
+        "items_bought_from_list": 1357
+      },
+      "completion": {
+        "share_tv_distance_drawn_vs_bought": 0.0,
+        "n_paying": 338,
+        "note": "within-visit, so described rather than tested: the paying visits' drawn and bought category shares"
+      }
+    },
+    {
+      "rep": 4,
+      "seed": 4004,
+      "load": {
+        "arrivals": 377,
+        "balked": 1,
+        "window_s": 1859.9999999983088,
+        "profile_multiplier": 0.7436628321286776,
+        "offered_rate_per_s": 0.20078896467474294,
+        "door_rate_per_s": 0.20268817204319506,
+        "cohort_visits": 376,
+        "drain_s": 1320.0
+      },
+      "tests": [
+        {
+          "test": "Basket size (items/visit)",
+          "kind": "KS-2sample",
+          "statistic": 0.02948331482362898,
+          "p_value": 0.9114096564404421,
+          "n_observed": 14707,
+          "n_simulated": 360,
+          "decision": "PASS",
+          "note": "Observed = distinct stocked products per invoice; simulated = distinct items per visit. 14,707 of 19,646 invoices hold at least one of the 72 products placed in the shop; the rest are left out."
+        },
+        {
+          "test": "Per-visit revenue",
+          "kind": "KS-2sample",
+          "statistic": 0.043979624215226304,
+          "p_value": 0.49197481832013823,
+          "n_observed": 14707,
+          "n_simulated": 360,
+          "decision": "PASS",
+          "note": "Observed = one unit of each stocked product on an invoice, at the shop's calibrated prices; simulated = one unit of each item a visit bought. 14,707 of 19,646 invoices hold at least one of the 72 products placed in the shop; the rest are left out."
+        },
+        {
+          "test": "Category purchase shares",
+          "kind": "Chi-square, cluster permutation",
+          "statistic": 13.52123318821919,
+          "p_value": 0.3448275862068966,
+          "n_observed": 14707,
+          "n_simulated": 360,
+          "decision": "PASS",
+          "note": "Whole baskets: 14,707 invoices holding at least one of the 72 products placed in the shop against 360 simulated visits that bought one, each reduced to its purchases of those products per category (9 categories; 67,682 reference and 1,643 simulated purchases). Statistic = Pearson chi-square of the 2 x K table of category totals; p from 2,000 random reassignments of the visit / invoice labels (seed 20260924), which move each basket whole. Naive item-level p = 0.0951 (the chi-square(8) tail, which treats every purchase as independent; the reassigned statistics average 1.51 x its null mean). Effect size: the category shares differ by a total-variation distance of 0.035 (Cramer's V = 0.014 at a 2% simulated share of the purchases, 0.046 balanced; V shrinks as the split grows uneven, so it is not read against conventional benchmarks).",
+          "naive_p_value": 0.09512984939665088,
+          "n_permutations": 2000,
+          "permutation_seed": 20260924,
+          "df": 8,
+          "n_categories": 9,
+          "categories": [
+            "Bags & Accessories",
+            "Baking & Decor",
+            "Cards & Stationery",
+            "General Merchandise",
+            "Gifts & Ornaments",
+            "Home & Candles",
+            "Kitchen & Tableware",
+            "Seasonal",
+            "Toys & Games"
+          ],
+          "unreferenced_categories": [],
+          "n_items_observed": 67682,
+          "n_items_simulated": 1643,
+          "clustering_inflation": 1.5072488718283188,
+          "share_tv_distance": 0.035176216916303835,
+          "effect_size_primary": "share_tv_distance",
+          "cramers_v": 0.013965716194450377,
+          "cramers_v_balanced": 0.04590581702516051,
+          "sim_share_of_items": 0.023699963937973315,
+          "items_left_out": 0,
+          "visits_without_placed_item": 0
+        },
+        {
+          "test": "Inter-arrival (time-rescaled) vs. Exp(1)",
+          "kind": "KS-2sample",
+          "statistic": 0.07684951272660295,
+          "p_value": 2.335805085834927e-50,
+          "n_observed": 19341,
+          "n_simulated": 19528,
+          "decision": "FAIL",
+          "note": "Informational, a test of the data rather than the simulator: the dataset's same-day inter-arrival gaps, each divided by the local mean gap the calibrated hour-of-day rate implies (the rate integrated over the gap), against a Poisson reference at the same hourly rates over the same number of trading days. Null: non-homogeneous Poisson process whose rate follows the calibrated hour-of-day profile and is the same on every trading day (the live simulator's arrival law); under it the rescaled gaps are Exp(1). Both sides are stamped at the source's 60 s resolution before rescaling. Rescaled data: mean 0.922, coefficient of variation 1.204 (Exp(1): 1 and 1); a CV above 1 points to a rate that varies between days or to bursts, which the null leaves out.",
+          "null": "non-homogeneous Poisson process whose rate follows the calibrated hour-of-day profile and is the same on every trading day (the live simulator's arrival law)",
+          "rescaled": true,
+          "rescaling": "rate integrated over each gap (time-rescaling)",
+          "timestamp_step_s": 60.0,
+          "n_trading_days": 305,
+          "reference_seed": 0,
+          "n_reference_gaps": 19528,
+          "rescaled_mean": 0.9219749404066166,
+          "rescaled_cv": 1.203943787596012,
+          "reference_rescaled_mean": 0.9739858054456766,
+          "reference_rescaled_cv": 0.9997946902382907,
+          "homogeneous_statistic": 0.0635954707615945,
+          "homogeneous_p_value": 1.918521651041943e-34
+        }
+      ],
+      "list_chain": [
+        {
+          "test": "Drawn lists vs reference invoices",
+          "kind": "Chi-square, cluster permutation",
+          "statistic": 14.765199229650298,
+          "p_value": 0.27786106946526734,
+          "n_observed": 14707,
+          "n_simulated": 376,
+          "decision": "PASS",
+          "naive_p_value": 0.06387506143666,
+          "share_tv_distance": 0.03486129631403087,
+          "effect_size_primary": "share_tv_distance",
+          "cramers_v": 0.01458601955768708,
+          "cramers_v_balanced": 0.0469243206701949,
+          "sim_share_of_items": 0.024769095546173688,
+          "n_items_observed": 67682,
+          "n_items_simulated": 1719,
+          "n_categories": 9,
+          "n_permutations": 2000,
+          "permutation_seed": 20260924,
+          "note": "Every cohort visit's drawn list (the stocked invoice it took at spawn, paying or not) against the reference invoices holding a placed product, per category, whole baskets relabelled."
+        },
+        {
+          "test": "Drawn lists, paying vs unpaid visits",
+          "kind": "Chi-square, cluster permutation",
+          "statistic": 7.490931148087165,
+          "p_value": 0.7331334332833583,
+          "n_observed": 360,
+          "n_simulated": 16,
+          "decision": "PASS",
+          "naive_p_value": 0.4847050670206734,
+          "share_tv_distance": 0.12816734471602015,
+          "effect_size_primary": "share_tv_distance",
+          "cramers_v": 0.06601307514150266,
+          "cramers_v_balanced": 0.16056477220042842,
+          "sim_share_of_items": 0.04421175101803374,
+          "n_items_observed": 1643,
+          "n_items_simulated": 76,
+          "n_categories": 9,
+          "n_permutations": 2000,
+          "permutation_seed": 20260924,
+          "note": "The drawn lists of the 16 cohort visits that did not pay against those of the 360 that did, per category, whole baskets relabelled: which drawn invoices end as paid visits. Disjoint samples; the unpaid side is small, so the test has little power and a pass is not evidence of no selection."
+        }
+      ],
+      "chain": {
+        "n_visits": 376,
+        "n_paying": 360,
+        "n_abandoned": 16,
+        "n_paying_whole_list": 360,
+        "items_drawn_by_paying": 1643,
+        "items_bought_from_list": 1643
+      },
+      "completion": {
+        "share_tv_distance_drawn_vs_bought": 0.0,
+        "n_paying": 360,
+        "note": "within-visit, so described rather than tested: the paying visits' drawn and bought category shares"
+      }
+    }
+  ]
+}

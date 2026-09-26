@@ -137,6 +137,27 @@ class AnalyticsMixin:
         prev_avg = A.get('average_time_in_shop', 0.0)
         A['average_time_in_shop'] = prev_avg + (duration - prev_avg) / n_exited
 
+        # How each exit came about (a tally, read by no decision): unpaid
+        # exits by the route that sent them out -- the spawn-time
+        # abandonment draw, no route left to walk, or anything else -- and
+        # whether the agent had drawn abandonment at all, plus what the
+        # stall detector did to the exited agents. abandoned_carts below
+        # counts every unpaid exit alike; this is what splits it.
+        ex = A.setdefault('exit_routes', defaultdict(int))
+        if cust.has_checked_out:
+            ex['paid'] += 1
+        else:
+            ex['unpaid_' + (getattr(cust, 'exit_route', None) or 'other')] += 1
+            if getattr(cust, 'abandon_cart', False):
+                ex['unpaid_abandon_drawn'] += 1
+        if getattr(cust, 'abandon_cart', False):
+            ex['abandon_drawn'] += 1
+        stalls = int(getattr(cust, 'moving_stalls', 0) or 0)
+        ex['moving_stalls'] += stalls
+        ex['exits_after_moving_stall'] += int(stalls > 0)
+        ex['exit_stall_teleports'] += int(
+            getattr(cust, 'exit_stall_teleports', 0) or 0)
+
         if cust.has_checked_out:
             A['completed_purchases'] += 1
             # visited_items is a set of names, and string-set iteration order
@@ -399,9 +420,11 @@ class AnalyticsMixin:
                 abandon, abandon / exited * 100))
         else:
             lines.append("Cart Abandonment:      {} (n/a)".format(abandon))
-        lines.append("Pre-Optimization Revenue:   ${:.2f}".format(A.get('pre_optimization_revenue', 0.0)))
-        lines.append("Post-Optimization Revenue:  ${:.2f}".format(A.get('post_optimization_revenue', 0.0)))
-        lines.append("Optimization Impact:        {:+.1f}%".format(A.get('optimization_impact', 0.0)))
+        # The Optimize pipeline's live windows, shown as observed. No lift is
+        # taken between them: each is one short run from an empty store;
+        # the projected lift is in the optimization report.
+        lines.append("PRE-window revenue (live):  ${:.2f}".format(A.get('pre_optimization_revenue', 0.0)))
+        lines.append("POST-window revenue (live): ${:.2f}".format(A.get('post_optimization_revenue', 0.0)))
         lines.append("")
 
         floor_visits = A.get('floor_visits', {})

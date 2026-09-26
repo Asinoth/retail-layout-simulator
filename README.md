@@ -23,12 +23,17 @@ is the single source of truth for every literature-derived coefficient.
   from.
 - `CODE/experiments/results/` — the per-run artifacts behind every
   reported number (`results.csv` / `sidecar.json` / `summary.json`).
-- `requirements.txt` — pinned dependencies (Python 3.13.2; numpy/scipy/
-  pandas/matplotlib/openpyxl). Every experiment sidecar and dataset
-  provenance record also stamps the resolved versions at run time.
+- `requirements.txt` — the direct dependencies (numpy/scipy/pandas/
+  matplotlib/openpyxl); `requirements-lock.txt` pins their whole resolved
+  closure as the experiments ran it (CPython 3.13.2, Windows on AMD64).
+  Every experiment sidecar and dataset provenance record stamps the
+  resolved versions at run time and checks them against the lock.
 
-The manuscript source and its generated macro file are withheld while the
-paper is under submission and are added on publication.
+The manuscript source is withheld while the paper is under submission. Its
+generated macro file (`paper_results_macros.tex`) and budget table
+(`paper_table_budgets.tex`) accompany the submission as supplementary
+material; `make macros` regenerates both from the artifacts shipped here,
+byte for byte.
 
 ## Reproduce
 
@@ -37,15 +42,18 @@ Cross-platform driver: `make <target>` (Unix/macOS) or
 
 ```bash
 make deps        # pip install -r requirements.txt
-make test        # 233 pytest cases: MC engine vs closed form, Markov
-                 #   properties, elasticity monotonicity, layout
-                 #   feasibility and repair parity, GA determinism,
-                 #   fixed-step determinism, fixture obstacles, the
-                 #   arrival loop, calibrated rates, worker invariance,
-                 #   invoice-drawn shopping lists, the basket-level
-                 #   category test and its replica yardstick, common
-                 #   search starts, the weight sweep, dataset discovery
-                 #   and the search-seed replication
+make deps-lock   # pip install -r requirements-lock.txt (the exact environment)
+make test        # 896 pytest cases: the Monte Carlo engine against its
+                 #   closed-form mean, the anchored layout objective,
+                 #   layout feasibility and the floor-plan invariants,
+                 #   GA and fixed-step determinism, worker-count
+                 #   invariance, fixture obstacles, the arrival process,
+                 #   calibrated rates, invoice-drawn shopping lists, the
+                 #   goodness-of-fit tests and their replica yardstick,
+                 #   common search starts and equal budgets, the weight
+                 #   sweep, the coefficient registry, the macro
+                 #   generator's artifact checks and every runner's
+                 #   summary
 make verify      # architecture invariants (7 shop types x 5 sizes x 3
                  #   seeds, non-overlapping zones, aisle clearances,
                  #   keepouts, flood-fill reachability through item
@@ -80,14 +88,14 @@ this repository, so here that step prints a one-line notice and succeeds;
 everything before it — the experiments, the figures and the macro file —
 runs from this repository alone.
 
-The deterministic experiments (Figures A/B/C, the elasticity sweep, the
-Monte Carlo ground truth, the GA sensitivity sweep) take about three
-hours on four workers and accept `--workers N` to run independent scenarios in
-parallel; the output is identical for any worker count. The live
-diagnostics (`run_abm_diagnostics`, `run_structural_sensitivity`,
-`measure_queueing`, `run_validation_gof`) run the agent model in a seeded
-fixed-step headless mode, so they are reproducible from their seeds and
-also worker-count invariant, and take minutes rather than hours.
+The runs behind the shipped numbers took under seven hours of wall time
+in all (table below). Runners that take `--workers N` spread independent
+scenarios, seeds or replications over N processes. Every runner whose
+worker-count invariance is tested (`CODE/tests/test_runner_workers.py`,
+`test_live_runner_workers.py` and the per-runner tests) gives identical
+output at any N; the live protocol study takes `--workers` but has no such
+test. The live runners run the agent model in a seeded fixed-step headless
+mode, so they reproduce from their seeds whatever the host's speed.
 
 Two variables tune the driver — `WORKERS` and `RETAIL` for `make`,
 `-Workers` and `-Retail` for `reproduce.ps1`:
@@ -107,28 +115,38 @@ A relative `RETAIL` path is taken from `CODE/`, where the runners run.
 
 ### Compute budget
 
-Wall time of each run behind the shipped numbers, all run one after another
-at four workers from the same committed tree on the authors' Windows 11
-workstation. Times come from each run's `sidecar.json` where it records
-one, otherwise from the start and end of the run:
+Wall time of each run behind the shipped numbers, from its `sidecar.json`,
+run one at a time on the authors' workstation (Intel Core i7-10700KF,
+16 logical processors, 16 GB of memory, Windows 11). Runners without a
+`--workers` option run in one process:
 
 | Experiment | Runner | Workers | Wall time |
 |---|---|---|---|
-| Figure A — regret and objective agreement | `run_synthetic_gt` | 4 | 34 min |
-| Figure B — method comparison | `run_baseline_comparison` | 4 | 2 h 15 min |
-| Figure C — UCI worked example | `run_real_data_example` | 1 (no `--workers`) | 2 min |
-| MC-objective ground truth | `run_mc_groundtruth` | 4 | 14 min |
-| GA operator sensitivity | `run_ga_sensitivity` | 1 (no `--workers`) | 12 min |
-| Elasticity and weight sweeps | `run_elasticity_lhs` | 4 | 2 min |
+| Recovery and objective agreement | `run_synthetic_gt` | 4 | 39 min |
+| Method comparison | `run_baseline_comparison` | 4 | 2 h 23 min |
+| Monte Carlo ground truth | `run_mc_groundtruth` | 4 | 19 min |
+| GA operator and annealer sweeps | `run_ga_sensitivity` | 4 | 43 min |
+| Elasticity and weight sweeps | `run_elasticity_lhs` | 4 | 3 min |
+| Objective alignment | `run_objective_alignment` | 4 | 1 min |
+| Paper figures (realized scores) | `make_paper_figures` | 1 | 2 min |
+| Live protocol study | `run_live_protocol_study` | 4 | 1 h 1 min |
 | Markov order and perimeter ratio (live) | `run_abm_diagnostics` | 4 | 3 min |
 | Structural sweep (live) | `run_structural_sensitivity` | 4 | 5 min |
-| Queueing (live) | `measure_queueing` | 4 | 5 min |
-| Goodness of fit, in-sample and held-out (live) | `run_validation_gof` | 4 | 5 min |
-| Figure C across ten search seeds | `run_real_data_seeds` | 4 | 6 min |
+| Structural sweep's exit-route check (live) | `run_structural_exit_check` | 1 | 7 min |
+| Queueing (live) | `measure_queueing` | 4 | 4 min |
+| Goodness of fit, in sample and held out (live) | `run_validation_gof` | 4 | 2 min |
+| Emergent heat map (live) | `make_heatmap_figure` | 1 | 1 min |
+| UCI worked example | `run_real_data_example` | 1 | 2 min |
+| UCI example without anonymous invoices | `run_real_data_example --exclude-anonymous` | 1 | 2 min |
+| UCI example re-scored in closed form | `run_figc_rescore` | 1 | under 1 min |
+| UCI example across ten search seeds | `run_real_data_seeds` | 4 | 6 min |
+| UCI budget sweep | `run_real_data_budget` | 4 | 43 min |
+| UCI input uncertainty | `run_input_uncertainty` | 4 | 9 min |
+| UCI held-out transfer | `run_heldout_transfer` | 4 | 6 min |
+| UCI calendar profile | `profile_uci` | 1 | 1 min |
 
-About three and a half hours in all. Times are machine-dependent; outputs
-are not: they follow from the seeds, not from the host's speed or the
-worker count.
+Times are machine-dependent; outputs follow from the seeds, not from the
+host's speed.
 
 ### Provenance of the shipped artifacts
 
@@ -141,11 +159,10 @@ this is how they map onto the release:
 
 | Recorded commit | Runs | Code relative to this release |
 |---|---|---|
-| `df2317c` | goodness of fit | identical |
-| `cdff891` | ABM diagnostics, structural sweep, queueing | differs only in `run_validation_gof.py` (adds the size-matched replicas), `make_results_macros.py` and the added `tests/test_gof_replicas.py`, none of which those runs use |
-| `4ac7843` | Figure C across search seeds | differs in those files and in the live agents' shopping-list law and category test (`customer.py`, `dataset_calibration.py`, `dataset_validation.py`, `retail_literature.py`, `sim_analytics.py`, `viz_edit.py`, `experiments/_live_store.py`), in the four live runners and in three further test files. The run seeds its store's calibration through `dataset_calibration.py`, whose new entries only the live agents read; its Monte Carlo search runs no agents, and Figure C re-run from this release reproduces its `results.csv` byte for byte |
-| `f18e38f` | MC ground truth | differs in all of the above and in `run_real_data_example.py` (split into reusable steps; its outputs are byte-identical for the same arguments) and the added `run_real_data_seeds.py` and its test. The run reads `retail_literature.py` only for constants this release leaves unchanged (it removes the two old shopping-list constants) and uses none of the other files |
-| `1292e1e` | Figures A, B and C, the elasticity and weight sweeps, the GA sensitivity sweep, the paper figures | differs in all of the above and in `run_mc_groundtruth.py`. Figure C uses its runner and the calibration seeding, and re-running it from this release reproduces its `results.csv` byte for byte; the synthetic-scenario runs read `retail_literature.py` only for unchanged constants and use none of the other files |
+| `768bd66` | UCI calendar profile | differs only in the added `tests/test_profile_uci.py` |
+| `e14bf23` | structural sweep's exit-route check, the UCI layout figure | differs only in comments and labels of `retail_literature.py` (no value changes), comments of `run_elasticity_lhs.py` and `run_real_data_example.py`, the macro generator, the added `profile_uci.py`, the tests and the `Makefile` / `reproduce.ps1` targets; neither run executes the changed code |
+| `0f895e6` | UCI example re-scored in closed form | differs in the files listed for `e14bf23`, in `run_structural_sensitivity.py` (writes the exit-route tally to its summary) and in the added `run_structural_exit_check.py`; the re-scoring executes none of them |
+| `8129169` | every other run | differs in the files above, in `figstyle.py` (adds the layout figure's print width) and in exit-route bookkeeping: `customer.py` records why an unpaid agent left and `sim_analytics.py` tallies it, which `run_structural_sensitivity.py` now writes to its summary. Nothing reads the record to decide anything and it draws no random number; the exit-route check re-ran two replications of every setting of the structural sweep from `e14bf23` and reproduced the sweep's counts and revenue exactly. The added runners (`run_figc_rescore.py`, `run_structural_exit_check.py`, `make_layout_figure.py`, `profile_uci.py`) are used by no run of this commit |
 
 Re-running any runner from this release therefore reproduces its shipped
 artifact (see *Determinism* below).
@@ -203,11 +220,13 @@ trajectories; walking-speed and dwell distributions.
 
 ### Notes
 
-- **GUI figures** (`figs/gui_layout.png`, `gui_simulation.png`,
-  `emergent_heatmap.png`) require a live Tk display and are regenerated
-  separately by `cd CODE && python make_gui_figures.py` on a machine with
-  a desktop; `make figures-headless` produces everything else, including
-  the floor-plan previews.
+- **GUI figures** (`figs/gui_layout.png`, `gui_simulation.png`) require
+  a live Tk display and are regenerated separately by
+  `cd CODE && python make_gui_figures.py` on a machine with a desktop; no
+  reported number or paper figure comes from them. The emergent heat map
+  is drawn headless from a seeded run (`experiments.make_heatmap_figure`),
+  and `make figures-headless` produces the rest, including the floor-plan
+  previews.
 - **Determinism.** Every headless path — the experiment runners and the
   fixed-step live simulation — reproduces bit-identically from its seeds
   on a single machine. The interactive GUI runs a simulation worker thread

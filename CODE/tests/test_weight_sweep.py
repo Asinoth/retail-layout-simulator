@@ -18,10 +18,11 @@ from synthetic_shops import generate_synthetic_shop
 from baselines import random_valid, popularity_rank
 from experiments._common import (build_headless_shop, base_params_for,
                                  feasible_layout, layout_to_chromosome)
+from layout_objective import with_zero_anchor
 from experiments.run_elasticity_lhs import (
     COMPARATORS, DEFAULT_SPATIAL_WEIGHTS, ELASTICITY_MIDPOINTS,
     RECOMPOSE_TOL, SPATIAL_CRITERIA, SPATIAL_TOTAL, WEIGHT_COLUMNS,
-    check_recomposition, draw_spatial_weights, projected_horizon_revenue,
+    check_recomposition, draw_spatial_weights, horizon_revenue,
     recompose_score, weight_sweep_lifts, weight_sweep_summary)
 
 
@@ -32,7 +33,10 @@ def _scored_layouts(seed=10_000, n_items=10):
     ss = generate_synthetic_shop(name='weights', seed=seed, n_items=n_items)
     shop = build_headless_shop(ss)
     names = [it.name for it in ss.items]
-    bp = base_params_for(ss)
+    # The zero anchor, asked for explicitly: these tests pin the
+    # recomposition itself, which is the same under any anchor (the
+    # anchored sweeps are tested in tests/test_effective_weights.py).
+    bp = with_zero_anchor(base_params_for(ss))
     as_built = {n: tuple(shop.floors[1]['items'][n]['position'])
                 for n in names}
     layouts = [as_built,
@@ -131,14 +135,13 @@ def test_sweep_lifts_at_default_weights_match_projection():
                       (0.8, 0.0, 0.0, 0.0, 0.0),
                       (0.0, 0.0, 0.8, 0.0, 0.0)])
     lifts = weight_sweep_lifts(scores, draws, bp)
-    mid = (ELASTICITY_MIDPOINTS['conv'], ELASTICITY_MIDPOINTS['imp'],
-           ELASTICITY_MIDPOINTS['bsk'])
-    rev = {k: projected_horizon_revenue(s, b, bp, *mid)
+    rev = {k: horizon_revenue(s, b, bp, dict(ELASTICITY_MIDPOINTS))
            for k, (s, b) in scores.items()}
     # Off the default weights, each lift is the projection of the
     # RECOMPOSED composite with the breakdown untouched, so impulse and
-    # abandonment still read their own sub-scores.
-    rev_w = [{k: projected_horizon_revenue(recompose_score(b, w), b, bp, *mid)
+    # abandonment still read their own sub-scores. These parameters carry
+    # the explicit zero anchor, which stays zero under every weighting.
+    rev_w = [{k: horizon_revenue(recompose_score(b, w), b, bp)
               for k, (_, b) in scores.items()} for w in draws]
     for m in COMPARATORS:
         at_default, swept = lifts[m]

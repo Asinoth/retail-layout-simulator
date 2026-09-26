@@ -7,6 +7,8 @@ spy on the reader, which is how the tests see that the current period is
 every row the reader returns and that each sheet is read once however many
 times a period is asked for.
 """
+import os
+
 import numpy as np
 import pytest
 
@@ -83,8 +85,56 @@ def store():
         again = {p: LS.calibrate_live_store(path, p) for p in LS.PERIODS}
         records = {p: LS.period_record(path, p) for p in LS.PERIODS}
     yield {'sheets': sheets, 'reads': reads, 'first': first, 'again': again,
-           'records': records}
+           'records': records, 'path': path}
     LS.clear_cache()
+
+
+def test_period_record_identifies_the_source(store):
+    """Every live family records the workbook's SHA-256, the adapter and
+    reader versions and what the cleaning removed (review R51, R27)."""
+    import hashlib
+    with open(store['path'], 'rb') as f:
+        sha = hashlib.sha256(f.read()).hexdigest()
+    for period in LS.PERIODS:
+        rec = store['records'][period]
+        assert rec['source_sha256'] == sha
+        assert rec['source_bytes'] == os.path.getsize(store['path'])
+        assert rec['adapter_name'] == DA.OnlineRetailIIAdapter.name
+        assert rec['adapter_version'] == DA.OnlineRetailIIAdapter.version
+        assert rec['reader_version'] == DA.READER_VERSION
+        c = rec['cleaning']
+        assert c['reversal_pairs'] > 0
+        assert c['cancellation_lines'] == (
+            c['reversal_pairs'] + c['cancellation_lines_anonymous']
+            + c['cancellation_lines_unmatched'])
+        assert 0.0 < rec['anonymous_invoice_frac'] < 1.0
+        assert rec['n_anonymous_invoices'] > 0
+        # The live store keeps them, and says so where a headline
+        # validator looks.
+        assert rec['exclude_anonymous'] is False
+        # The frame a runner may recalibrate is the one calibrated here.
+        assert len(LS.period_frame(store['path'], period)) == \
+            rec['rows_calibrated']
+        # The calibrated rates the paper sets the live load against, and
+        # the assortment rule (review R04, R34).
+        params = store['first'][period]
+        assert rec['arrivals_per_hour'] == params.arrivals_per_hour > 0
+        assert rec['visitors_per_hour'] == pytest.approx(
+            rec['arrivals_per_hour'] / rec['assumed_conversion_rate'])
+        assert rec['max_items_per_category'] == LS.MAX_ITEMS_PER_CATEGORY
+        assert rec['naive_layout'] is LS.NAIVE_LAYOUT
+
+
+def test_source_fields_hash_the_file(tmp_path):
+    import hashlib
+    book = tmp_path / 'book.xlsx'
+    book.write_bytes(b'not really a workbook')
+    fields = LS._source_fields(str(book))
+    assert fields['source_sha256'] == hashlib.sha256(
+        b'not really a workbook').hexdigest()
+    assert fields['source_bytes'] == len(b'not really a workbook')
+    assert fields['adapter_version'] == DA.OnlineRetailIIAdapter.version
+    LS._SOURCE_CACHE.pop(LS._key_path(str(book)), None)
 
 
 def test_periods_are_disjoint_and_non_empty(store):
@@ -100,7 +150,17 @@ def test_periods_are_disjoint_and_non_empty(store):
     assert pri['last_timestamp'] < cur['first_timestamp']
     assert pri['last_date'] < cur['first_date']
     assert pri['n_invoices_shared_with_current'] == 0
-    assert pri['rows_calibrated'] < pri['rows_adapted']
+    # The cut is made on the raw rows, before cleaning; the whole-invoice
+    # guard after it removes nothing (one timestamp per invoice).
+    assert pri['rows_before_cut'] < pri['rows_in']
+    assert pri['rows_adapted'] <= pri['rows_before_cut']
+    assert pri['rows_calibrated'] == pri['rows_adapted']
+    assert pri['n_invoices_dropped_at_cut'] > 0
+    # Purchases a current-period cancellation reverses stay in the prior
+    # period, and are counted.
+    across = pri['reversals_across_cut']
+    assert across['purchase_lines'] > 0 and across['revenue'] > 0
+    assert 'reversals_across_cut' not in cur
 
 
 def test_current_period_is_the_whole_last_sheet(store):
@@ -123,3 +183,84 @@ def test_each_sheet_is_read_once(store):
 def test_unknown_period_is_refused():
     with pytest.raises(ValueError):
         LS.calibrate_live_store(None, 'next_year')
+
+
+# --- The prior period's cut comes before cleaning --------------------------
+
+_COLS = ['Invoice', 'StockCode', 'Description', 'Quantity', 'InvoiceDate',
+         'Price', 'Customer ID', 'Country']
+
+
+def _sheet_rows(dates, first_invoice):
+    """Two-product invoices of three customers, one per date."""
+    rows = []
+    for i, d in enumerate(dates):
+        inv = str(first_invoice + i)
+        rows.append([inv, '85123A', 'WHITE HANGING HEART', 6, d, 2.55,
+                     17850 + i % 3, 'UK'])
+        rows.append([inv, '22423', 'REGENCY CAKESTAND', 2, d, 12.75,
+                     17850 + i % 3, 'UK'])
+    return rows
+
+
+def test_a_later_cancellation_does_not_reach_into_the_prior_period(tmp_path):
+    """Cleaning the whole prior sheet before the cut let a cancellation
+    dated in the current period remove the purchase it reverses from the
+    prior period. The cut is now made on the raw rows, so the prior period
+    keeps that purchase (it was visible at the cut) and counts it, while a
+    reversal inside the prior period is still removed."""
+    import pandas as pd
+
+    current = _sheet_rows([f'2010-12-0{d} 10:00' for d in (1, 2, 3, 6)],
+                          700000)
+    prior = _sheet_rows([f'2010-11-{d} 10:00' for d in (15, 16, 17, 18)],
+                        690000) + [
+        # Bought before the cut, cancelled after it.
+        ['690100', '21212', 'PACK OF CAKE CASES', 24, '2010-11-25 09:00',
+         0.55, 12345, 'UK'],
+        ['C700100', '21212', 'PACK OF CAKE CASES', -24, '2010-12-02 09:00',
+         0.55, 12345, 'UK'],
+        # Bought and cancelled before the cut.
+        ['690200', '22423', 'REGENCY CAKESTAND', 5, '2010-11-20 09:00',
+         12.75, 12346, 'UK'],
+        ['C690201', '22423', 'REGENCY CAKESTAND', -5, '2010-11-22 09:00',
+         12.75, 12346, 'UK'],
+        # The sheets overlap: a current-period invoice repeated here.
+        *[r for r in current if r[0] == '700000'],
+    ]
+    sheets = {'Year A': pd.DataFrame(prior, columns=_COLS),
+              'Year B': pd.DataFrame(current, columns=_COLS)}
+    book = tmp_path / 'book.xlsx'
+    book.write_bytes(b'stand-in workbook')
+
+    LS.clear_cache()
+    try:
+        with pytest.MonkeyPatch.context() as mp:
+            mp.setattr(DA, 'list_excel_sheets',
+                       lambda f: [(n, len(df)) for n, df in sheets.items()])
+            mp.setattr(DA, 'read_excel_sheets',
+                       lambda f, names: (pd.concat(
+                           [sheets[n] for n in names], ignore_index=True),
+                           []))
+            rec = LS.period_record(str(book), 'prior')
+            frame = LS.period_frame(str(book), 'prior')
+    finally:
+        LS.clear_cache()
+
+    kept = set(zip(frame['invoice_id'], frame['product_id']))
+    assert ('690100', '21212') in kept           # cancelled after the cut
+    assert ('690200', '22423') not in kept       # cancelled before it
+    assert not frame['invoice_id'].str.startswith('C').any()
+    assert '700000' not in set(frame['invoice_id'])
+    assert rec['cut_before'] == '2010-12-01'
+    assert rec['rows_in'] == len(prior)
+    assert rec['rows_before_cut'] == len(prior) - 3   # C700100 + overlap
+    assert rec['rows_calibrated'] == rec['rows_adapted'] == len(frame)
+    # Only the pair inside the prior period was cleaned out.
+    assert rec['cleaning']['cancellation_lines'] == 1
+    assert rec['cleaning']['reversal_pairs'] == 1
+    assert rec['reversals_across_cut'] == {
+        'purchase_lines': 1, 'invoices': 1, 'units': 24.0,
+        'revenue': pytest.approx(24 * 0.55)}
+    assert rec['n_invoices_dropped_at_cut'] == 1       # the overlap invoice
+    assert rec['n_invoices_shared_with_current'] == 0

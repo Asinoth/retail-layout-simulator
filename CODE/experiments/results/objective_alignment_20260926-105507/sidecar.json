@@ -1,0 +1,2381 @@
+{
+  "git_sha": "81291699f516557f73f311759e422aec7e75b88c",
+  "git_dirty": false,
+  "git_diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "git_modified": [],
+  "git_untracked_py": [],
+  "git_state_changed_during_run": false,
+  "python": "3.13.2",
+  "platform": "Windows-11-10.0.26200-SP0",
+  "packages": {
+    "charset-normalizer": "3.4.1",
+    "colorama": "0.4.6",
+    "contourpy": "1.3.2",
+    "cycler": "0.12.1",
+    "et-xmlfile": "2.0.0",
+    "fonttools": "4.57.0",
+    "iniconfig": "2.3.0",
+    "kiwisolver": "1.4.8",
+    "matplotlib": "3.10.1",
+    "numpy": "2.2.4",
+    "openpyxl": "3.1.5",
+    "packaging": "24.2",
+    "pandas": "2.2.3",
+    "pillow": "11.1.0",
+    "pluggy": "1.6.0",
+    "pygments": "2.19.1",
+    "pyparsing": "3.2.3",
+    "pytest": "9.0.3",
+    "python-dateutil": "2.9.0.post0",
+    "pytz": "2025.1",
+    "reportlab": "4.5.1",
+    "scipy": "1.15.3",
+    "six": "1.17.0",
+    "tzdata": "2025.1"
+  },
+  "requirements_lock": {
+    "path": "requirements-lock.txt",
+    "sha256": "99c94518459504dc1b54070797fa973f89fbbab5c8e21208db4dd60a031a6950",
+    "resolved_on": {
+      "python": "3.13.2",
+      "system": "Windows",
+      "machine": "AMD64"
+    },
+    "same_platform": true,
+    "matches_environment": true,
+    "mismatches": [],
+    "unpinned": [],
+    "exact": true
+  },
+  "hardware": {
+    "cpu_count": 16,
+    "processor": "Intel64 Family 6 Model 165 Stepping 5, GenuineIntel",
+    "machine": "AMD64",
+    "ram_gib": 15.9
+  },
+  "iso_time": "2026-09-26T10:56:22",
+  "elasticities": {
+    "GA_weights": {
+      "traffic": 0.16,
+      "cross_merch": 0.16,
+      "impulse": 0.16,
+      "flow": 0.16,
+      "revenue_placement": 0.16,
+      "section_compliance": 0.16,
+      "accessibility": 0.04,
+      "overlap_penalty": 0.8,
+      "bottleneck_penalty": 0.2
+    },
+    "ELASTICITY_CONV_BASE": 0.2,
+    "ELASTICITY_CONV_GAIN_MAX": 0.3,
+    "ELASTICITY_IMP_BASE": 0.3,
+    "ELASTICITY_IMP_GAIN_MAX": 0.4,
+    "ELASTICITY_BSK_BASE": 0.1,
+    "ELASTICITY_BSK_GAIN_MAX": 0.2,
+    "anchoring": "difference from base_params[\"score_anchor\"]",
+    "objective_constants": {
+      "ABANDON_FLOW_COEF": 0.4,
+      "ABANDON_SECTION_COEF": 0.2,
+      "ABANDON_BOTTLENECK_COEF": 0.5,
+      "ABANDON_FLOOR_FRAC": 0.3,
+      "CONV_CLAMP_LO": 0.01,
+      "CONV_CLAMP_HI": 0.99,
+      "IMPULSE_RATE_CLAMP_HI": 0.99,
+      "ABANDON_RATE_CLAMP_HI": 0.5,
+      "ABANDON_BASE_CAP": 0.95,
+      "NET_BASE_REVENUE_MIN_FRAC": 0.05,
+      "QUEUE_BOTTLENECK_FACTOR": 0.3,
+      "QUEUE_PENALTY_SLOPE": 0.15,
+      "QUEUE_PENALTY_FLOOR": 0.85,
+      "DEFAULT_QUEUE_TIME_S": 5.0,
+      "ASSUMED_CONVERSION_RATE": 0.3,
+      "IMPULSE_RATE_STANDIN": 0.2,
+      "IMPULSE_VALUE_FRAC_OF_GROSS": 0.15,
+      "IMPULSE_VALUE_CV": 0.3,
+      "REV_STD_FRAC_OF_MEAN": 0.35,
+      "ABANDON_RATE_SYNTHETIC": 0.05,
+      "ABANDON_FRAC_OF_NONCONVERTERS": 0.1,
+      "STANDIN_AVG_BASKET": 3.0,
+      "STANDIN_STD_BASKET": 1.0,
+      "HEAT_PRIOR_SYNTH_ENTRANCE": 5.0,
+      "HEAT_PRIOR_SYNTH_CHECKOUT": 3.0,
+      "HEAT_PRIOR_CAL_ENTRANCE": 3.0,
+      "HEAT_PRIOR_CAL_CHECKOUT": 2.0,
+      "HEAT_PRIOR_CAL_WALL": 1.5,
+      "HEAT_PRIOR_WALL_MIN_D": 0.1,
+      "DEFAULT_OP_HOURS_PER_DAY": 10.0,
+      "DEFAULT_WEEKEND_MULTIPLIER": 1.4,
+      "DEFAULT_DAY_NOISE_STD": 0.08,
+      "MC_LAMBDA_FLOOR": 0.1,
+      "MC_LAMBDA_CAP": 1000000.0,
+      "MC_CONV_CLAMP_LO": 0.001,
+      "MC_CONV_CLAMP_HI": 0.999,
+      "MC_SD_FLOOR": 0.01,
+      "MC_SPEND_LAW": "lognormal_moment_matched",
+      "SYNTH_DETOUR_ELASTICITY_RANGE": [
+        0.3,
+        0.5
+      ],
+      "SYNTH_DETOUR_ELASTICITY_DEFAULT": 0.4,
+      "SYNTH_IMPULSE_ELASTICITY_RANGE": [
+        0.4,
+        0.7
+      ],
+      "SYNTH_IMPULSE_ELASTICITY_DEFAULT": 0.5,
+      "SYNTH_PERIMETER_ELASTICITY_RANGE": [
+        0.15,
+        0.3
+      ],
+      "SYNTH_PERIMETER_ELASTICITY_DEFAULT": 0.2,
+      "SYNTH_AFFINITY_RANGE": [
+        0.1,
+        0.3
+      ],
+      "SYNTH_AFFINITY_DENSITY": 0.15,
+      "SYNTH_DAILY_CUSTOMERS": 200.0
+    }
+  },
+  "experiment": "objective_alignment",
+  "args": {
+    "n_scenarios": 30,
+    "n_items": 10,
+    "n_samples": 100,
+    "horizon_days": 30,
+    "n_gens": 25,
+    "pop_size": 30,
+    "ga_seed": 0,
+    "oracle_restarts": 96,
+    "wall_coef": 1.5,
+    "workers": 4,
+    "out_root": "CODE/experiments/results"
+  },
+  "wall_seconds": 74.77995259999989,
+  "workers": 4,
+  "base_params": {
+    "0": {
+      "as_now": {
+        "customers_per_hour": 20.0,
+        "conversion_rate": 0.3,
+        "rev_per_converting_customer": 26.44852639839607,
+        "rev_per_customer_gross": 26.740076659877452,
+        "rev_std": 9.359026830957108,
+        "impulse_rate": 0.2,
+        "avg_impulse_value": 1.4577513074069124,
+        "avg_basket_size": 3.0,
+        "std_basket_size": 1.0,
+        "basket_sizes_observed": {
+          "n": 30,
+          "mean": 3.0,
+          "std": 0.0,
+          "sha256": "11f8bf9dfc27fec904ef369ec4012a6b30c709bf2a18265b8b87989ad921b8c7"
+        },
+        "abandonment_rate": 0.05,
+        "avg_queue_time": 5.0,
+        "score_anchor": {
+          "score": 0.5502475597713978,
+          "breakdown": {
+            "traffic": 0.1387159488396627,
+            "cross_merch": 0.6807625250211204,
+            "impulse": 0.7820208343019103,
+            "flow": 0.7053863221444892,
+            "revenue_placement": 0.0287155248827287,
+            "bottleneck_penalty": 0.0,
+            "section_compliance": 1.0,
+            "accessibility": 0.4137843735253018,
+            "overlap_penalty": 0.0,
+            "composite": 0.5502475597713978
+          },
+          "source": "as_built_repaired"
+        }
+      },
+      "wall_aligned": {
+        "customers_per_hour": 20.0,
+        "conversion_rate": 0.3,
+        "rev_per_converting_customer": 26.44852639839607,
+        "rev_per_customer_gross": 26.740076659877452,
+        "rev_std": 9.359026830957108,
+        "impulse_rate": 0.2,
+        "avg_impulse_value": 1.4577513074069124,
+        "avg_basket_size": 3.0,
+        "std_basket_size": 1.0,
+        "basket_sizes_observed": {
+          "n": 30,
+          "mean": 3.0,
+          "std": 0.0,
+          "sha256": "11f8bf9dfc27fec904ef369ec4012a6b30c709bf2a18265b8b87989ad921b8c7"
+        },
+        "abandonment_rate": 0.05,
+        "avg_queue_time": 5.0,
+        "score_anchor": {
+          "score": 0.5596889914873987,
+          "breakdown": {
+            "traffic": 0.18067362779026389,
+            "cross_merch": 0.6807625250211204,
+            "impulse": 0.7820208343019103,
+            "flow": 0.7053863221444892,
+            "revenue_placement": 0.04576679415713256,
+            "bottleneck_penalty": 0.0,
+            "section_compliance": 1.0,
+            "accessibility": 0.4137843735253018,
+            "overlap_penalty": 0.0,
+            "composite": 0.5596889914873987
+          },
+          "source": "as_built_repaired"
+        }
+      }
+    },
+    "1": {
+      "as_now": {
+        "customers_per_hour": 20.0,
+        "conversion_rate": 0.3,
+        "rev_per_converting_customer": 38.879330961836956,
+        "rev_per_customer_gross": 40.03934256326839,
+        "rev_std": 14.013769897143936,
+        "impulse_rate": 0.2,
+        "avg_impulse_value": 5.800058007157185,
+        "avg_basket_size": 3.0,
+        "std_basket_size": 1.0,
+        "basket_sizes_observed": {
+          "n": 30,
+          "mean": 3.0,
+          "std": 0.0,
+          "sha256": "11f8bf9dfc27fec904ef369ec4012a6b30c709bf2a18265b8b87989ad921b8c7"
+        },
+        "abandonment_rate": 0.05,
+        "avg_queue_time": 5.0,
+        "score_anchor": {
+          "score": 0.5527176089898208,
+          "breakdown": {
+            "traffic": 0.1387159488396627,
+            "cross_merch": 0.7127168241276837,
+            "impulse": 0.7820208343019103,
+            "flow": 0.6946747123333327,
+            "revenue_placement": 0.024946150491497877,
+            "bottleneck_penalty": 0.0,
+            "section_compliance": 1.0,
+            "accessibility": 0.4056423443691736,
+            "overlap_penalty": 0.0,
+            "composite": 0.5527176089898208
+          },
+          "source": "as_built_repaired"
+        }
+      },
+      "wall_aligned": {
+        "customers_per_hour": 20.0,
+        "conversion_rate": 0.3,
+        "rev_per_converting_customer": 38.879330961836956,
+        "rev_per_customer_gross": 40.03934256326839,
+        "rev_std": 14.013769897143936,
+        "impulse_rate": 0.2,
+        "avg_impulse_value": 5.800058007157185,
+        "avg_basket_size": 3.0,
+        "std_basket_size": 1.0,
+        "basket_sizes_observed": {
+          "n": 30,
+          "mean": 3.0,
+          "std": 0.0,
+          "sha256": "11f8bf9dfc27fec904ef369ec4012a6b30c709bf2a18265b8b87989ad921b8c7"
+        },
+        "abandonment_rate": 0.05,
+        "avg_queue_time": 5.0,
+        "score_anchor": {
+          "score": 0.5619496344129926,
+          "breakdown": {
+            "traffic": 0.18067362779026389,
+            "cross_merch": 0.7127168241276837,
+            "impulse": 0.7820208343019103,
+            "flow": 0.6946747123333327,
+            "revenue_placement": 0.0406886304357205,
+            "bottleneck_penalty": 0.0,
+            "section_compliance": 1.0,
+            "accessibility": 0.4056423443691736,
+            "overlap_penalty": 0.0,
+            "composite": 0.5619496344129926
+          },
+          "source": "as_built_repaired"
+        }
+      }
+    },
+    "2": {
+      "as_now": {
+        "customers_per_hour": 20.0,
+        "conversion_rate": 0.3,
+        "rev_per_converting_customer": 33.5596233215267,
+        "rev_per_customer_gross": 34.08171124709463,
+        "rev_std": 11.92859893648312,
+        "impulse_rate": 0.2,
+        "avg_impulse_value": 2.610439627839642,
+        "avg_basket_size": 3.0,
+        "std_basket_size": 1.0,
+        "basket_sizes_observed": {
+          "n": 30,
+          "mean": 3.0,
+          "std": 0.0,
+          "sha256": "11f8bf9dfc27fec904ef369ec4012a6b30c709bf2a18265b8b87989ad921b8c7"
+        },
+        "abandonment_rate": 0.05,
+        "avg_queue_time": 5.0,
+        "score_anchor": {
+          "score": 0.5545688194265728,
+          "breakdown": {
+            "traffic": 0.1387159488396627,
+            "cross_merch": 0.7189284306752719,
+            "impulse": 0.7820208343019103,
+            "flow": 0.6946747123333327,
+            "revenue_placement": 0.026816536733657564,
+            "bottleneck_penalty": 0.0,
+            "section_compliance": 1.0,
+            "accessibility": 0.4195946341289789,
+            "overlap_penalty": 0.0,
+            "composite": 0.5545688194265728
+          },
+          "source": "as_built_repaired"
+        }
+      },
+      "wall_aligned": {
+        "customers_per_hour": 20.0,
+        "conversion_rate": 0.3,
+        "rev_per_converting_customer": 33.5596233215267,
+        "rev_per_customer_gross": 34.08171124709463,
+        "rev_std": 11.92859893648312,
+        "impulse_rate": 0.2,
+        "avg_impulse_value": 2.610439627839642,
+        "avg_basket_size": 3.0,
+        "std_basket_size": 1.0,
+        "basket_sizes_observed": {
+          "n": 30,
+          "mean": 3.0,
+          "std": 0.0,
+          "sha256": "11f8bf9dfc27fec904ef369ec4012a6b30c709bf2a18265b8b87989ad921b8c7"
+        },
+        "abandonment_rate": 0.05,
+        "avg_queue_time": 5.0,
+        "score_anchor": {
+          "score": 0.563921344036726,
+          "breakdown": {
+            "traffic": 0.18067362779026389,
+            "cross_merch": 0.7189284306752719,
+            "impulse": 0.7820208343019103,
+            "flow": 0.6946747123333327,
+            "revenue_placement": 0.04331213659651415,
+            "bottleneck_penalty": 0.0,
+            "section_compliance": 1.0,
+            "accessibility": 0.4195946341289789,
+            "overlap_penalty": 0.0,
+            "composite": 0.563921344036726
+          },
+          "source": "as_built_repaired"
+        }
+      }
+    },
+    "3": {
+      "as_now": {
+        "customers_per_hour": 20.0,
+        "conversion_rate": 0.3,
+        "rev_per_converting_customer": 27.67943401816959,
+        "rev_per_customer_gross": 28.092760112009888,
+        "rev_std": 9.83246603920346,
+        "impulse_rate": 0.2,
+        "avg_impulse_value": 2.066630469201493,
+        "avg_basket_size": 3.0,
+        "std_basket_size": 1.0,
+        "basket_sizes_observed": {
+          "n": 30,
+          "mean": 3.0,
+          "std": 0.0,
+          "sha256": "11f8bf9dfc27fec904ef369ec4012a6b30c709bf2a18265b8b87989ad921b8c7"
+        },
+        "abandonment_rate": 0.05,
+        "avg_queue_time": 5.0,
+        "score_anchor": {
+          "score": 0.5508035534253704,
+          "breakdown": {
+            "traffic": 0.1387159488396627,
+            "cross_merch": 0.6830824377479572,
+            "impulse": 0.7820208343019103,
+            "flow": 0.7077121033187805,
+            "revenue_placement": 0.02841200012757017,
+            "bottleneck_penalty": 0.0,
+            "section_compliance": 1.0,
+            "accessibility": 0.4103155382907354,
+            "overlap_penalty": 0.0,
+            "composite": 0.5508035534253704
+          },
+          "source": "as_built_repaired"
+        }
+      },
+      "wall_aligned": {
+        "customers_per_hour": 20.0,
+        "conversion_rate": 0.3,
+        "rev_per_converting_customer": 27.67943401816959,
+        "rev_per_customer_gross": 28.092760112009888,
+        "rev_std": 9.83246603920346,
+        "impulse_rate": 0.2,
+        "avg_impulse_value": 2.066630469201493,
+        "avg_basket_size": 3.0,
+        "std_basket_size": 1.0,
+        "basket_sizes_observed": {
+          "n": 30,
+          "mean": 3.0,
+          "std": 0.0,
+          "sha256": "11f8bf9dfc27fec904ef369ec4012a6b30c709bf2a18265b8b87989ad921b8c7"
+        },
+        "abandonment_rate": 0.05,
+        "avg_queue_time": 5.0,
+        "score_anchor": {
+          "score": 0.560173204205781,
+          "breakdown": {
+            "traffic": 0.18067362779026389,
+            "cross_merch": 0.6830824377479572,
+            "impulse": 0.7820208343019103,
+            "flow": 0.7077121033187805,
+            "revenue_placement": 0.045014638554535746,
+            "bottleneck_penalty": 0.0,
+            "section_compliance": 1.0,
+            "accessibility": 0.4103155382907354,
+            "overlap_penalty": 0.0,
+            "composite": 0.560173204205781
+          },
+          "source": "as_built_repaired"
+        }
+      }
+    },
+    "4": {
+      "as_now": {
+        "customers_per_hour": 20.0,
+        "conversion_rate": 0.3,
+        "rev_per_converting_customer": 38.09981588415583,
+        "rev_per_customer_gross": 38.79446565527988,
+        "rev_std": 13.578062979347957,
+        "impulse_rate": 0.2,
+        "avg_impulse_value": 3.473248855620251,
+        "avg_basket_size": 3.0,
+        "std_basket_size": 1.0,
+        "basket_sizes_observed": {
+          "n": 30,
+          "mean": 3.0,
+          "std": 0.0,
+          "sha256": "11f8bf9dfc27fec904ef369ec4012a6b30c709bf2a18265b8b87989ad921b8c7"
+        },
+        "abandonment_rate": 0.05,
+        "avg_queue_time": 5.0,
+        "score_anchor": {
+          "score": 0.5573390659941092,
+          "breakdown": {
+            "traffic": 0.1387159488396627,
+            "cross_merch": 0.762197841819242,
+            "impulse": 0.7820208343019103,
+            "flow": 0.6724701472813357,
+            "revenue_placement": 0.026036446908107542,
+            "bottleneck_penalty": 0.0,
+            "section_compliance": 1.0,
+            "accessibility": 0.4077117732516993,
+            "overlap_penalty": 0.0,
+            "composite": 0.5573390659941092
+          },
+          "source": "as_built_repaired"
+        }
+      },
+      "wall_aligned": {
+        "customers_per_hour": 20.0,
+        "conversion_rate": 0.3,
+        "rev_per_converting_customer": 38.09981588415583,
+        "rev_per_customer_gross": 38.79446565527988,
+        "rev_std": 13.578062979347957,
+        "impulse_rate": 0.2,
+        "avg_impulse_value": 3.473248855620251,
+        "avg_basket_size": 3.0,
+        "std_basket_size": 1.0,
+        "basket_sizes_observed": {
+          "n": 30,
+          "mean": 3.0,
+          "std": 0.0,
+          "sha256": "11f8bf9dfc27fec904ef369ec4012a6b30c709bf2a18265b8b87989ad921b8c7"
+        },
+        "abandonment_rate": 0.05,
+        "avg_queue_time": 5.0,
+        "score_anchor": {
+          "score": 0.5666360415886014,
+          "breakdown": {
+            "traffic": 0.18067362779026389,
+            "cross_merch": 0.762197841819242,
+            "impulse": 0.7820208343019103,
+            "flow": 0.6724701472813357,
+            "revenue_placement": 0.042184865423081974,
+            "bottleneck_penalty": 0.0,
+            "section_compliance": 1.0,
+            "accessibility": 0.4077117732516993,
+            "overlap_penalty": 0.0,
+            "composite": 0.5666360415886014
+          },
+          "source": "as_built_repaired"
+        }
+      }
+    },
+    "5": {
+      "as_now": {
+        "customers_per_hour": 20.0,
+        "conversion_rate": 0.3,
+        "rev_per_converting_customer": 33.100261552204735,
+        "rev_per_customer_gross": 34.10140930237502,
+        "rev_std": 11.935493255831256,
+        "impulse_rate": 0.2,
+        "avg_impulse_value": 5.005738750851413,
+        "avg_basket_size": 3.0,
+        "std_basket_size": 1.0,
+        "basket_sizes_observed": {
+          "n": 30,
+          "mean": 3.0,
+          "std": 0.0,
+          "sha256": "11f8bf9dfc27fec904ef369ec4012a6b30c709bf2a18265b8b87989ad921b8c7"
+        },
+        "abandonment_rate": 0.05,
+        "avg_queue_time": 5.0,
+        "score_anchor": {
+          "score": 0.5607224909086603,
+          "breakdown": {
+            "traffic": 0.1387159488396627,
+            "cross_merch": 0.7598794896458776,
+            "impulse": 0.7820208343019103,
+            "flow": 0.7001716839806605,
+            "revenue_placement": 0.023892248426161528,
+            "bottleneck_penalty": 0.0,
+            "section_compliance": 1.0,
+            "accessibility": 0.39934145193941606,
+            "overlap_penalty": 0.0,
+            "composite": 0.5607224909086603
+          },
+          "source": "as_built_repaired"
+        }
+      },
+      "wall_aligned": {
+        "customers_per_hour": 20.0,
+        "conversion_rate": 0.3,
+        "rev_per_converting_customer": 33.100261552204735,
+        "rev_per_customer_gross": 34.10140930237502,
+        "rev_std": 11.935493255831256,
+        "impulse_rate": 0.2,
+        "avg_impulse_value": 5.005738750851413,
+        "avg_basket_size": 3.0,
+        "std_basket_size": 1.0,
+        "basket_sizes_observed": {
+          "n": 30,
+          "mean": 3.0,
+          "std": 0.0,
+          "sha256": "11f8bf9dfc27fec904ef369ec4012a6b30c709bf2a18265b8b87989ad921b8c7"
+        },
+        "abandonment_rate": 0.05,
+        "avg_queue_time": 5.0,
+        "score_anchor": {
+          "score": 0.5698451832889063,
+          "breakdown": {
+            "traffic": 0.18067362779026389,
+            "cross_merch": 0.7598794896458776,
+            "impulse": 0.7820208343019103,
+            "flow": 0.7001716839806605,
+            "revenue_placement": 0.03895139685209815,
+            "bottleneck_penalty": 0.0,
+            "section_compliance": 1.0,
+            "accessibility": 0.39934145193941606,
+            "overlap_penalty": 0.0,
+            "composite": 0.5698451832889063
+          },
+          "source": "as_built_repaired"
+        }
+      }
+    },
+    "6": {
+      "as_now": {
+        "customers_per_hour": 20.0,
+        "conversion_rate": 0.3,
+        "rev_per_converting_customer": 31.545526926693622,
+        "rev_per_customer_gross": 32.19748107552185,
+        "rev_std": 11.269118376432647,
+        "impulse_rate": 0.2,
+        "avg_impulse_value": 3.2597707441411394,
+        "avg_basket_size": 3.0,
+        "std_basket_size": 1.0,
+        "basket_sizes_observed": {
+          "n": 30,
+          "mean": 3.0,
+          "std": 0.0,
+          "sha256": "11f8bf9dfc27fec904ef369ec4012a6b30c709bf2a18265b8b87989ad921b8c7"
+        },
+        "abandonment_rate": 0.05,
+        "avg_queue_time": 5.0,
+        "score_anchor": {
+          "score": 0.5406489336656044,
+          "breakdown": {
+            "traffic": 0.1387159488396627,
+            "cross_merch": 0.6691615863459819,
+            "impulse": 0.7820208343019103,
+            "flow": 0.6614439974559534,
+            "revenue_placement": 0.026751660414588086,
+            "bottleneck_penalty": 0.0,
+            "section_compliance": 1.0,
+            "accessibility": 0.4038472322077252,
+            "overlap_penalty": 0.0,
+            "composite": 0.5406489336656044
+          },
+          "source": "as_built_repaired"
+        }
+      },
+      "wall_aligned": {
+        "customers_per_hour": 20.0,
+        "conversion_rate": 0.3,
+        "rev_per_converting_customer": 31.545526926693622,
+        "rev_per_customer_gross": 32.19748107552185,
+        "rev_std": 11.269118376432647,
+        "impulse_rate": 0.2,
+        "avg_impulse_value": 3.2597707441411394,
+        "avg_basket_size": 3.0,
+        "std_basket_size": 1.0,
+        "basket_sizes_observed": {
+          "n": 30,
+          "mean": 3.0,
+          "std": 0.0,
+          "sha256": "11f8bf9dfc27fec904ef369ec4012a6b30c709bf2a18265b8b87989ad921b8c7"
+        },
+        "abandonment_rate": 0.05,
+        "avg_queue_time": 5.0,
+        "score_anchor": {
+          "score": 0.5499885559228254,
+          "breakdown": {
+            "traffic": 0.18067362779026389,
+            "cross_merch": 0.6691615863459819,
+            "impulse": 0.7820208343019103,
+            "flow": 0.6614439974559534,
+            "revenue_placement": 0.04316662057161843,
+            "bottleneck_penalty": 0.0,
+            "section_compliance": 1.0,
+            "accessibility": 0.4038472322077252,
+            "overlap_penalty": 0.0,
+            "composite": 0.5499885559228254
+          },
+          "source": "as_built_repaired"
+        }
+      }
+    },
+    "7": {
+      "as_now": {
+        "customers_per_hour": 20.0,
+        "conversion_rate": 0.3,
+        "rev_per_converting_customer": 31.857275958708602,
+        "rev_per_customer_gross": 32.24530798700079,
+        "rev_std": 11.285857795450276,
+        "impulse_rate": 0.2,
+        "avg_impulse_value": 1.9401601414609568,
+        "avg_basket_size": 3.0,
+        "std_basket_size": 1.0,
+        "basket_sizes_observed": {
+          "n": 30,
+          "mean": 3.0,
+          "std": 0.0,
+          "sha256": "11f8bf9dfc27fec904ef369ec4012a6b30c709bf2a18265b8b87989ad921b8c7"
+        },
+        "abandonment_rate": 0.05,
+        "avg_queue_time": 5.0,
+        "score_anchor": {
+          "score": 0.5457555679437716,
+          "breakdown": {
+            "traffic": 0.1387159488396627,
+            "cross_merch": 0.668917702282038,
+            "impulse": 0.7820208343019103,
+            "flow": 0.6946747123333327,
+            "revenue_placement": 0.026420557615353647,
+            "bottleneck_penalty": 0.0,
+            "section_compliance": 1.0,
+            "accessibility": 0.4008901771050994,
+            "overlap_penalty": 0.0,
+            "composite": 0.5457555679437716
+          },
+          "source": "as_built_repaired"
+        }
+      },
+      "wall_aligned": {
+        "customers_per_hour": 20.0,
+        "conversion_rate": 0.3,
+        "rev_per_converting_customer": 31.857275958708602,
+        "rev_per_customer_gross": 32.24530798700079,
+        "rev_std": 11.285857795450276,
+        "impulse_rate": 0.2,
+        "avg_impulse_value": 1.9401601414609568,
+        "avg_basket_size": 3.0,
+        "std_basket_size": 1.0,
+        "basket_sizes_observed": {
+          "n": 30,
+          "mean": 3.0,
+          "std": 0.0,
+          "sha256": "11f8bf9dfc27fec904ef369ec4012a6b30c709bf2a18265b8b87989ad921b8c7"
+        },
+        "abandonment_rate": 0.05,
+        "avg_queue_time": 5.0,
+        "score_anchor": {
+          "score": 0.5550938626620905,
+          "breakdown": {
+            "traffic": 0.18067362779026389,
+            "cross_merch": 0.668917702282038,
+            "impulse": 0.7820208343019103,
+            "flow": 0.6946747123333327,
+            "revenue_placement": 0.04282722065424645,
+            "bottleneck_penalty": 0.0,
+            "section_compliance": 1.0,
+            "accessibility": 0.4008901771050994,
+            "overlap_penalty": 0.0,
+            "composite": 0.5550938626620905
+          },
+          "source": "as_built_repaired"
+        }
+      }
+    },
+    "8": {
+      "as_now": {
+        "customers_per_hour": 20.0,
+        "conversion_rate": 0.3,
+        "rev_per_converting_customer": 35.80599041616203,
+        "rev_per_customer_gross": 36.572912395347274,
+        "rev_std": 12.800519338371545,
+        "impulse_rate": 0.2,
+        "avg_impulse_value": 3.8346098959262154,
+        "avg_basket_size": 3.0,
+        "std_basket_size": 1.0,
+        "basket_sizes_observed": {
+          "n": 30,
+          "mean": 3.0,
+          "std": 0.0,
+          "sha256": "11f8bf9dfc27fec904ef369ec4012a6b30c709bf2a18265b8b87989ad921b8c7"
+        },
+        "abandonment_rate": 0.05,
+        "avg_queue_time": 5.0,
+        "score_anchor": {
+          "score": 0.5459831931609487,
+          "breakdown": {
+            "traffic": 0.1387159488396627,
+            "cross_merch": 0.6677297415996151,
+            "impulse": 0.7820208343019103,
+            "flow": 0.6946747123333327,
+            "revenue_placement": 0.02724990530866982,
+            "bottleneck_penalty": 0.0,
+            "section_compliance": 1.0,
+            "accessibility": 0.4080152594909529,
+            "overlap_penalty": 0.0,
+            "composite": 0.5459831931609487
+          },
+          "source": "as_built_repaired"
+        }
+      },
+      "wall_aligned": {
+        "customers_per_hour": 20.0,
+        "conversion_rate": 0.3,
+        "rev_per_converting_customer": 35.80599041616203,
+        "rev_per_customer_gross": 36.572912395347274,
+        "rev_std": 12.800519338371545,
+        "impulse_rate": 0.2,
+        "avg_impulse_value": 3.8346098959262154,
+        "avg_basket_size": 3.0,
+        "std_basket_size": 1.0,
+        "basket_sizes_observed": {
+          "n": 30,
+          "mean": 3.0,
+          "std": 0.0,
+          "sha256": "11f8bf9dfc27fec904ef369ec4012a6b30c709bf2a18265b8b87989ad921b8c7"
+        },
+        "abandonment_rate": 0.05,
+        "avg_queue_time": 5.0,
+        "score_anchor": {
+          "score": 0.5553674234213551,
+          "breakdown": {
+            "traffic": 0.18067362779026389,
+            "cross_merch": 0.6677297415996151,
+            "impulse": 0.7820208343019103,
+            "flow": 0.6946747123333327,
+            "revenue_placement": 0.04394366548560927,
+            "bottleneck_penalty": 0.0,
+            "section_compliance": 1.0,
+            "accessibility": 0.4080152594909529,
+            "overlap_penalty": 0.0,
+            "composite": 0.5553674234213551
+          },
+          "source": "as_built_repaired"
+        }
+      }
+    },
+    "9": {
+      "as_now": {
+        "customers_per_hour": 20.0,
+        "conversion_rate": 0.3,
+        "rev_per_converting_customer": 28.944242149607252,
+        "rev_per_customer_gross": 29.5647478588906,
+        "rev_std": 10.347661750611708,
+        "impulse_rate": 0.2,
+        "avg_impulse_value": 3.1025285464167314,
+        "avg_basket_size": 3.0,
+        "std_basket_size": 1.0,
+        "basket_sizes_observed": {
+          "n": 30,
+          "mean": 3.0,
+          "std": 0.0,
+          "sha256": "11f8bf9dfc27fec904ef369ec4012a6b30c709bf2a18265b8b87989ad921b8c7"
+        },
+        "abandonment_rate": 0.05,
+        "avg_queue_time": 5.0,
+        "score_anchor": {
+          "score": 0.5285867335006974,
+          "breakdown": {
+            "traffic": 0.1387159488396627,
+            "cross_merch": 0.6094562687919592,
+            "impulse": 0.7820208343019103,
+            "flow": 0.6415262922303412,
+            "revenue_placement": 0.027524879642128998,
+            "bottleneck_penalty": 0.0,
+            "section_compliance": 1.0,
+            "accessibility": 0.4176914422934254,
+            "overlap_penalty": 0.0,
+            "composite": 0.5285867335006974
+          },
+          "source": "as_built_repaired"
+        }
+      },
+      "wall_aligned": {
+        "customers_per_hour": 20.0,
+        "conversion_rate": 0.3,
+        "rev_per_converting_customer": 28.944242149607252,
+        "rev_per_customer_gross": 29.5647478588906,
+        "rev_std": 10.347661750611708,
+        "impulse_rate": 0.2,
+        "avg_impulse_value": 3.1025285464167314,
+        "avg_basket_size": 3.0,
+        "std_basket_size": 1.0,
+        "basket_sizes_observed": {
+          "n": 30,
+          "mean": 3.0,
+          "std": 0.0,
+          "sha256": "11f8bf9dfc27fec904ef369ec4012a6b30c709bf2a18265b8b87989ad921b8c7"
+        },
+        "abandonment_rate": 0.05,
+        "avg_queue_time": 5.0,
+        "score_anchor": {
+          "score": 0.5379512103037724,
+          "breakdown": {
+            "traffic": 0.18067362779026389,
+            "cross_merch": 0.6094562687919592,
+            "impulse": 0.7820208343019103,
+            "flow": 0.6415262922303412,
+            "revenue_placement": 0.04409518071074632,
+            "bottleneck_penalty": 0.0,
+            "section_compliance": 1.0,
+            "accessibility": 0.4176914422934254,
+            "overlap_penalty": 0.0,
+            "composite": 0.5379512103037724
+          },
+          "source": "as_built_repaired"
+        }
+      }
+    },
+    "10": {
+      "as_now": {
+        "customers_per_hour": 20.0,
+        "conversion_rate": 0.3,
+        "rev_per_converting_customer": 24.878748103257138,
+        "rev_per_customer_gross": 25.284403317379947,
+        "rev_std": 8.84954116108298,
+        "impulse_rate": 0.2,
+        "avg_impulse_value": 2.0282760706140417,
+        "avg_basket_size": 3.0,
+        "std_basket_size": 1.0,
+        "basket_sizes_observed": {
+          "n": 30,
+          "mean": 3.0,
+          "std": 0.0,
+          "sha256": "11f8bf9dfc27fec904ef369ec4012a6b30c709bf2a18265b8b87989ad921b8c7"
+        },
+        "abandonment_rate": 0.05,
+        "avg_queue_time": 5.0,
+        "score_anchor": {
+          "score": 0.5502142227516789,
+          "breakdown": {
+            "traffic": 0.1387159488396627,
+            "cross_merch": 0.6824470793433494,
+            "impulse": 0.7820208343019103,
+            "flow": 0.7070917051462329,
+            "revenue_placement": 0.027615040194832997,
+            "bottleneck_penalty": 0.0,
+            "section_compliance": 1.0,
+            "accessibility": 0.40379313748801854,
+            "overlap_penalty": 0.0,
+            "composite": 0.5502142227516789
+          },
+          "source": "as_built_repaired"
+        }
+      },
+      "wall_aligned": {
+        "customers_per_hour": 20.0,
+        "conversion_rate": 0.3,
+        "rev_per_converting_customer": 24.878748103257138,
+        "rev_per_customer_gross": 25.284403317379947,
+        "rev_std": 8.84954116108298,
+        "impulse_rate": 0.2,
+        "avg_impulse_value": 2.0282760706140417,
+        "avg_basket_size": 3.0,
+        "std_basket_size": 1.0,
+        "basket_sizes_observed": {
+          "n": 30,
+          "mean": 3.0,
+          "std": 0.0,
+          "sha256": "11f8bf9dfc27fec904ef369ec4012a6b30c709bf2a18265b8b87989ad921b8c7"
+        },
+        "abandonment_rate": 0.05,
+        "avg_queue_time": 5.0,
+        "score_anchor": {
+          "score": 0.5595809526123852,
+          "breakdown": {
+            "traffic": 0.18067362779026389,
+            "cross_merch": 0.6824470793433494,
+            "impulse": 0.7820208343019103,
+            "flow": 0.7070917051462329,
+            "revenue_placement": 0.0441994228736466,
+            "bottleneck_penalty": 0.0,
+            "section_compliance": 1.0,
+            "accessibility": 0.40379313748801854,
+            "overlap_penalty": 0.0,
+            "composite": 0.5595809526123852
+          },
+          "source": "as_built_repaired"
+        }
+      }
+    },
+    "11": {
+      "as_now": {
+        "customers_per_hour": 20.0,
+        "conversion_rate": 0.3,
+        "rev_per_converting_customer": 31.398982192909127,
+        "rev_per_customer_gross": 32.37876513081411,
+        "rev_std": 11.332567795784938,
+        "impulse_rate": 0.2,
+        "avg_impulse_value": 4.898914689524911,
+        "avg_basket_size": 3.0,
+        "std_basket_size": 1.0,
+        "basket_sizes_observed": {
+          "n": 30,
+          "mean": 3.0,
+          "std": 0.0,
+          "sha256": "11f8bf9dfc27fec904ef369ec4012a6b30c709bf2a18265b8b87989ad921b8c7"
+        },
+        "abandonment_rate": 0.05,
+        "avg_queue_time": 5.0,
+        "score_anchor": {
+          "score": 0.5513376805633748,
+          "breakdown": {
+            "traffic": 0.1387159488396627,
+            "cross_merch": 0.6926209829888872,
+            "impulse": 0.7820208343019103,
+            "flow": 0.7070917051462329,
+            "revenue_placement": 0.026411122430349127,
+            "bottleneck_penalty": 0.0,
+            "section_compliance": 1.0,
+            "accessibility": 0.3959996392561999,
+            "overlap_penalty": 0.0,
+            "composite": 0.5513376805633748
+          },
+          "source": "as_built_repaired"
+        }
+      },
+      "wall_aligned": {
+        "customers_per_hour": 20.0,
+        "conversion_rate": 0.3,
+        "rev_per_converting_customer": 31.398982192909127,
+        "rev_per_customer_gross": 32.37876513081411,
+        "rev_std": 11.332567795784938,
+        "impulse_rate": 0.2,
+        "avg_impulse_value": 4.898914689524911,
+        "avg_basket_size": 3.0,
+        "std_basket_size": 1.0,
+        "basket_sizes_observed": {
+          "n": 30,
+          "mean": 3.0,
+          "std": 0.0,
+          "sha256": "11f8bf9dfc27fec904ef369ec4012a6b30c709bf2a18265b8b87989ad921b8c7"
+        },
+        "abandonment_rate": 0.05,
+        "avg_queue_time": 5.0,
+        "score_anchor": {
+          "score": 0.5606125781910105,
+          "breakdown": {
+            "traffic": 0.18067362779026389,
+            "cross_merch": 0.6926209829888872,
+            "impulse": 0.7820208343019103,
+            "flow": 0.7070917051462329,
+            "revenue_placement": 0.04242155365247123,
+            "bottleneck_penalty": 0.0,
+            "section_compliance": 1.0,
+            "accessibility": 0.3959996392561999,
+            "overlap_penalty": 0.0,
+            "composite": 0.5606125781910105
+          },
+          "source": "as_built_repaired"
+        }
+      }
+    },
+    "12": {
+      "as_now": {
+        "customers_per_hour": 20.0,
+        "conversion_rate": 0.3,
+        "rev_per_converting_customer": 28.589090905951945,
+        "rev_per_customer_gross": 29.61604915591572,
+        "rev_std": 10.365617204570501,
+        "impulse_rate": 0.2,
+        "avg_impulse_value": 5.134791249818878,
+        "avg_basket_size": 3.0,
+        "std_basket_size": 1.0,
+        "basket_sizes_observed": {
+          "n": 30,
+          "mean": 3.0,
+          "std": 0.0,
+          "sha256": "11f8bf9dfc27fec904ef369ec4012a6b30c709bf2a18265b8b87989ad921b8c7"
+        },
+        "abandonment_rate": 0.05,
+        "avg_queue_time": 5.0,
+        "score_anchor": {
+          "score": 0.5568064055140414,
+          "breakdown": {
+            "traffic": 0.1387159488396627,
+            "cross_merch": 0.7477084758485092,
+            "impulse": 0.7820208343019103,
+            "flow": 0.6850718697841838,
+            "revenue_placement": 0.025310410369393584,
+            "bottleneck_penalty": 0.0,
+            "section_compliance": 1.0,
+            "accessibility": 0.40484998127639577,
+            "overlap_penalty": 0.0,
+            "composite": 0.5568064055140414
+          },
+          "source": "as_built_repaired"
+        }
+      },
+      "wall_aligned": {
+        "customers_per_hour": 20.0,
+        "conversion_rate": 0.3,
+        "rev_per_converting_customer": 28.589090905951945,
+        "rev_per_customer_gross": 29.61604915591572,
+        "rev_std": 10.365617204570501,
+        "impulse_rate": 0.2,
+        "avg_impulse_value": 5.134791249818878,
+        "avg_basket_size": 3.0,
+        "std_basket_size": 1.0,
+        "basket_sizes_observed": {
+          "n": 30,
+          "mean": 3.0,
+          "std": 0.0,
+          "sha256": "11f8bf9dfc27fec904ef369ec4012a6b30c709bf2a18265b8b87989ad921b8c7"
+        },
+        "abandonment_rate": 0.05,
+        "avg_queue_time": 5.0,
+        "score_anchor": {
+          "score": 0.5660053553685743,
+          "breakdown": {
+            "traffic": 0.18067362779026389,
+            "cross_merch": 0.7477084758485092,
+            "impulse": 0.7820208343019103,
+            "flow": 0.6850718697841838,
+            "revenue_placement": 0.04084616800962381,
+            "bottleneck_penalty": 0.0,
+            "section_compliance": 1.0,
+            "accessibility": 0.40484998127639577,
+            "overlap_penalty": 0.0,
+            "composite": 0.5660053553685743
+          },
+          "source": "as_built_repaired"
+        }
+      }
+    },
+    "13": {
+      "as_now": {
+        "customers_per_hour": 20.0,
+        "conversion_rate": 0.3,
+        "rev_per_converting_customer": 39.72774496960351,
+        "rev_per_customer_gross": 40.57468740433161,
+        "rev_std": 14.201140591516063,
+        "impulse_rate": 0.2,
+        "avg_impulse_value": 4.2347121736404825,
+        "avg_basket_size": 3.0,
+        "std_basket_size": 1.0,
+        "basket_sizes_observed": {
+          "n": 30,
+          "mean": 3.0,
+          "std": 0.0,
+          "sha256": "11f8bf9dfc27fec904ef369ec4012a6b30c709bf2a18265b8b87989ad921b8c7"
+        },
+        "abandonment_rate": 0.05,
+        "avg_queue_time": 5.0,
+        "score_anchor": {
+          "score": 0.5527636731435038,
+          "breakdown": {
+            "traffic": 0.1387159488396627,
+            "cross_merch": 0.7461217814558687,
+            "impulse": 0.7820208343019103,
+            "flow": 0.6617585374701791,
+            "revenue_placement": 0.02452498995007412,
+            "bottleneck_penalty": 0.0,
+            "section_compliance": 1.0,
+            "accessibility": 0.40652346051681415,
+            "overlap_penalty": 0.0,
+            "composite": 0.5527636731435038
+          },
+          "source": "as_built_repaired"
+        }
+      },
+      "wall_aligned": {
+        "customers_per_hour": 20.0,
+        "conversion_rate": 0.3,
+        "rev_per_converting_customer": 39.72774496960351,
+        "rev_per_customer_gross": 40.57468740433161,
+        "rev_std": 14.201140591516063,
+        "impulse_rate": 0.2,
+        "avg_impulse_value": 4.2347121736404825,
+        "avg_basket_size": 3.0,
+        "std_basket_size": 1.0,
+        "basket_sizes_observed": {
+          "n": 30,
+          "mean": 3.0,
+          "std": 0.0,
+          "sha256": "11f8bf9dfc27fec904ef369ec4012a6b30c709bf2a18265b8b87989ad921b8c7"
+        },
+        "abandonment_rate": 0.05,
+        "avg_queue_time": 5.0,
+        "score_anchor": {
+          "score": 0.5619956185059235,
+          "breakdown": {
+            "traffic": 0.18067362779026389,
+            "cross_merch": 0.7461217814558687,
+            "impulse": 0.7820208343019103,
+            "flow": 0.6617585374701791,
+            "revenue_placement": 0.04026696951459633,
+            "bottleneck_penalty": 0.0,
+            "section_compliance": 1.0,
+            "accessibility": 0.40652346051681415,
+            "overlap_penalty": 0.0,
+            "composite": 0.5619956185059235
+          },
+          "source": "as_built_repaired"
+        }
+      }
+    },
+    "14": {
+      "as_now": {
+        "customers_per_hour": 20.0,
+        "conversion_rate": 0.3,
+        "rev_per_converting_customer": 21.497582304306555,
+        "rev_per_customer_gross": 22.29625481589601,
+        "rev_std": 7.803689185563603,
+        "impulse_rate": 0.2,
+        "avg_impulse_value": 3.993362557947284,
+        "avg_basket_size": 3.0,
+        "std_basket_size": 1.0,
+        "basket_sizes_observed": {
+          "n": 30,
+          "mean": 3.0,
+          "std": 0.0,
+          "sha256": "11f8bf9dfc27fec904ef369ec4012a6b30c709bf2a18265b8b87989ad921b8c7"
+        },
+        "abandonment_rate": 0.05,
+        "avg_queue_time": 5.0,
+        "score_anchor": {
+          "score": 0.5598013799844891,
+          "breakdown": {
+            "traffic": 0.1387159488396627,
+            "cross_merch": 0.7388696793985298,
+            "impulse": 0.7820208343019103,
+            "flow": 0.7060067203170369,
+            "revenue_placement": 0.03274655834309675,
+            "bottleneck_penalty": 0.0,
+            "section_compliance": 1.0,
+            "accessibility": 0.4015955348112791,
+            "overlap_penalty": 0.0,
+            "composite": 0.5598013799844891
+          },
+          "source": "as_built_repaired"
+        }
+      },
+      "wall_aligned": {
+        "customers_per_hour": 20.0,
+        "conversion_rate": 0.3,
+        "rev_per_converting_customer": 21.497582304306555,
+        "rev_per_customer_gross": 22.29625481589601,
+        "rev_std": 7.803689185563603,
+        "impulse_rate": 0.2,
+        "avg_impulse_value": 3.993362557947284,
+        "avg_basket_size": 3.0,
+        "std_basket_size": 1.0,
+        "basket_sizes_observed": {
+          "n": 30,
+          "mean": 3.0,
+          "std": 0.0,
+          "sha256": "11f8bf9dfc27fec904ef369ec4012a6b30c709bf2a18265b8b87989ad921b8c7"
+        },
+        "abandonment_rate": 0.05,
+        "avg_queue_time": 5.0,
+        "score_anchor": {
+          "score": 0.5694469564784236,
+          "breakdown": {
+            "traffic": 0.18067362779026389,
+            "cross_merch": 0.7388696793985298,
+            "impulse": 0.7820208343019103,
+            "flow": 0.7060067203170369,
+            "revenue_placement": 0.05107373247958673,
+            "bottleneck_penalty": 0.0,
+            "section_compliance": 1.0,
+            "accessibility": 0.4015955348112791,
+            "overlap_penalty": 0.0,
+            "composite": 0.5694469564784236
+          },
+          "source": "as_built_repaired"
+        }
+      }
+    },
+    "15": {
+      "as_now": {
+        "customers_per_hour": 20.0,
+        "conversion_rate": 0.3,
+        "rev_per_converting_customer": 32.4178346934895,
+        "rev_per_customer_gross": 32.94889246055743,
+        "rev_std": 11.5321123611951,
+        "impulse_rate": 0.2,
+        "avg_impulse_value": 2.6552888353396247,
+        "avg_basket_size": 3.0,
+        "std_basket_size": 1.0,
+        "basket_sizes_observed": {
+          "n": 30,
+          "mean": 3.0,
+          "std": 0.0,
+          "sha256": "11f8bf9dfc27fec904ef369ec4012a6b30c709bf2a18265b8b87989ad921b8c7"
+        },
+        "abandonment_rate": 0.05,
+        "avg_queue_time": 5.0,
+        "score_anchor": {
+          "score": 0.5615591340581664,
+          "breakdown": {
+            "traffic": 0.1387159488396627,
+            "cross_merch": 0.7575083648258607,
+            "impulse": 0.7820208343019103,
+            "flow": 0.7053863221444892,
+            "revenue_placement": 0.024693843726017413,
+            "bottleneck_penalty": 0.0,
+            "section_compliance": 1.0,
+            "accessibility": 0.4056770961023967,
+            "overlap_penalty": 0.0,
+            "composite": 0.5615591340581664
+          },
+          "source": "as_built_repaired"
+        }
+      },
+      "wall_aligned": {
+        "customers_per_hour": 20.0,
+        "conversion_rate": 0.3,
+        "rev_per_converting_customer": 32.4178346934895,
+        "rev_per_customer_gross": 32.94889246055743,
+        "rev_std": 11.5321123611951,
+        "impulse_rate": 0.2,
+        "avg_impulse_value": 2.6552888353396247,
+        "avg_basket_size": 3.0,
+        "std_basket_size": 1.0,
+        "basket_sizes_observed": {
+          "n": 30,
+          "mean": 3.0,
+          "std": 0.0,
+          "sha256": "11f8bf9dfc27fec904ef369ec4012a6b30c709bf2a18265b8b87989ad921b8c7"
+        },
+        "abandonment_rate": 0.05,
+        "avg_queue_time": 5.0,
+        "score_anchor": {
+          "score": 0.5707466990894573,
+          "breakdown": {
+            "traffic": 0.18067362779026389,
+            "cross_merch": 0.7575083648258607,
+            "impulse": 0.7820208343019103,
+            "flow": 0.7053863221444892,
+            "revenue_placement": 0.040158446220984835,
+            "bottleneck_penalty": 0.0,
+            "section_compliance": 1.0,
+            "accessibility": 0.4056770961023967,
+            "overlap_penalty": 0.0,
+            "composite": 0.5707466990894573
+          },
+          "source": "as_built_repaired"
+        }
+      }
+    },
+    "16": {
+      "as_now": {
+        "customers_per_hour": 20.0,
+        "conversion_rate": 0.3,
+        "rev_per_converting_customer": 31.920048792508933,
+        "rev_per_customer_gross": 32.292007038230324,
+        "rev_std": 11.302202463380613,
+        "impulse_rate": 0.2,
+        "avg_impulse_value": 1.8597912286069487,
+        "avg_basket_size": 3.0,
+        "std_basket_size": 1.0,
+        "basket_sizes_observed": {
+          "n": 30,
+          "mean": 3.0,
+          "std": 0.0,
+          "sha256": "11f8bf9dfc27fec904ef369ec4012a6b30c709bf2a18265b8b87989ad921b8c7"
+        },
+        "abandonment_rate": 0.05,
+        "avg_queue_time": 5.0,
+        "score_anchor": {
+          "score": 0.5632932194015158,
+          "breakdown": {
+            "traffic": 0.1387159488396627,
+            "cross_merch": 0.7675097909169502,
+            "impulse": 0.7820208343019103,
+            "flow": 0.7069924149021269,
+            "revenue_placement": 0.024288536572689198,
+            "bottleneck_penalty": 0.0,
+            "section_compliance": 1.0,
+            "accessibility": 0.4042203829045375,
+            "overlap_penalty": 0.0,
+            "composite": 0.5632932194015158
+          },
+          "source": "as_built_repaired"
+        }
+      },
+      "wall_aligned": {
+        "customers_per_hour": 20.0,
+        "conversion_rate": 0.3,
+        "rev_per_converting_customer": 31.920048792508933,
+        "rev_per_customer_gross": 32.292007038230324,
+        "rev_std": 11.302202463380613,
+        "impulse_rate": 0.2,
+        "avg_impulse_value": 1.8597912286069487,
+        "avg_basket_size": 3.0,
+        "std_basket_size": 1.0,
+        "basket_sizes_observed": {
+          "n": 30,
+          "mean": 3.0,
+          "std": 0.0,
+          "sha256": "11f8bf9dfc27fec904ef369ec4012a6b30c709bf2a18265b8b87989ad921b8c7"
+        },
+        "abandonment_rate": 0.05,
+        "avg_queue_time": 5.0,
+        "score_anchor": {
+          "score": 0.5724763763696755,
+          "breakdown": {
+            "traffic": 0.18067362779026389,
+            "cross_merch": 0.7675097909169502,
+            "impulse": 0.7820208343019103,
+            "flow": 0.7069924149021269,
+            "revenue_placement": 0.039725588673086086,
+            "bottleneck_penalty": 0.0,
+            "section_compliance": 1.0,
+            "accessibility": 0.4042203829045375,
+            "overlap_penalty": 0.0,
+            "composite": 0.5724763763696755
+          },
+          "source": "as_built_repaired"
+        }
+      }
+    },
+    "17": {
+      "as_now": {
+        "customers_per_hour": 20.0,
+        "conversion_rate": 0.3,
+        "rev_per_converting_customer": 37.26576620327391,
+        "rev_per_customer_gross": 38.25528735674993,
+        "rev_std": 13.389350574862476,
+        "impulse_rate": 0.2,
+        "avg_impulse_value": 4.947605767380086,
+        "avg_basket_size": 3.0,
+        "std_basket_size": 1.0,
+        "basket_sizes_observed": {
+          "n": 30,
+          "mean": 3.0,
+          "std": 0.0,
+          "sha256": "11f8bf9dfc27fec904ef369ec4012a6b30c709bf2a18265b8b87989ad921b8c7"
+        },
+        "abandonment_rate": 0.05,
+        "avg_queue_time": 5.0,
+        "score_anchor": {
+          "score": 0.5425547619950217,
+          "breakdown": {
+            "traffic": 0.1387159488396627,
+            "cross_merch": 0.646987426529631,
+            "impulse": 0.7820208343019103,
+            "flow": 0.7001716839806605,
+            "revenue_placement": 0.024222149059338165,
+            "bottleneck_penalty": 0.0,
+            "section_compliance": 1.0,
+            "accessibility": 0.39539687903073223,
+            "overlap_penalty": 0.0,
+            "composite": 0.5425547619950217
+          },
+          "source": "as_built_repaired"
+        }
+      },
+      "wall_aligned": {
+        "customers_per_hour": 20.0,
+        "conversion_rate": 0.3,
+        "rev_per_converting_customer": 37.26576620327391,
+        "rev_per_customer_gross": 38.25528735674993,
+        "rev_std": 13.389350574862476,
+        "impulse_rate": 0.2,
+        "avg_impulse_value": 4.947605767380086,
+        "avg_basket_size": 3.0,
+        "std_basket_size": 1.0,
+        "basket_sizes_observed": {
+          "n": 30,
+          "mean": 3.0,
+          "std": 0.0,
+          "sha256": "11f8bf9dfc27fec904ef369ec4012a6b30c709bf2a18265b8b87989ad921b8c7"
+        },
+        "abandonment_rate": 0.05,
+        "avg_queue_time": 5.0,
+        "score_anchor": {
+          "score": 0.5516683954669419,
+          "breakdown": {
+            "traffic": 0.18067362779026389,
+            "cross_merch": 0.646987426529631,
+            "impulse": 0.7820208343019103,
+            "flow": 0.7001716839806605,
+            "revenue_placement": 0.03922467930823788,
+            "bottleneck_penalty": 0.0,
+            "section_compliance": 1.0,
+            "accessibility": 0.39539687903073223,
+            "overlap_penalty": 0.0,
+            "composite": 0.5516683954669419
+          },
+          "source": "as_built_repaired"
+        }
+      }
+    },
+    "18": {
+      "as_now": {
+        "customers_per_hour": 20.0,
+        "conversion_rate": 0.3,
+        "rev_per_converting_customer": 21.435462175606823,
+        "rev_per_customer_gross": 22.433286250470783,
+        "rev_std": 7.851650187664774,
+        "impulse_rate": 0.2,
+        "avg_impulse_value": 4.989120374319805,
+        "avg_basket_size": 3.0,
+        "std_basket_size": 1.0,
+        "basket_sizes_observed": {
+          "n": 30,
+          "mean": 3.0,
+          "std": 0.0,
+          "sha256": "11f8bf9dfc27fec904ef369ec4012a6b30c709bf2a18265b8b87989ad921b8c7"
+        },
+        "abandonment_rate": 0.05,
+        "avg_queue_time": 5.0,
+        "score_anchor": {
+          "score": 0.554720311593069,
+          "breakdown": {
+            "traffic": 0.1387159488396627,
+            "cross_merch": 0.7621249879922815,
+            "impulse": 0.7820208343019103,
+            "flow": 0.6561321616176758,
+            "revenue_placement": 0.02919108415329281,
+            "bottleneck_penalty": 0.0,
+            "section_compliance": 1.0,
+            "accessibility": 0.3952677222074311,
+            "overlap_penalty": 0.0,
+            "composite": 0.554720311593069
+          },
+          "source": "as_built_repaired"
+        }
+      },
+      "wall_aligned": {
+        "customers_per_hour": 20.0,
+        "conversion_rate": 0.3,
+        "rev_per_converting_customer": 21.435462175606823,
+        "rev_per_customer_gross": 22.433286250470783,
+        "rev_std": 7.851650187664774,
+        "impulse_rate": 0.2,
+        "avg_impulse_value": 4.989120374319805,
+        "avg_basket_size": 3.0,
+        "std_basket_size": 1.0,
+        "basket_sizes_observed": {
+          "n": 30,
+          "mean": 3.0,
+          "std": 0.0,
+          "sha256": "11f8bf9dfc27fec904ef369ec4012a6b30c709bf2a18265b8b87989ad921b8c7"
+        },
+        "abandonment_rate": 0.05,
+        "avg_queue_time": 5.0,
+        "score_anchor": {
+          "score": 0.5641142375798023,
+          "breakdown": {
+            "traffic": 0.18067362779026389,
+            "cross_merch": 0.7621249879922815,
+            "impulse": 0.7820208343019103,
+            "flow": 0.6561321616176758,
+            "revenue_placement": 0.04594544261977477,
+            "bottleneck_penalty": 0.0,
+            "section_compliance": 1.0,
+            "accessibility": 0.3952677222074311,
+            "overlap_penalty": 0.0,
+            "composite": 0.5641142375798023
+          },
+          "source": "as_built_repaired"
+        }
+      }
+    },
+    "19": {
+      "as_now": {
+        "customers_per_hour": 20.0,
+        "conversion_rate": 0.3,
+        "rev_per_converting_customer": 23.05184601764337,
+        "rev_per_customer_gross": 23.41312811653912,
+        "rev_std": 8.194594840788692,
+        "impulse_rate": 0.2,
+        "avg_impulse_value": 1.8064104944787542,
+        "avg_basket_size": 3.0,
+        "std_basket_size": 1.0,
+        "basket_sizes_observed": {
+          "n": 30,
+          "mean": 3.0,
+          "std": 0.0,
+          "sha256": "11f8bf9dfc27fec904ef369ec4012a6b30c709bf2a18265b8b87989ad921b8c7"
+        },
+        "abandonment_rate": 0.05,
+        "avg_queue_time": 5.0,
+        "score_anchor": {
+          "score": 0.5569253331467652,
+          "breakdown": {
+            "traffic": 0.1387159488396627,
+            "cross_merch": 0.7745535782615381,
+            "impulse": 0.7820208343019103,
+            "flow": 0.6545239762903812,
+            "revenue_placement": 0.030569505411300303,
+            "bottleneck_penalty": 0.0,
+            "section_compliance": 1.0,
+            "accessibility": 0.4015979562499578,
+            "overlap_penalty": 0.0,
+            "composite": 0.5569253331467652
+          },
+          "source": "as_built_repaired"
+        }
+      },
+      "wall_aligned": {
+        "customers_per_hour": 20.0,
+        "conversion_rate": 0.3,
+        "rev_per_converting_customer": 23.05184601764337,
+        "rev_per_customer_gross": 23.41312811653912,
+        "rev_std": 8.194594840788692,
+        "impulse_rate": 0.2,
+        "avg_impulse_value": 1.8064104944787542,
+        "avg_basket_size": 3.0,
+        "std_basket_size": 1.0,
+        "basket_sizes_observed": {
+          "n": 30,
+          "mean": 3.0,
+          "std": 0.0,
+          "sha256": "11f8bf9dfc27fec904ef369ec4012a6b30c709bf2a18265b8b87989ad921b8c7"
+        },
+        "abandonment_rate": 0.05,
+        "avg_queue_time": 5.0,
+        "score_anchor": {
+          "score": 0.5664451802132213,
+          "breakdown": {
+            "traffic": 0.18067362779026389,
+            "cross_merch": 0.7745535782615381,
+            "impulse": 0.7820208343019103,
+            "flow": 0.6545239762903812,
+            "revenue_placement": 0.04811087062605033,
+            "bottleneck_penalty": 0.0,
+            "section_compliance": 1.0,
+            "accessibility": 0.4015979562499578,
+            "overlap_penalty": 0.0,
+            "composite": 0.5664451802132213
+          },
+          "source": "as_built_repaired"
+        }
+      }
+    },
+    "20": {
+      "as_now": {
+        "customers_per_hour": 20.0,
+        "conversion_rate": 0.3,
+        "rev_per_converting_customer": 43.02036444384522,
+        "rev_per_customer_gross": 43.95789730844119,
+        "rev_std": 15.385264057954416,
+        "impulse_rate": 0.2,
+        "avg_impulse_value": 4.687664322979879,
+        "avg_basket_size": 3.0,
+        "std_basket_size": 1.0,
+        "basket_sizes_observed": {
+          "n": 30,
+          "mean": 3.0,
+          "std": 0.0,
+          "sha256": "11f8bf9dfc27fec904ef369ec4012a6b30c709bf2a18265b8b87989ad921b8c7"
+        },
+        "abandonment_rate": 0.05,
+        "avg_queue_time": 5.0,
+        "score_anchor": {
+          "score": 0.5601822470736401,
+          "breakdown": {
+            "traffic": 0.1387159488396627,
+            "cross_merch": 0.7878352185561781,
+            "impulse": 0.7820208343019103,
+            "flow": 0.6693608346561306,
+            "revenue_placement": 0.023485497923074982,
+            "bottleneck_penalty": 0.0,
+            "section_compliance": 1.0,
+            "accessibility": 0.39888283973317407,
+            "overlap_penalty": 0.0,
+            "composite": 0.5601822470736401
+          },
+          "source": "as_built_repaired"
+        }
+      },
+      "wall_aligned": {
+        "customers_per_hour": 20.0,
+        "conversion_rate": 0.3,
+        "rev_per_converting_customer": 43.02036444384522,
+        "rev_per_customer_gross": 43.95789730844119,
+        "rev_std": 15.385264057954416,
+        "impulse_rate": 0.2,
+        "avg_impulse_value": 4.687664322979879,
+        "avg_basket_size": 3.0,
+        "std_basket_size": 1.0,
+        "basket_sizes_observed": {
+          "n": 30,
+          "mean": 3.0,
+          "std": 0.0,
+          "sha256": "11f8bf9dfc27fec904ef369ec4012a6b30c709bf2a18265b8b87989ad921b8c7"
+        },
+        "abandonment_rate": 0.05,
+        "avg_queue_time": 5.0,
+        "score_anchor": {
+          "score": 0.5693815704564205,
+          "breakdown": {
+            "traffic": 0.18067362779026389,
+            "cross_merch": 0.7878352185561781,
+            "impulse": 0.7820208343019103,
+            "flow": 0.6693608346561306,
+            "revenue_placement": 0.03902359011485109,
+            "bottleneck_penalty": 0.0,
+            "section_compliance": 1.0,
+            "accessibility": 0.39888283973317407,
+            "overlap_penalty": 0.0,
+            "composite": 0.5693815704564205
+          },
+          "source": "as_built_repaired"
+        }
+      }
+    },
+    "21": {
+      "as_now": {
+        "customers_per_hour": 20.0,
+        "conversion_rate": 0.3,
+        "rev_per_converting_customer": 23.781431567240197,
+        "rev_per_customer_gross": 24.800949922729707,
+        "rev_std": 8.680332472955397,
+        "impulse_rate": 0.2,
+        "avg_impulse_value": 5.097591777447539,
+        "avg_basket_size": 3.0,
+        "std_basket_size": 1.0,
+        "basket_sizes_observed": {
+          "n": 30,
+          "mean": 3.0,
+          "std": 0.0,
+          "sha256": "11f8bf9dfc27fec904ef369ec4012a6b30c709bf2a18265b8b87989ad921b8c7"
+        },
+        "abandonment_rate": 0.05,
+        "avg_queue_time": 5.0,
+        "score_anchor": {
+          "score": 0.5673914651197509,
+          "breakdown": {
+            "traffic": 0.1387159488396627,
+            "cross_merch": 0.7825975844382815,
+            "impulse": 0.7820208343019103,
+            "flow": 0.7129267414826093,
+            "revenue_placement": 0.030817267104265238,
+            "bottleneck_penalty": 0.0,
+            "section_compliance": 1.0,
+            "accessibility": 0.3964731233268564,
+            "overlap_penalty": 0.0,
+            "composite": 0.5673914651197509
+          },
+          "source": "as_built_repaired"
+        }
+      },
+      "wall_aligned": {
+        "customers_per_hour": 20.0,
+        "conversion_rate": 0.3,
+        "rev_per_converting_customer": 23.781431567240197,
+        "rev_per_customer_gross": 24.800949922729707,
+        "rev_std": 8.680332472955397,
+        "impulse_rate": 0.2,
+        "avg_impulse_value": 5.097591777447539,
+        "avg_basket_size": 3.0,
+        "std_basket_size": 1.0,
+        "basket_sizes_observed": {
+          "n": 30,
+          "mean": 3.0,
+          "std": 0.0,
+          "sha256": "11f8bf9dfc27fec904ef369ec4012a6b30c709bf2a18265b8b87989ad921b8c7"
+        },
+        "abandonment_rate": 0.05,
+        "avg_queue_time": 5.0,
+        "score_anchor": {
+          "score": 0.5769415316020362,
+          "breakdown": {
+            "traffic": 0.18067362779026389,
+            "cross_merch": 0.7825975844382815,
+            "impulse": 0.7820208343019103,
+            "flow": 0.7129267414826093,
+            "revenue_placement": 0.048547503667947134,
+            "bottleneck_penalty": 0.0,
+            "section_compliance": 1.0,
+            "accessibility": 0.3964731233268564,
+            "overlap_penalty": 0.0,
+            "composite": 0.5769415316020362
+          },
+          "source": "as_built_repaired"
+        }
+      }
+    },
+    "22": {
+      "as_now": {
+        "customers_per_hour": 20.0,
+        "conversion_rate": 0.3,
+        "rev_per_converting_customer": 36.040159248686635,
+        "rev_per_customer_gross": 36.55754964659434,
+        "rev_std": 12.795142376308018,
+        "impulse_rate": 0.2,
+        "avg_impulse_value": 2.586951989538515,
+        "avg_basket_size": 3.0,
+        "std_basket_size": 1.0,
+        "basket_sizes_observed": {
+          "n": 30,
+          "mean": 3.0,
+          "std": 0.0,
+          "sha256": "11f8bf9dfc27fec904ef369ec4012a6b30c709bf2a18265b8b87989ad921b8c7"
+        },
+        "abandonment_rate": 0.05,
+        "avg_queue_time": 5.0,
+        "score_anchor": {
+          "score": 0.5547720805833715,
+          "breakdown": {
+            "traffic": 0.1387159488396627,
+            "cross_merch": 0.7483307550264401,
+            "impulse": 0.7820208343019103,
+            "flow": 0.6724701472813357,
+            "revenue_placement": 0.025130304359930522,
+            "bottleneck_penalty": 0.0,
+            "section_compliance": 1.0,
+            "accessibility": 0.40263005534716884,
+            "overlap_penalty": 0.0,
+            "composite": 0.5547720805833715
+          },
+          "source": "as_built_repaired"
+        }
+      },
+      "wall_aligned": {
+        "customers_per_hour": 20.0,
+        "conversion_rate": 0.3,
+        "rev_per_converting_customer": 36.040159248686635,
+        "rev_per_customer_gross": 36.55754964659434,
+        "rev_std": 12.795142376308018,
+        "impulse_rate": 0.2,
+        "avg_impulse_value": 2.586951989538515,
+        "avg_basket_size": 3.0,
+        "std_basket_size": 1.0,
+        "basket_sizes_observed": {
+          "n": 30,
+          "mean": 3.0,
+          "std": 0.0,
+          "sha256": "11f8bf9dfc27fec904ef369ec4012a6b30c709bf2a18265b8b87989ad921b8c7"
+        },
+        "abandonment_rate": 0.05,
+        "avg_queue_time": 5.0,
+        "score_anchor": {
+          "score": 0.5640357020305036,
+          "breakdown": {
+            "traffic": 0.18067362779026389,
+            "cross_merch": 0.7483307550264401,
+            "impulse": 0.7820208343019103,
+            "flow": 0.6724701472813357,
+            "revenue_placement": 0.041070259453905154,
+            "bottleneck_penalty": 0.0,
+            "section_compliance": 1.0,
+            "accessibility": 0.40263005534716884,
+            "overlap_penalty": 0.0,
+            "composite": 0.5640357020305036
+          },
+          "source": "as_built_repaired"
+        }
+      }
+    },
+    "23": {
+      "as_now": {
+        "customers_per_hour": 20.0,
+        "conversion_rate": 0.3,
+        "rev_per_converting_customer": 31.49829721998862,
+        "rev_per_customer_gross": 31.923596500390875,
+        "rev_std": 11.173258775136805,
+        "impulse_rate": 0.2,
+        "avg_impulse_value": 2.1264964020112855,
+        "avg_basket_size": 3.0,
+        "std_basket_size": 1.0,
+        "basket_sizes_observed": {
+          "n": 30,
+          "mean": 3.0,
+          "std": 0.0,
+          "sha256": "11f8bf9dfc27fec904ef369ec4012a6b30c709bf2a18265b8b87989ad921b8c7"
+        },
+        "abandonment_rate": 0.05,
+        "avg_queue_time": 5.0,
+        "score_anchor": {
+          "score": 0.5410728544157124,
+          "breakdown": {
+            "traffic": 0.1387159488396627,
+            "cross_merch": 0.7042334688712005,
+            "impulse": 0.7820208343019103,
+            "flow": 0.6308146824191847,
+            "revenue_placement": 0.02404979920356313,
+            "bottleneck_penalty": 0.0,
+            "section_compliance": 1.0,
+            "accessibility": 0.40748242585072497,
+            "overlap_penalty": 0.0,
+            "composite": 0.5410728544157124
+          },
+          "source": "as_built_repaired"
+        }
+      },
+      "wall_aligned": {
+        "customers_per_hour": 20.0,
+        "conversion_rate": 0.3,
+        "rev_per_converting_customer": 31.49829721998862,
+        "rev_per_customer_gross": 31.923596500390875,
+        "rev_std": 11.173258775136805,
+        "impulse_rate": 0.2,
+        "avg_impulse_value": 2.1264964020112855,
+        "avg_basket_size": 3.0,
+        "std_basket_size": 1.0,
+        "basket_sizes_observed": {
+          "n": 30,
+          "mean": 3.0,
+          "std": 0.0,
+          "sha256": "11f8bf9dfc27fec904ef369ec4012a6b30c709bf2a18265b8b87989ad921b8c7"
+        },
+        "abandonment_rate": 0.05,
+        "avg_queue_time": 5.0,
+        "score_anchor": {
+          "score": 0.5502265637125978,
+          "breakdown": {
+            "traffic": 0.18067362779026389,
+            "cross_merch": 0.7042334688712005,
+            "impulse": 0.7820208343019103,
+            "flow": 0.6308146824191847,
+            "revenue_placement": 0.039302803358495564,
+            "bottleneck_penalty": 0.0,
+            "section_compliance": 1.0,
+            "accessibility": 0.40748242585072497,
+            "overlap_penalty": 0.0,
+            "composite": 0.5502265637125978
+          },
+          "source": "as_built_repaired"
+        }
+      }
+    },
+    "24": {
+      "as_now": {
+        "customers_per_hour": 20.0,
+        "conversion_rate": 0.3,
+        "rev_per_converting_customer": 35.03005602745527,
+        "rev_per_customer_gross": 36.07053656023038,
+        "rev_std": 12.624687796080632,
+        "impulse_rate": 0.2,
+        "avg_impulse_value": 5.202402663875572,
+        "avg_basket_size": 3.0,
+        "std_basket_size": 1.0,
+        "basket_sizes_observed": {
+          "n": 30,
+          "mean": 3.0,
+          "std": 0.0,
+          "sha256": "11f8bf9dfc27fec904ef369ec4012a6b30c709bf2a18265b8b87989ad921b8c7"
+        },
+        "abandonment_rate": 0.05,
+        "avg_queue_time": 5.0,
+        "score_anchor": {
+          "score": 0.5666104904427565,
+          "breakdown": {
+            "traffic": 0.1387159488396627,
+            "cross_merch": 0.7590661540394623,
+            "impulse": 0.7820208343019103,
+            "flow": 0.731910190974033,
+            "revenue_placement": 0.026766758571150552,
+            "bottleneck_penalty": 0.0,
+            "section_compliance": 1.0,
+            "accessibility": 0.4113427141640358,
+            "overlap_penalty": 0.0,
+            "composite": 0.5666104904427565
+          },
+          "source": "as_built_repaired"
+        }
+      },
+      "wall_aligned": {
+        "customers_per_hour": 20.0,
+        "conversion_rate": 0.3,
+        "rev_per_converting_customer": 35.03005602745527,
+        "rev_per_customer_gross": 36.07053656023038,
+        "rev_std": 12.624687796080632,
+        "impulse_rate": 0.2,
+        "avg_impulse_value": 5.202402663875572,
+        "avg_basket_size": 3.0,
+        "std_basket_size": 1.0,
+        "basket_sizes_observed": {
+          "n": 30,
+          "mean": 3.0,
+          "std": 0.0,
+          "sha256": "11f8bf9dfc27fec904ef369ec4012a6b30c709bf2a18265b8b87989ad921b8c7"
+        },
+        "abandonment_rate": 0.05,
+        "avg_queue_time": 5.0,
+        "score_anchor": {
+          "score": 0.575976016878573,
+          "breakdown": {
+            "traffic": 0.18067362779026389,
+            "cross_merch": 0.7590661540394623,
+            "impulse": 0.7820208343019103,
+            "flow": 0.731910190974033,
+            "revenue_placement": 0.04334361984440279,
+            "bottleneck_penalty": 0.0,
+            "section_compliance": 1.0,
+            "accessibility": 0.4113427141640358,
+            "overlap_penalty": 0.0,
+            "composite": 0.575976016878573
+          },
+          "source": "as_built_repaired"
+        }
+      }
+    },
+    "25": {
+      "as_now": {
+        "customers_per_hour": 20.0,
+        "conversion_rate": 0.3,
+        "rev_per_converting_customer": 40.53331407673035,
+        "rev_per_customer_gross": 41.688521804423544,
+        "rev_std": 14.59098263154824,
+        "impulse_rate": 0.2,
+        "avg_impulse_value": 5.776038638465976,
+        "avg_basket_size": 3.0,
+        "std_basket_size": 1.0,
+        "basket_sizes_observed": {
+          "n": 30,
+          "mean": 3.0,
+          "std": 0.0,
+          "sha256": "11f8bf9dfc27fec904ef369ec4012a6b30c709bf2a18265b8b87989ad921b8c7"
+        },
+        "abandonment_rate": 0.05,
+        "avg_queue_time": 5.0,
+        "score_anchor": {
+          "score": 0.5526152711607919,
+          "breakdown": {
+            "traffic": 0.1387159488396627,
+            "cross_merch": 0.7697411895100371,
+            "impulse": 0.7820208343019103,
+            "flow": 0.6415262922303412,
+            "revenue_placement": 0.024833361186912456,
+            "bottleneck_penalty": 0.0,
+            "section_compliance": 1.0,
+            "accessibility": 0.3880312747443429,
+            "overlap_penalty": 0.0,
+            "composite": 0.5526152711607919
+          },
+          "source": "as_built_repaired"
+        }
+      },
+      "wall_aligned": {
+        "customers_per_hour": 20.0,
+        "conversion_rate": 0.3,
+        "rev_per_converting_customer": 40.53331407673035,
+        "rev_per_customer_gross": 41.688521804423544,
+        "rev_std": 14.59098263154824,
+        "impulse_rate": 0.2,
+        "avg_impulse_value": 5.776038638465976,
+        "avg_basket_size": 3.0,
+        "std_basket_size": 1.0,
+        "basket_sizes_observed": {
+          "n": 30,
+          "mean": 3.0,
+          "std": 0.0,
+          "sha256": "11f8bf9dfc27fec904ef369ec4012a6b30c709bf2a18265b8b87989ad921b8c7"
+        },
+        "abandonment_rate": 0.05,
+        "avg_queue_time": 5.0,
+        "score_anchor": {
+          "score": 0.5618924965644345,
+          "breakdown": {
+            "traffic": 0.18067362779026389,
+            "cross_merch": 0.7697411895100371,
+            "impulse": 0.7820208343019103,
+            "flow": 0.6415262922303412,
+            "revenue_placement": 0.04085834100907759,
+            "bottleneck_penalty": 0.0,
+            "section_compliance": 1.0,
+            "accessibility": 0.3880312747443429,
+            "overlap_penalty": 0.0,
+            "composite": 0.5618924965644345
+          },
+          "source": "as_built_repaired"
+        }
+      }
+    },
+    "26": {
+      "as_now": {
+        "customers_per_hour": 20.0,
+        "conversion_rate": 0.3,
+        "rev_per_converting_customer": 30.742759299882785,
+        "rev_per_customer_gross": 31.164476125960743,
+        "rev_std": 10.907566644086259,
+        "impulse_rate": 0.2,
+        "avg_impulse_value": 2.108584130389792,
+        "avg_basket_size": 3.0,
+        "std_basket_size": 1.0,
+        "basket_sizes_observed": {
+          "n": 30,
+          "mean": 3.0,
+          "std": 0.0,
+          "sha256": "11f8bf9dfc27fec904ef369ec4012a6b30c709bf2a18265b8b87989ad921b8c7"
+        },
+        "abandonment_rate": 0.05,
+        "avg_queue_time": 5.0,
+        "score_anchor": {
+          "score": 0.5490373442422755,
+          "breakdown": {
+            "traffic": 0.1387159488396627,
+            "cross_merch": 0.7178951694495864,
+            "impulse": 0.7820208343019103,
+            "flow": 0.6617585374701791,
+            "revenue_placement": 0.029615249298279973,
+            "bottleneck_penalty": 0.0,
+            "section_compliance": 1.0,
+            "accessibility": 0.4059106486184108,
+            "overlap_penalty": 0.0,
+            "composite": 0.5490373442422755
+          },
+          "source": "as_built_repaired"
+        }
+      },
+      "wall_aligned": {
+        "customers_per_hour": 20.0,
+        "conversion_rate": 0.3,
+        "rev_per_converting_customer": 30.742759299882785,
+        "rev_per_customer_gross": 31.164476125960743,
+        "rev_std": 10.907566644086259,
+        "impulse_rate": 0.2,
+        "avg_impulse_value": 2.108584130389792,
+        "avg_basket_size": 3.0,
+        "std_basket_size": 1.0,
+        "basket_sizes_observed": {
+          "n": 30,
+          "mean": 3.0,
+          "std": 0.0,
+          "sha256": "11f8bf9dfc27fec904ef369ec4012a6b30c709bf2a18265b8b87989ad921b8c7"
+        },
+        "abandonment_rate": 0.05,
+        "avg_queue_time": 5.0,
+        "score_anchor": {
+          "score": 0.5585192819228406,
+          "breakdown": {
+            "traffic": 0.18067362779026389,
+            "cross_merch": 0.7178951694495864,
+            "impulse": 0.7820208343019103,
+            "flow": 0.6617585374701791,
+            "revenue_placement": 0.0469196808512118,
+            "bottleneck_penalty": 0.0,
+            "section_compliance": 1.0,
+            "accessibility": 0.4059106486184108,
+            "overlap_penalty": 0.0,
+            "composite": 0.5585192819228406
+          },
+          "source": "as_built_repaired"
+        }
+      }
+    },
+    "27": {
+      "as_now": {
+        "customers_per_hour": 20.0,
+        "conversion_rate": 0.3,
+        "rev_per_converting_customer": 33.86819451571924,
+        "rev_per_customer_gross": 34.18980586161673,
+        "rev_std": 11.966432051565857,
+        "impulse_rate": 0.2,
+        "avg_impulse_value": 1.6080567294874712,
+        "avg_basket_size": 3.0,
+        "std_basket_size": 1.0,
+        "basket_sizes_observed": {
+          "n": 30,
+          "mean": 3.0,
+          "std": 0.0,
+          "sha256": "11f8bf9dfc27fec904ef369ec4012a6b30c709bf2a18265b8b87989ad921b8c7"
+        },
+        "abandonment_rate": 0.05,
+        "avg_queue_time": 5.0,
+        "score_anchor": {
+          "score": 0.5421347940908283,
+          "breakdown": {
+            "traffic": 0.1387159488396627,
+            "cross_merch": 0.6380374783961891,
+            "impulse": 0.7820208343019103,
+            "flow": 0.7053863221444892,
+            "revenue_placement": 0.024411732796281484,
+            "bottleneck_penalty": 0.0,
+            "section_compliance": 1.0,
+            "accessibility": 0.3990805863565747,
+            "overlap_penalty": 0.0,
+            "composite": 0.5421347940908283
+          },
+          "source": "as_built_repaired"
+        }
+      },
+      "wall_aligned": {
+        "customers_per_hour": 20.0,
+        "conversion_rate": 0.3,
+        "rev_per_converting_customer": 33.86819451571924,
+        "rev_per_customer_gross": 34.18980586161673,
+        "rev_std": 11.966432051565857,
+        "impulse_rate": 0.2,
+        "avg_impulse_value": 1.6080567294874712,
+        "avg_basket_size": 3.0,
+        "std_basket_size": 1.0,
+        "basket_sizes_observed": {
+          "n": 30,
+          "mean": 3.0,
+          "std": 0.0,
+          "sha256": "11f8bf9dfc27fec904ef369ec4012a6b30c709bf2a18265b8b87989ad921b8c7"
+        },
+        "abandonment_rate": 0.05,
+        "avg_queue_time": 5.0,
+        "score_anchor": {
+          "score": 0.5513852831720527,
+          "breakdown": {
+            "traffic": 0.18067362779026389,
+            "cross_merch": 0.6380374783961891,
+            "impulse": 0.7820208343019103,
+            "flow": 0.7053863221444892,
+            "revenue_placement": 0.04026961060333375,
+            "bottleneck_penalty": 0.0,
+            "section_compliance": 1.0,
+            "accessibility": 0.3990805863565747,
+            "overlap_penalty": 0.0,
+            "composite": 0.5513852831720527
+          },
+          "source": "as_built_repaired"
+        }
+      }
+    },
+    "28": {
+      "as_now": {
+        "customers_per_hour": 20.0,
+        "conversion_rate": 0.3,
+        "rev_per_converting_customer": 32.145067781514044,
+        "rev_per_customer_gross": 32.83336636330472,
+        "rev_std": 11.491678227156651,
+        "impulse_rate": 0.2,
+        "avg_impulse_value": 3.441492908953389,
+        "avg_basket_size": 3.0,
+        "std_basket_size": 1.0,
+        "basket_sizes_observed": {
+          "n": 30,
+          "mean": 3.0,
+          "std": 0.0,
+          "sha256": "11f8bf9dfc27fec904ef369ec4012a6b30c709bf2a18265b8b87989ad921b8c7"
+        },
+        "abandonment_rate": 0.05,
+        "avg_queue_time": 5.0,
+        "score_anchor": {
+          "score": 0.5437692120059839,
+          "breakdown": {
+            "traffic": 0.1387159488396627,
+            "cross_merch": 0.7121331729681897,
+            "impulse": 0.7820208343019103,
+            "flow": 0.6415262922303412,
+            "revenue_placement": 0.02462209073923242,
+            "bottleneck_penalty": 0.0,
+            "section_compliance": 1.0,
+            "accessibility": 0.3981569438322522,
+            "overlap_penalty": 0.0,
+            "composite": 0.5437692120059839
+          },
+          "source": "as_built_repaired"
+        }
+      },
+      "wall_aligned": {
+        "customers_per_hour": 20.0,
+        "conversion_rate": 0.3,
+        "rev_per_converting_customer": 32.145067781514044,
+        "rev_per_customer_gross": 32.83336636330472,
+        "rev_std": 11.491678227156651,
+        "impulse_rate": 0.2,
+        "avg_impulse_value": 3.441492908953389,
+        "avg_basket_size": 3.0,
+        "std_basket_size": 1.0,
+        "basket_sizes_observed": {
+          "n": 30,
+          "mean": 3.0,
+          "std": 0.0,
+          "sha256": "11f8bf9dfc27fec904ef369ec4012a6b30c709bf2a18265b8b87989ad921b8c7"
+        },
+        "abandonment_rate": 0.05,
+        "avg_queue_time": 5.0,
+        "score_anchor": {
+          "score": 0.553070460379763,
+          "breakdown": {
+            "traffic": 0.18067362779026389,
+            "cross_merch": 0.7121331729681897,
+            "impulse": 0.7820208343019103,
+            "flow": 0.6415262922303412,
+            "revenue_placement": 0.04079721412475068,
+            "bottleneck_penalty": 0.0,
+            "section_compliance": 1.0,
+            "accessibility": 0.3981569438322522,
+            "overlap_penalty": 0.0,
+            "composite": 0.553070460379763
+          },
+          "source": "as_built_repaired"
+        }
+      }
+    },
+    "29": {
+      "as_now": {
+        "customers_per_hour": 20.0,
+        "conversion_rate": 0.3,
+        "rev_per_converting_customer": 18.65082480656029,
+        "rev_per_customer_gross": 19.498124040593062,
+        "rev_std": 6.824343414207571,
+        "impulse_rate": 0.2,
+        "avg_impulse_value": 4.236496170163862,
+        "avg_basket_size": 3.0,
+        "std_basket_size": 1.0,
+        "basket_sizes_observed": {
+          "n": 30,
+          "mean": 3.0,
+          "std": 0.0,
+          "sha256": "11f8bf9dfc27fec904ef369ec4012a6b30c709bf2a18265b8b87989ad921b8c7"
+        },
+        "abandonment_rate": 0.05,
+        "avg_queue_time": 5.0,
+        "score_anchor": {
+          "score": 0.5694153418247788,
+          "breakdown": {
+            "traffic": 0.1387159488396627,
+            "cross_merch": 0.773173247059604,
+            "impulse": 0.7820208343019103,
+            "flow": 0.731910190974033,
+            "revenue_placement": 0.03071431973930952,
+            "bottleneck_penalty": 0.0,
+            "section_compliance": 1.0,
+            "accessibility": 0.4092453819613916,
+            "overlap_penalty": 0.0,
+            "composite": 0.5694153418247788
+          },
+          "source": "as_built_repaired"
+        }
+      },
+      "wall_aligned": {
+        "customers_per_hour": 20.0,
+        "conversion_rate": 0.3,
+        "rev_per_converting_customer": 18.65082480656029,
+        "rev_per_customer_gross": 19.498124040593062,
+        "rev_std": 6.824343414207571,
+        "impulse_rate": 0.2,
+        "avg_impulse_value": 4.236496170163862,
+        "avg_basket_size": 3.0,
+        "std_basket_size": 1.0,
+        "basket_sizes_observed": {
+          "n": 30,
+          "mean": 3.0,
+          "std": 0.0,
+          "sha256": "11f8bf9dfc27fec904ef369ec4012a6b30c709bf2a18265b8b87989ad921b8c7"
+        },
+        "abandonment_rate": 0.05,
+        "avg_queue_time": 5.0,
+        "score_anchor": {
+          "score": 0.5789308711449555,
+          "breakdown": {
+            "traffic": 0.18067362779026389,
+            "cross_merch": 0.773173247059604,
+            "impulse": 0.7820208343019103,
+            "flow": 0.731910190974033,
+            "revenue_placement": 0.04822869903981182,
+            "bottleneck_penalty": 0.0,
+            "section_compliance": 1.0,
+            "accessibility": 0.4092453819613916,
+            "overlap_penalty": 0.0,
+            "composite": 0.5789308711449555
+          },
+          "source": "as_built_repaired"
+        }
+      }
+    }
+  },
+  "summary": {
+    "experiment": "objective_alignment",
+    "variants": {
+      "as_now": {
+        "n_scenarios": 30,
+        "wall_coef": 0.0,
+        "spearman_fisher_mean": 0.49013873531337393,
+        "spearman_median": 0.5149714971497149,
+        "spearman_min": -0.2923012301230123,
+        "spearman_max": 0.7432943294329432,
+        "n_reversal": 29,
+        "n_fitness_prefers_ga": 29,
+        "n_analytical_prefers_reference": 30,
+        "gap_fitness_pct_median": 0.4699097124890706,
+        "gap_analytical_pct_median": 0.9814226868425566
+      },
+      "wall_aligned": {
+        "n_scenarios": 30,
+        "wall_coef": 1.5,
+        "spearman_fisher_mean": 0.49552524638098877,
+        "spearman_median": 0.5208400840084008,
+        "spearman_min": -0.30295829582958295,
+        "spearman_max": 0.7424662466246624,
+        "n_reversal": 29,
+        "n_fitness_prefers_ga": 29,
+        "n_analytical_prefers_reference": 30,
+        "gap_fitness_pct_median": 0.3764223824141527,
+        "gap_analytical_pct_median": 0.8850855275704437
+      }
+    },
+    "change_as_now_to_wall_aligned": {
+      "spearman_diff_mean": 0.005021702170217044,
+      "spearman_diff_median": 0.005868586858685854,
+      "n_scenarios_rho_up": 22,
+      "n_reversal_as_now": 29,
+      "n_reversal_wall_aligned": 29
+    },
+    "design": {
+      "scenarios": "generate_synthetic_shop(seed=10_000 + scenario), as in Figure A",
+      "sample": "Figure A's held-out repaired random layouts (seed 20_000 + scenario), the same in both variants",
+      "fitness": "experiments.closed_form.expected_revenue (exact mean of the GA fitness), anchored at the repaired as-built layout",
+      "ga": "run_ga_headless on the exact fitness, pop 30 x 25 gens, seed 0",
+      "reference": "oracle.solve_oracle(n_restarts=96)",
+      "reversal": "the fitness prefers the GA layout and the analytical model prefers the reference"
+    },
+    "oracle": {
+      "n_restarts": 96,
+      "n_failed_restarts": 0,
+      "n_not_converged": 2,
+      "n_scenarios": 30
+    },
+    "config": {
+      "n_scenarios": 30,
+      "n_items": 10,
+      "n_samples": 100,
+      "horizon_days": 30,
+      "n_gens": 25,
+      "pop_size": 30,
+      "ga_seed": 0,
+      "oracle_restarts": 96,
+      "wall_coef": 1.5,
+      "workers": 4,
+      "out_root": "CODE/experiments/results"
+    }
+  }
+}

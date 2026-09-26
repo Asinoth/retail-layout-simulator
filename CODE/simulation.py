@@ -12,28 +12,68 @@ import random
 from sim_analytics import AnalyticsMixin
 from sim_geometry import GeometryMixin
 from sim_calibration import new_markov_transition_counts
+from retail_literature import (AGENT_SPEED_CLIP_MPS, AGENT_SPEED_FALLBACK_SD,
+                               SEPARATION_MIN_DIST_M, SEPARATION_STRENGTH,
+                               SEPARATION_REFERENCE_DT_S)
 
 
-# Longest tick the agent model is advanced by in one go, and how many of
-# them one frame of the threaded driver may take. An agent follows its path
-# one waypoint per tick, so a long tick slows it down in simulated time;
-# the driver's frame length varies with host load and the speed slider,
-# which would make walking speed depend on both. Sub-stepping keeps the GUI
-# on the same footing as the fixed-step headless runs at any speed, and the
-# cap bounds the work one frame can be asked to do: simulated time past it
-# is dropped rather than pushed into an ever-growing backlog.
+# The tick the threaded GUI driver advances the agent model by, and how many
+# of them one frame may take. It is the headless runs' default tick, so the
+# GUI runs the same discrete-time model they do (review R41): the driver
+# adds each frame's simulated time to a backlog and takes as many whole
+# ticks of MAX_STEP_S as the backlog holds, carrying the remainder to the
+# next frame. A frame-sized tick would make walking speed (one waypoint per
+# tick) and the separation push depend on host load and the speed slider.
+# The cap bounds the work one frame can be asked to do: whole ticks past it
+# are dropped rather than pushed into an ever-growing backlog.
+#
+# The model is a DISCRETE-TIME model at this tick, not a discretisation of a
+# continuous-time one: the separation push is a rate (separation_fraction)
+# and so does not depend on the tick, but an agent still steps at most to
+# its next waypoint per tick (Customer._move_towards_target), so walking
+# resolution -- and with it how long a route takes -- is tied to the tick.
+# Every reported run, headless or GUI, uses this one tick.
 MAX_STEP_S = 0.04
 MAX_SUBSTEPS = 10
 
 
-def _substeps_for(dt):
-    """Split one frame of the threaded driver into (count, tick) the agent
-    model can take: at most MAX_STEP_S of simulated time each, and at most
-    MAX_SUBSTEPS of them, which drops the simulated time past that."""
-    n = max(1, int(math.ceil(dt / MAX_STEP_S - 1e-9)))
+def _fixed_ticks(backlog):
+    """How many ticks of MAX_STEP_S the threaded driver takes for a backlog
+    of ``backlog`` simulated seconds, and the backlog it carries forward:
+    ``(n, remainder)``.
+
+    At most MAX_SUBSTEPS ticks per frame; the whole ticks past that cap are
+    dropped, and only the part of a tick left over is carried. A backlog a
+    hair under a whole tick (floating-point sums of frame lengths) counts as
+    the tick it is meant to be."""
+    backlog = max(0.0, float(backlog))
+    n = int(math.floor(backlog / MAX_STEP_S + 1e-9))
     if n > MAX_SUBSTEPS:
-        return MAX_SUBSTEPS, MAX_STEP_S
-    return n, dt / n
+        # Drop the whole ticks past the cap; keep the part of one tick.
+        remainder = backlog - n * MAX_STEP_S
+        return MAX_SUBSTEPS, max(0.0, remainder)
+    return n, max(0.0, backlog - n * MAX_STEP_S)
+
+
+def separation_fraction(strength, dt, ref_dt=SEPARATION_REFERENCE_DT_S):
+    """Share of their overlap two crowding agents are each pushed apart by
+    in a tick of ``dt`` simulated seconds.
+
+    ``strength`` is the share at the reference tick ``ref_dt``. The push is
+    a rate: 1 - exp(-k dt) with k = -ln(1 - strength) / ref_dt, so a tick of
+    ``ref_dt`` gives ``strength`` exactly -- returned as given, so every
+    fixed-step run at the reference tick is bit-identical to the per-tick
+    rule this replaces -- and a finer tick gives a proportionally smaller
+    push instead of the same push more often (review R41)."""
+    strength = float(strength)
+    if strength <= 0.0 or dt <= 0.0:
+        return 0.0
+    if strength >= 1.0:
+        return 1.0
+    if math.isclose(dt, ref_dt, rel_tol=0.0, abs_tol=1e-12):
+        return strength
+    rate = -math.log1p(-strength) / ref_dt
+    return -math.expm1(-rate * dt)
 
 
 def _ticks_covering(seconds, dt):
@@ -64,6 +104,9 @@ class CustomerFlowSimulation(AnalyticsMixin, GeometryMixin):
         # effect live without restarting the loop.
         self.max_customers = 20
         self.last_update_time = time.perf_counter()
+        # Simulated seconds the threaded driver owes the model but has not
+        # yet spent in whole ticks (see _fixed_ticks).
+        self._tick_backlog = 0.0
         self.target_fps = 20.0
         self.last_draw_time = time.perf_counter()
         self.draw_interval = 1.0 / self.target_fps
@@ -122,7 +165,6 @@ class CustomerFlowSimulation(AnalyticsMixin, GeometryMixin):
             'optimization_history': [],
             'pre_optimization_revenue': 0.0,
             'post_optimization_revenue': 0.0,
-            'optimization_impact': 0.0,
             # Arrivals refused because the store was at max_customers.
             'balked_arrivals': 0,
             # Inputs of the empirical Markov estimator (sim_calibration):
@@ -264,6 +306,7 @@ class CustomerFlowSimulation(AnalyticsMixin, GeometryMixin):
             self.paused = False
             self.geometry_dirty = True   # <-- critical: layout may have changed
             self.last_update_time = time.perf_counter()
+            self._tick_backlog = 0.0
             self._next_spawn_gap  = None   # redraw; the old gap predates the pause
             self._since_last_arrival = 0.0
             self._gap_rate = None
@@ -318,6 +361,7 @@ class CustomerFlowSimulation(AnalyticsMixin, GeometryMixin):
         self.running = True
         self._running = True
         self.last_update_time = time.perf_counter()
+        self._tick_backlog = 0.0
         self._next_spawn_gap  = None   # fresh run, fresh inter-arrival draw
         self._since_last_arrival = 0.0
         self._gap_rate = None
@@ -585,18 +629,19 @@ class CustomerFlowSimulation(AnalyticsMixin, GeometryMixin):
         # Trajectory-calibrated walking speed: when a spatial dataset
         # (OpenTraj / ATC) has been loaded, agents draw their speed from
         # the EMPIRICAL distribution (normal, clipped to the observed
-        # p5-p95 band) instead of the uniform(0.8, 1.5) default -- so the
+        # p5-p95 band) instead of the AGENT_SPEED_RANGE_MPS default -- so the
         # spatial calibration genuinely shapes agent behavior, not just
         # the Validation-tab overlays.
         try:
             cal = self.analytics.get('calibration', {})
             mu = cal.get('empirical_speed_mean')
             if mu:
-                sd = cal.get('empirical_speed_std') or 0.2
+                sd = cal.get('empirical_speed_std') or AGENT_SPEED_FALLBACK_SD
                 lo = cal.get('empirical_speed_p5', mu - 2 * sd)
                 hi = cal.get('empirical_speed_p95', mu + 2 * sd)
                 s = float(np.random.normal(mu, sd))
-                cust.speed = float(min(max(s, max(0.3, lo)), min(2.5, hi)))
+                cust.speed = float(min(max(s, max(AGENT_SPEED_CLIP_MPS[0], lo)),
+                                       min(AGENT_SPEED_CLIP_MPS[1], hi)))
         except Exception:
             pass
 
@@ -703,11 +748,20 @@ class CustomerFlowSimulation(AnalyticsMixin, GeometryMixin):
     # ------------------------------------------------------------------
     # Anti-stacking separation force
     # ------------------------------------------------------------------
-    def _apply_separation(self, customers):
+    def _apply_separation(self, customers, dt=SEPARATION_REFERENCE_DT_S):
+        """Push apart every pair of agents on one floor closer than the
+        separation distance, each by a share of their overlap.
+
+        The share is ``separation_fraction(strength, dt)``: a rate applied
+        over the tick, so the push per simulated second does not depend on
+        the tick length. ``separation_strength`` is the share at the
+        reference tick (0.04 s), where the push is exactly the old per-tick
+        one."""
         # Overridable for structural-sensitivity sweeps (audit R6.5); the
         # defaults reproduce the shipped behavior exactly.
-        min_dist = getattr(self, 'separation_min_dist', 0.35)
-        strength = getattr(self, 'separation_strength', 0.08)
+        min_dist = getattr(self, 'separation_min_dist', SEPARATION_MIN_DIST_M)
+        strength = separation_fraction(
+            getattr(self, 'separation_strength', SEPARATION_STRENGTH), dt)
         n = len(customers)
         if n < 2:
             return
@@ -744,10 +798,15 @@ class CustomerFlowSimulation(AnalyticsMixin, GeometryMixin):
     def _simulation_loop(self):
         """Threaded GUI driver: paces step() against the wall clock.
 
-        Wall time is used only to size each tick (scaled by
-        simulation_speed), to sleep towards target_fps and to throttle
-        redraws. Everything the agents and analytics see comes from the
-        simulated clock that step() advances.
+        Wall time is used only to decide how much simulated time a frame
+        owes (scaled by simulation_speed), to sleep towards target_fps and
+        to throttle redraws. The model itself always advances in fixed
+        ticks of MAX_STEP_S, the headless runs' tick: each frame adds its
+        simulated time to a backlog and takes the whole ticks it holds
+        (``_fixed_ticks``), carrying the remainder, so the GUI runs the same
+        discrete-time model as ``run_headless`` at any frame rate or speed.
+        Everything the agents and analytics see comes from the simulated
+        clock that step() advances.
         """
         while self.running:
             loop_start = time.perf_counter()
@@ -770,9 +829,10 @@ class CustomerFlowSimulation(AnalyticsMixin, GeometryMixin):
                 self._restart_sim_clock()
             self.run_time += real_dt
 
-            n_sub, sub_dt = _substeps_for(dt)
-            for _ in range(n_sub):
-                self.step(sub_dt)
+            n_ticks, self._tick_backlog = _fixed_ticks(
+                getattr(self, '_tick_backlog', 0.0) + dt)
+            for _ in range(n_ticks):
+                self.step(MAX_STEP_S)
 
             if (getattr(self.shop, 'current_tab', None) == 'Layout'
                     and self.shop.canvas
@@ -863,8 +923,8 @@ class CustomerFlowSimulation(AnalyticsMixin, GeometryMixin):
                 except Exception:
                     self.suppressed_errors['agent_update'] += 1
 
-        # Anti-stack separation
-        try: self._apply_separation(customers)
+        # Anti-stack separation, applied at its rate over this tick.
+        try: self._apply_separation(customers, dt)
         except Exception: self.suppressed_errors['separation'] += 1
 
         for cust in customers:
@@ -929,14 +989,19 @@ class CustomerFlowSimulation(AnalyticsMixin, GeometryMixin):
 
         Executes the same step() as the threaded loop, with no sleeping,
         drawing or GUI queue. The default dt of 0.04 s is the threaded
-        loop's 25 fps ceiling, so agents move with the same per-tick
-        resolution as in the GUI. The simulated clock carries on from its
-        current value, so consecutive calls extend one run.
+        loop's fixed tick (MAX_STEP_S), so the GUI and a default headless
+        run advance the same discrete-time model. The simulated clock
+        carries on from its current value, so consecutive calls extend one
+        run.
 
         With `seed`, the global numpy RNG that drives agent decisions is
         seeded with `seed` and the arrival stream with `seed + 1`, and any
         pending inter-arrival gap is dropped, so the same seed on the same
-        shop reproduces the run exactly.
+        shop reproduces the run exactly. A seeded run must start from an
+        empty store: an agent already inside was drawn before the streams
+        were seeded, and it would shape every draw after them, so a seeded
+        call on a store that holds agents raises ValueError instead of
+        running unreproducibly.
 
         `callback(sim)` runs after the first tick at or past each multiple
         of `callback_every_s` simulated seconds, counted from the start of
@@ -955,6 +1020,11 @@ class CustomerFlowSimulation(AnalyticsMixin, GeometryMixin):
                 f"callback_every_s must be positive, got {callback_every_s!r}")
 
         if seed is not None:
+            if self.customers:
+                raise ValueError(
+                    f"run_headless(seed={seed}) on a simulation that already "
+                    f"holds {len(self.customers)} agent(s): a seeded run must "
+                    "start from an empty store")
             np.random.seed(seed)
             self.arrival_rng = np.random.default_rng(seed + 1)
             self._next_spawn_gap = None

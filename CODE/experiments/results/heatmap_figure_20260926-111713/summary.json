@@ -1,0 +1,85 @@
+{
+  "figure": {
+    "stem": "emergent_heatmap",
+    "width_in": 3.4,
+    "min_font_pt": 7.0,
+    "cmap": "inferno",
+    "clip_percentile": 99.0,
+    "vmax": 88.65000166594946,
+    "display_cell_m": 0.25,
+    "include_fraction_of_textwidth": 0.62,
+    "textwidth_in": 5.477,
+    "include_hint": "\\includegraphics{figs/emergent_heatmap.pdf}",
+    "saved_width_in": 3.445,
+    "saved_height_in": 2.162,
+    "include_width_in": 3.445,
+    "min_font_pt_printed": 7.0
+  },
+  "protocol": {
+    "mode": "fixed_step",
+    "dt": 0.04,
+    "seed": 5000,
+    "spawn": 0.27,
+    "cap": 45,
+    "warmup_s": 1020.0,
+    "collect_s": 1860.0,
+    "reps": 1,
+    "heat": "increment over the window, one sample per agent per second"
+  },
+  "store": {
+    "width_m": 32.6,
+    "height_m": 23.3,
+    "n_items": 72
+  },
+  "load": {
+    "arrivals": 374,
+    "balked": 2
+  },
+  "agent_seconds": 55251.00009047985,
+  "perimeter_ratio": {
+    "perimeter_mean_intensity": 0.2726,
+    "interior_mean_intensity": 0.1352,
+    "perimeter_interior_ratio": 2.016,
+    "band_m": 2.5
+  },
+  "perimeter_interior_ratio_geometric_null": 0.923,
+  "data": {
+    "period": "current",
+    "workbook": "DATASETS/UCI Online Retail II .xlsx.xlsx",
+    "source_sha256": "bcbe73b35f5b7babf197fb0cb983a11f5d9ff929078d4aa53d171b1f2df2e980",
+    "source_bytes": 45622278,
+    "adapter_name": "uci_online_retail_ii",
+    "adapter_version": "1.2",
+    "reader_version": "1.1",
+    "schema_version": "1.0.0",
+    "sheet": "Year 2010-2011",
+    "rows_in": 541910,
+    "rows_adapted": 524832,
+    "rows_calibrated": 524832,
+    "cleaning": {
+      "cancellation_lines": 9288,
+      "reversal_pairs": 2899,
+      "cancellation_lines_anonymous": 383,
+      "cancellation_lines_unmatched": 6006,
+      "reversal_matching": true,
+      "reversed_purchase_lines_removed": 2899,
+      "reversed_units_removed": 225860.0,
+      "reversed_revenue_removed": 447358.04000000004
+    },
+    "exclude_anonymous": false,
+    "n_anonymous_invoices": 1371,
+    "anonymous_invoice_frac": 0.06978519800468289,
+    "anonymous_revenue_frac": 0.1534560870331797,
+    "arrivals_per_hour": 4.714177978883861,
+    "visitors_per_hour": 15.713926596279538,
+    "assumed_conversion_rate": 0.3,
+    "first_date": "2010-12-01",
+    "last_date": "2011-12-09",
+    "first_timestamp": "2010-12-01T08:26:00",
+    "last_timestamp": "2011-12-09T12:50:00",
+    "n_invoices": 19646,
+    "list_law": "stocked-invoice",
+    "max_items_per_category": 8,
+    "naive_layout": true
+  }
+}

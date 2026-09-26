@@ -249,6 +249,17 @@ def test_clock_restart_keeps_agents_elapsed_times(plan):
     assert not sim.suppressed_errors
 
 
+def test_a_seeded_run_refuses_a_store_that_already_holds_agents(plan):
+    """An agent admitted before the streams are seeded would shape every
+    later draw, so the seeded run would not be the one its seed names."""
+    sim = _build_sim(plan)
+    sim._spawn_customer()
+    with pytest.raises(ValueError, match='empty store'):
+        sim.run_headless(1.0, seed=3)
+    sim.run_headless(0.4)                  # an unseeded run may carry on
+    assert sim.sim_time > 0.0
+
+
 # --- the threaded loop ------------------------------------------------------------
 
 def test_threaded_loop_advances_the_model_through_step(plan):

@@ -1,0 +1,899 @@
+{
+  "strengths": [
+    0.0,
+    0.04,
+    0.08,
+    0.16,
+    0.32
+  ],
+  "n_reps": 5,
+  "design": "common_random_numbers",
+  "default_index": 2,
+  "per_rep_values": {
+    "completed": [
+      [
+        339.0,
+        352.0,
+        357.0,
+        356.0,
+        305.0
+      ],
+      [
+        342.0,
+        355.0,
+        367.0,
+        393.0,
+        316.0
+      ],
+      [
+        342.0,
+        364.0,
+        353.0,
+        387.0,
+        309.0
+      ],
+      [
+        336.0,
+        361.0,
+        375.0,
+        359.0,
+        321.0
+      ],
+      [
+        342.0,
+        338.0,
+        359.0,
+        364.0,
+        320.0
+      ]
+    ],
+    "rev_per_cust": [
+      [
+        11.10200589970499,
+        11.186079545454517,
+        10.834845938375327,
+        11.383061797752793,
+        11.127442622950783
+      ],
+      [
+        12.083859649122786,
+        11.635859154929559,
+        10.612561307901883,
+        11.212239185750622,
+        12.05708860759492
+      ],
+      [
+        11.856578947368396,
+        10.499945054945032,
+        12.240283286118961,
+        10.0596899224806,
+        12.782653721682845
+      ],
+      [
+        10.620684523809505,
+        11.188199445983374,
+        11.08786666666663,
+        11.936935933147614,
+        11.7183489096573
+      ],
+      [
+        11.950029239766064,
+        11.571627218934905,
+        11.916685236768787,
+        10.546703296703285,
+        10.915906249999995
+      ]
+    ],
+    "revenue": [
+      [
+        3763.5799999999917,
+        3937.49999999999,
+        3868.039999999992,
+        4052.3699999999944,
+        3393.869999999989
+      ],
+      [
+        4132.679999999993,
+        4130.729999999993,
+        3894.809999999991,
+        4406.409999999994,
+        3810.039999999995
+      ],
+      [
+        4054.9499999999916,
+        3821.9799999999914,
+        4320.819999999993,
+        3893.0999999999917,
+        3949.8399999999992
+      ],
+      [
+        3568.549999999994,
+        4038.939999999998,
+        4157.949999999986,
+        4285.359999999993,
+        3761.589999999993
+      ],
+      [
+        4086.909999999994,
+        3911.209999999998,
+        4278.089999999995,
+        3838.9999999999955,
+        3493.0899999999983
+      ]
+    ],
+    "conversion": [
+      [
+        0.9630681818181818,
+        0.9565217391304348,
+        0.9622641509433962,
+        0.9493333333333334,
+        0.9651898734177216
+      ],
+      [
+        0.9743589743589743,
+        0.9699453551912568,
+        0.9708994708994709,
+        0.9703703703703703,
+        0.978328173374613
+      ],
+      [
+        0.9771428571428571,
+        0.9837837837837838,
+        0.9697802197802198,
+        0.9822335025380711,
+        0.9716981132075472
+      ],
+      [
+        0.9491525423728814,
+        0.9652406417112299,
+        0.981675392670157,
+        0.9598930481283422,
+        0.9668674698795181
+      ],
+      [
+        0.9771428571428571,
+        0.949438202247191,
+        0.9782016348773842,
+        0.9655172413793104,
+        0.9785932721712538
+      ]
+    ]
+  },
+  "paired_contrasts": {
+    "completed": {
+      "0.0": {
+        "n": 5,
+        "mean_diff": -9.2,
+        "sd_diff": 13.442470011125186,
+        "ci95_half_width": 16.691031059747928,
+        "t": -1.5303605197536256,
+        "p": 0.20067312698670853,
+        "mde80": 22.347785791008114,
+        "mde80_pct_of_default": 6.36689053874875,
+        "mean_diff_pct_of_default": -2.621082621082621
+      },
+      "0.04": {
+        "n": 5,
+        "mean_diff": 3.6,
+        "sd_diff": 8.61974477580398,
+        "ci95_half_width": 10.702826761820798,
+        "t": 0.9338843467379137,
+        "p": 0.4032320957329522,
+        "mde80": 14.33012010913198,
+        "mde80_pct_of_default": 4.082655301747003,
+        "mean_diff_pct_of_default": 1.0256410256410255
+      },
+      "0.16": {
+        "n": 5,
+        "mean_diff": -0.6,
+        "sd_diff": 19.07354188398159,
+        "ci95_half_width": 23.682930275571582,
+        "t": -0.07034041158483603,
+        "p": 0.9472990002186841,
+        "mde80": 31.709308478744603,
+        "mde80_pct_of_default": 9.033991019585356,
+        "mean_diff_pct_of_default": -0.17094017094017094
+      },
+      "0.32": {
+        "n": 5,
+        "mean_diff": -6.4,
+        "sd_diff": 17.008821240756223,
+        "ci95_half_width": 21.11924098653052,
+        "t": -0.8413772391062172,
+        "p": 0.4474961077895856,
+        "mde80": 28.276759652904914,
+        "mde80_pct_of_default": 8.056056881169491,
+        "mean_diff_pct_of_default": -1.8233618233618234
+      }
+    },
+    "rev_per_cust": {
+      "0.0": {
+        "n": 5,
+        "mean_diff": -0.3611430256714847,
+        "sd_diff": 1.3090388304430547,
+        "ci95_half_width": 1.6253863880119057,
+        "t": -0.6168956460428855,
+        "p": 0.5706850293618877,
+        "mde80": 2.176245835076592,
+        "mde80_pct_of_default": 18.94392413312647,
+        "mean_diff_pct_of_default": -3.143700940977364
+      },
+      "0.04": {
+        "n": 5,
+        "mean_diff": 0.03249139454078751,
+        "sd_diff": 1.2084051766433945,
+        "ci95_half_width": 1.5004332030811658,
+        "t": 0.06012301857128393,
+        "p": 0.9549416619004135,
+        "mde80": 2.008944785744139,
+        "mde80_pct_of_default": 17.48759124331079,
+        "mean_diff_pct_of_default": 0.2828331722635993
+      },
+      "0.16": {
+        "n": 5,
+        "mean_diff": -0.17742309066628223,
+        "sd_diff": 1.3989813928100991,
+        "ci95_half_width": 1.7370648296092617,
+        "t": -0.28358496656700605,
+        "p": 0.7908010774065337,
+        "mde80": 2.325773199884517,
+        "mde80_pct_of_default": 20.245539515493398,
+        "mean_diff_pct_of_default": -1.5444438835323848
+      },
+      "0.32": {
+        "n": 5,
+        "mean_diff": -0.10763993808455936,
+        "sd_diff": 1.1097238038875148,
+        "ci95_half_width": 1.3779040952368642,
+        "t": -0.216892003044156,
+        "p": 0.8389057850419299,
+        "mde80": 1.8448893570851297,
+        "mde80_pct_of_default": 16.059511040214414,
+        "mean_diff_pct_of_default": -0.9369910273471274
+      }
+    },
+    "revenue": {
+      "0.0": {
+        "n": 5,
+        "mean_diff": -205.06600000000208,
+        "sd_diff": 326.9022513382284,
+        "ci95_half_width": 405.9027564184372,
+        "t": -1.4026869316343376,
+        "p": 0.23335817774361006,
+        "mde80": 543.467196241379,
+        "mde80_pct_of_default": 13.559093929435065,
+        "mean_diff_pct_of_default": -5.116241007669957
+      },
+      "0.04": {
+        "n": 5,
+        "mean_diff": 66.79599999999982,
+        "sd_diff": 368.637933316692,
+        "ci95_half_width": 457.72445017157725,
+        "t": 0.40516827793943283,
+        "p": 0.7060874628859309,
+        "mde80": 612.8517721358706,
+        "mde80_pct_of_default": 15.290186419127078,
+        "mean_diff_pct_of_default": 1.6665094864498162
+      },
+      "0.16": {
+        "n": 5,
+        "mean_diff": -45.66000000000067,
+        "sd_diff": 349.66592291786395,
+        "ci95_half_width": 434.16758788580495,
+        "t": -0.2919897455281188,
+        "p": 0.7848123410340633,
+        "mde80": 581.3112573296711,
+        "mde80_pct_of_default": 14.503274521228363,
+        "mean_diff_pct_of_default": -1.1391823335424267
+      },
+      "0.32": {
+        "n": 5,
+        "mean_diff": -86.47799999999734,
+        "sd_diff": 215.03746038772175,
+        "ci95_half_width": 267.0042728286026,
+        "t": -0.8992418632993769,
+        "p": 0.41936423464735606,
+        "mde80": 357.494649257912,
+        "mde80_pct_of_default": 8.91922007819872,
+        "mean_diff_pct_of_default": -2.1575604432780877
+      }
+    },
+    "conversion": {
+      "0.0": {
+        "n": 5,
+        "mean_diff": -0.017652239561882242,
+        "sd_diff": 0.011880418406435948,
+        "ci95_half_width": 0.014751487818868878,
+        "t": -3.3224088803216687,
+        "p": 0.02931252352123802,
+        "mde80": 0.01975091225309396,
+        "mde80_pct_of_default": 2.02173736585704,
+        "mean_diff_pct_of_default": -1.8069136177609575
+      },
+      "0.04": {
+        "n": 5,
+        "mean_diff": -0.004147226451558716,
+        "sd_diff": 0.0086486848534549,
+        "ci95_half_width": 0.010738760614345168,
+        "t": -1.072241666901071,
+        "p": 0.3439945303512256,
+        "mde80": 0.014378232298006693,
+        "mde80_pct_of_default": 1.471780600275769,
+        "mean_diff_pct_of_default": -0.42451723618353465
+      },
+      "0.16": {
+        "n": 5,
+        "mean_diff": -0.012361876338070066,
+        "sd_diff": 0.01602460656407717,
+        "ci95_half_width": 0.01989717705599438,
+        "t": -1.7249718868815607,
+        "p": 0.15961866601182828,
+        "mde80": 0.026640526226415114,
+        "mde80_pct_of_default": 2.7269701079048008,
+        "mean_diff_pct_of_default": -1.2653829344447218
+      },
+      "0.32": {
+        "n": 5,
+        "mean_diff": -0.0071490537268964925,
+        "sd_diff": 0.0181794592991507,
+        "ci95_half_width": 0.022572780118566102,
+        "t": -0.8793314391306231,
+        "p": 0.4288761033623484,
+        "mde80": 0.030222917505304814,
+        "mde80_pct_of_default": 3.0936698438381187,
+        "mean_diff_pct_of_default": -0.7317894416710824
+      }
+    }
+  },
+  "block_anova": {
+    "completed": {
+      "F": 1.3728,
+      "p": 0.2873,
+      "df_setting": 4,
+      "df_residual": 16
+    },
+    "rev_per_cust": {
+      "F": 0.2389,
+      "p": 0.9122,
+      "df_setting": 4,
+      "df_residual": 16
+    },
+    "revenue": {
+      "F": 1.1464,
+      "p": 0.3705,
+      "df_setting": 4,
+      "df_residual": 16
+    },
+    "conversion": {
+      "F": 2.9325,
+      "p": 0.0539,
+      "df_setting": 4,
+      "df_residual": 16
+    }
+  },
+  "mde": {
+    "power": 0.8,
+    "alpha": 0.05,
+    "method": "paired t: (t_{1-alpha/2,n-1} + t_{power,n-1}) * sd(diff) / sqrt(n)",
+    "max_pct_of_default": {
+      "completed": 9.033991019585356,
+      "rev_per_cust": 20.245539515493398,
+      "revenue": 15.290186419127078,
+      "conversion": 3.0936698438381187
+    }
+  },
+  "rev_per_cust_mean": [
+    11.1267,
+    11.5203,
+    11.4878,
+    11.3104,
+    11.3802
+  ],
+  "rev_per_cust_sd": [
+    0.1969,
+    0.6201,
+    1.1613,
+    0.5242,
+    0.6244
+  ],
+  "rev_per_cust_anova_F": 0.255,
+  "rev_per_cust_anova_p": 0.9035,
+  "completed_per_setting": [
+    1709,
+    1773,
+    1755,
+    1752,
+    1723
+  ],
+  "completed_per_rep": [
+    [
+      339,
+      352,
+      357,
+      356,
+      305
+    ],
+    [
+      342,
+      355,
+      367,
+      393,
+      316
+    ],
+    [
+      342,
+      364,
+      353,
+      387,
+      309
+    ],
+    [
+      336,
+      361,
+      375,
+      359,
+      321
+    ],
+    [
+      342,
+      338,
+      359,
+      364,
+      320
+    ]
+  ],
+  "conversion": [
+    0.959,
+    0.9726,
+    0.9772,
+    0.9648,
+    0.9696
+  ],
+  "default_strength": 0.08,
+  "throughput_range_pct": 3.67,
+  "chi2": 1.538,
+  "chi2_p": 0.82,
+  "chi2_dof": 4,
+  "completions_anova_F": 0.231,
+  "completions_anova_p": 0.9176,
+  "dispersion_phi": 1.658,
+  "quasi_poisson_p": 0.9206,
+  "homogeneous": true,
+  "metric": "post_warmup_throughput",
+  "load": {
+    "arrivals": 9045,
+    "balked": 57,
+    "balked_frac": 0.0063
+  },
+  "protocol": {
+    "mode": "fixed_step",
+    "dt": 0.04,
+    "seed_base": 2000,
+    "seeds": {
+      "0.0": [
+        2000,
+        2001,
+        2002,
+        2003,
+        2004
+      ],
+      "0.04": [
+        2000,
+        2001,
+        2002,
+        2003,
+        2004
+      ],
+      "0.08": [
+        2000,
+        2001,
+        2002,
+        2003,
+        2004
+      ],
+      "0.16": [
+        2000,
+        2001,
+        2002,
+        2003,
+        2004
+      ],
+      "0.32": [
+        2000,
+        2001,
+        2002,
+        2003,
+        2004
+      ]
+    },
+    "reps": 5,
+    "warmup_s": 1020.0,
+    "collect_s": 1860.0,
+    "spawn": 0.27,
+    "cap": 45,
+    "workers": 4,
+    "design": "common_random_numbers",
+    "framing": "steady_state_replication_deletion"
+  },
+  "data": {
+    "period": "current",
+    "workbook": "DATASETS/UCI Online Retail II .xlsx.xlsx",
+    "source_sha256": "bcbe73b35f5b7babf197fb0cb983a11f5d9ff929078d4aa53d171b1f2df2e980",
+    "source_bytes": 45622278,
+    "adapter_name": "uci_online_retail_ii",
+    "adapter_version": "1.2",
+    "reader_version": "1.1",
+    "schema_version": "1.0.0",
+    "sheet": "Year 2010-2011",
+    "rows_in": 541910,
+    "rows_adapted": 524832,
+    "rows_calibrated": 524832,
+    "cleaning": {
+      "cancellation_lines": 9288,
+      "reversal_pairs": 2899,
+      "cancellation_lines_anonymous": 383,
+      "cancellation_lines_unmatched": 6006,
+      "reversal_matching": true,
+      "reversed_purchase_lines_removed": 2899,
+      "reversed_units_removed": 225860.0,
+      "reversed_revenue_removed": 447358.04000000004
+    },
+    "exclude_anonymous": false,
+    "n_anonymous_invoices": 1371,
+    "anonymous_invoice_frac": 0.06978519800468289,
+    "anonymous_revenue_frac": 0.1534560870331797,
+    "arrivals_per_hour": 4.714177978883861,
+    "visitors_per_hour": 15.713926596279538,
+    "assumed_conversion_rate": 0.3,
+    "first_date": "2010-12-01",
+    "last_date": "2011-12-09",
+    "first_timestamp": "2010-12-01T08:26:00",
+    "last_timestamp": "2011-12-09T12:50:00",
+    "n_invoices": 19646,
+    "list_law": "stocked-invoice",
+    "max_items_per_category": 8,
+    "naive_layout": true
+  },
+  "rows": [
+    {
+      "strength": 0.0,
+      "revenue": 19015.359999999957,
+      "completed": 1709,
+      "abandoned": 73,
+      "customers": 1802,
+      "balked": 7,
+      "conversion": 0.9590347923681257,
+      "rev_per_cust_mean": 11.126687160847682,
+      "rev_per_cust_sd": 0.19687333764774703,
+      "runs": [
+        {
+          "strength": 0.0,
+          "seed": 2000,
+          "revenue": 3763.5799999999917,
+          "completed": 339,
+          "abandoned": 13,
+          "customers": 355,
+          "balked": 0,
+          "conversion": 0.9630681818181818,
+          "rep": 0
+        },
+        {
+          "strength": 0.0,
+          "seed": 2001,
+          "revenue": 3937.49999999999,
+          "completed": 352,
+          "abandoned": 16,
+          "customers": 372,
+          "balked": 5,
+          "conversion": 0.9565217391304348,
+          "rep": 1
+        },
+        {
+          "strength": 0.0,
+          "seed": 2002,
+          "revenue": 3868.039999999992,
+          "completed": 357,
+          "abandoned": 14,
+          "customers": 370,
+          "balked": 1,
+          "conversion": 0.9622641509433962,
+          "rep": 2
+        },
+        {
+          "strength": 0.0,
+          "seed": 2003,
+          "revenue": 4052.3699999999944,
+          "completed": 356,
+          "abandoned": 19,
+          "customers": 381,
+          "balked": 1,
+          "conversion": 0.9493333333333334,
+          "rep": 3
+        },
+        {
+          "strength": 0.0,
+          "seed": 2004,
+          "revenue": 3393.869999999989,
+          "completed": 305,
+          "abandoned": 11,
+          "customers": 324,
+          "balked": 0,
+          "conversion": 0.9651898734177216,
+          "rep": 4
+        }
+      ]
+    },
+    {
+      "strength": 0.04,
+      "revenue": 20374.669999999962,
+      "completed": 1773,
+      "abandoned": 50,
+      "customers": 1797,
+      "balked": 12,
+      "conversion": 0.9725726823916621,
+      "rev_per_cust_mean": 11.520321581059955,
+      "rev_per_cust_sd": 0.6200778986809649,
+      "runs": [
+        {
+          "strength": 0.04,
+          "seed": 2000,
+          "revenue": 4132.679999999993,
+          "completed": 342,
+          "abandoned": 9,
+          "customers": 355,
+          "balked": 0,
+          "conversion": 0.9743589743589743,
+          "rep": 0
+        },
+        {
+          "strength": 0.04,
+          "seed": 2001,
+          "revenue": 4130.729999999993,
+          "completed": 355,
+          "abandoned": 11,
+          "customers": 367,
+          "balked": 10,
+          "conversion": 0.9699453551912568,
+          "rep": 1
+        },
+        {
+          "strength": 0.04,
+          "seed": 2002,
+          "revenue": 3894.809999999991,
+          "completed": 367,
+          "abandoned": 11,
+          "customers": 369,
+          "balked": 2,
+          "conversion": 0.9708994708994709,
+          "rep": 2
+        },
+        {
+          "strength": 0.04,
+          "seed": 2003,
+          "revenue": 4406.409999999994,
+          "completed": 393,
+          "abandoned": 12,
+          "customers": 382,
+          "balked": 0,
+          "conversion": 0.9703703703703703,
+          "rep": 3
+        },
+        {
+          "strength": 0.04,
+          "seed": 2004,
+          "revenue": 3810.039999999995,
+          "completed": 316,
+          "abandoned": 7,
+          "customers": 324,
+          "balked": 0,
+          "conversion": 0.978328173374613,
+          "rep": 4
+        }
+      ]
+    },
+    {
+      "strength": 0.08,
+      "revenue": 20040.689999999966,
+      "completed": 1755,
+      "abandoned": 41,
+      "customers": 1794,
+      "balked": 15,
+      "conversion": 0.9771714922048997,
+      "rev_per_cust_mean": 11.487830186519167,
+      "rev_per_cust_sd": 1.161274187034692,
+      "runs": [
+        {
+          "strength": 0.08,
+          "seed": 2000,
+          "revenue": 4054.9499999999916,
+          "completed": 342,
+          "abandoned": 8,
+          "customers": 355,
+          "balked": 0,
+          "conversion": 0.9771428571428571,
+          "rep": 0
+        },
+        {
+          "strength": 0.08,
+          "seed": 2001,
+          "revenue": 3821.9799999999914,
+          "completed": 364,
+          "abandoned": 6,
+          "customers": 375,
+          "balked": 2,
+          "conversion": 0.9837837837837838,
+          "rep": 1
+        },
+        {
+          "strength": 0.08,
+          "seed": 2002,
+          "revenue": 4320.819999999993,
+          "completed": 353,
+          "abandoned": 11,
+          "customers": 364,
+          "balked": 7,
+          "conversion": 0.9697802197802198,
+          "rep": 2
+        },
+        {
+          "strength": 0.08,
+          "seed": 2003,
+          "revenue": 3893.0999999999917,
+          "completed": 387,
+          "abandoned": 7,
+          "customers": 382,
+          "balked": 0,
+          "conversion": 0.9822335025380711,
+          "rep": 3
+        },
+        {
+          "strength": 0.08,
+          "seed": 2004,
+          "revenue": 3949.8399999999992,
+          "completed": 309,
+          "abandoned": 9,
+          "customers": 318,
+          "balked": 6,
+          "conversion": 0.9716981132075472,
+          "rep": 4
+        }
+      ]
+    },
+    {
+      "strength": 0.16,
+      "revenue": 19812.389999999963,
+      "completed": 1752,
+      "abandoned": 64,
+      "customers": 1799,
+      "balked": 10,
+      "conversion": 0.9647577092511013,
+      "rev_per_cust_mean": 11.310407095852884,
+      "rev_per_cust_sd": 0.5241972639443783,
+      "runs": [
+        {
+          "strength": 0.16,
+          "seed": 2000,
+          "revenue": 3568.549999999994,
+          "completed": 336,
+          "abandoned": 18,
+          "customers": 355,
+          "balked": 0,
+          "conversion": 0.9491525423728814,
+          "rep": 0
+        },
+        {
+          "strength": 0.16,
+          "seed": 2001,
+          "revenue": 4038.939999999998,
+          "completed": 361,
+          "abandoned": 13,
+          "customers": 377,
+          "balked": 0,
+          "conversion": 0.9652406417112299,
+          "rep": 1
+        },
+        {
+          "strength": 0.16,
+          "seed": 2002,
+          "revenue": 4157.949999999986,
+          "completed": 375,
+          "abandoned": 7,
+          "customers": 371,
+          "balked": 0,
+          "conversion": 0.981675392670157,
+          "rep": 2
+        },
+        {
+          "strength": 0.16,
+          "seed": 2003,
+          "revenue": 4285.359999999993,
+          "completed": 359,
+          "abandoned": 15,
+          "customers": 372,
+          "balked": 10,
+          "conversion": 0.9598930481283422,
+          "rep": 3
+        },
+        {
+          "strength": 0.16,
+          "seed": 2004,
+          "revenue": 3761.589999999993,
+          "completed": 321,
+          "abandoned": 11,
+          "customers": 324,
+          "balked": 0,
+          "conversion": 0.9668674698795181,
+          "rep": 4
+        }
+      ]
+    },
+    {
+      "strength": 0.32,
+      "revenue": 19608.29999999998,
+      "completed": 1723,
+      "abandoned": 54,
+      "customers": 1796,
+      "balked": 13,
+      "conversion": 0.9696117051209905,
+      "rev_per_cust_mean": 11.380190248434607,
+      "rev_per_cust_sd": 0.6243900207667635,
+      "runs": [
+        {
+          "strength": 0.32,
+          "seed": 2000,
+          "revenue": 4086.909999999994,
+          "completed": 342,
+          "abandoned": 8,
+          "customers": 355,
+          "balked": 0,
+          "conversion": 0.9771428571428571,
+          "rep": 0
+        },
+        {
+          "strength": 0.32,
+          "seed": 2001,
+          "revenue": 3911.209999999998,
+          "completed": 338,
+          "abandoned": 18,
+          "customers": 369,
+          "balked": 8,
+          "conversion": 0.949438202247191,
+          "rep": 1
+        },
+        {
+          "strength": 0.32,
+          "seed": 2002,
+          "revenue": 4278.089999999995,
+          "completed": 359,
+          "abandoned": 8,
+          "customers": 367,
+          "balked": 4,
+          "conversion": 0.9782016348773842,
+          "rep": 2
+        },
+        {
+          "strength": 0.32,
+          "seed": 2003,
+          "revenue": 3838.9999999999955,
+          "completed": 364,
+          "abandoned": 13,
+          "customers": 381,
+          "balked": 1,
+          "conversion": 0.9655172413793104,
+          "rep": 3
+        },
+        {
+          "strength": 0.32,
+          "seed": 2004,
+          "revenue": 3493.0899999999983,
+          "completed": 320,
+          "abandoned": 7,
+          "customers": 324,
+          "balked": 0,
+          "conversion": 0.9785932721712538,
+          "rep": 4
+        }
+      ]
+    }
+  ]
+}

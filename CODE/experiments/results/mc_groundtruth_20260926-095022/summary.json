@@ -1,0 +1,75 @@
+{
+  "mc_regret_median_pct": 0.2203704905885262,
+  "mc_regret_mean_pct": 0.2195157342848436,
+  "mc_regret_max_pct": 0.42506450493554354,
+  "mc_regret_min_pct": 0.020376917861347165,
+  "n_negative_regret": 0,
+  "n_best_known_is_ga_normal": 0,
+  "n_scenarios": 6,
+  "normal_budget": 750,
+  "big_budget": 7500,
+  "mc_iters": 1000,
+  "search_start": {
+    "random_search_big": "asbuilt",
+    "simulated_annealing_big": "asbuilt",
+    "GA_big": "asbuilt",
+    "GA_normal": "asbuilt",
+    "simulated_annealing_big_popstart": "popularity"
+  },
+  "closed_form": {
+    "regret_pct": {
+      "median": 0.22021673431492644,
+      "mean": 0.21945613810200557,
+      "max": 0.42511806788426293,
+      "min": 0.020372694381647127,
+      "per_scenario": [
+        0.020372694381647127,
+        0.03031278397354245,
+        0.400499813742728,
+        0.3056117925004121,
+        0.1348216761294408,
+        0.42511806788426293
+      ]
+    },
+    "regret_vs_cf_best_pct": {
+      "median": 0.22021673431492644,
+      "max": 0.42511806788426293,
+      "per_scenario": [
+        0.020372694381647127,
+        0.03031278397354245,
+        0.400499813742728,
+        0.3056117925004121,
+        0.1348216761294408,
+        0.42511806788426293
+      ]
+    },
+    "mc_regret_se_pct": [
+      0.000220200763427091,
+      0.00025737859870282294,
+      0.0008238327118239141,
+      0.0006125264839559981,
+      0.00048023171001624883,
+      0.0009333352578107373
+    ],
+    "n_reference_is_cf_best": 6,
+    "tolerance_pct": 0.0010927581939722468,
+    "conclusions_unchanged": {
+      "median_within_tolerance": true,
+      "max_within_tolerance": true,
+      "cf_best_regret_within_tolerance": true
+    },
+    "all_unchanged": true
+  },
+  "repair_stats": {
+    "calls": 171996,
+    "aisle_clip_calls": 0,
+    "aisle_clip_items": 0,
+    "aisle_clip_max_m": 0.0,
+    "snap_zones": 12807,
+    "reach_single_file": 0,
+    "reach_as_built_zone": 0,
+    "reach_as_built_store": 0
+  },
+  "layouts_path": "layouts.json",
+  "traces_path": "traces.json"
+}

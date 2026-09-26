@@ -14,6 +14,12 @@ from retail_literature import (
     CHECKOUT_BASE_SECS, CHECKOUT_PER_ITEM_SECS,
     CHECKOUT_LOGNORM_SIGMA, CHECKOUT_MIN_SECS, LIST_LENGTH_BY_TYPE,
     STUCK_PROGRESS_M, STUCK_WINDOW_MOVING_S, STUCK_WINDOW_EXITING_S,
+    AGENT_SPEED_RANGE_MPS, AGENT_ABANDON_PROB_RANGE,
+    AGENT_ENTERING_TIME_RANGE_S, AGENT_MAX_IMPULSE_ITEMS_RANGE,
+    AGENT_PURCHASE_INTENT_RANGE, CUSTOMER_TYPES, CUSTOMER_TYPE_PROBS,
+    LOYALTY_LEVELS, LOYALTY_PROBS, WC_PROBABILITY_BY_TYPE,
+    DWELL_ITEM_RANGE_S, DWELL_IMPULSE_RANGE_S, DWELL_WC_RANGE_S,
+    WAYPOINT_RADIUS_M,
 )
 
 
@@ -44,7 +50,7 @@ class Customer(PathfindingMixin):
             self._local_clock = 0.0
             self.position = list(start_pos)
             self.target_position = None
-            self.speed = np.random.uniform(0.8, 1.5)  #m/s
+            self.speed = np.random.uniform(*AGENT_SPEED_RANGE_MPS)  # m/s
             self.shopping_list=[]
             self.visited_items = set()
             self.attempted_items = set()
@@ -68,16 +74,27 @@ class Customer(PathfindingMixin):
             self.checkout_lane = None   # which checkout lane this customer queues at
             self.checkout_wait_s = None # simulated seconds queued before service
             self._in_service = False
-            self.abandon_probability = np.random.uniform(0.01, 0.05)
+            self.abandon_probability = np.random.uniform(*AGENT_ABANDON_PROB_RANGE)
             self.abandon_cart = np.random.random() < self.abandon_probability
-            self.entering_time = np.random.uniform(0.25,0.5)
+            # Why an unpaid agent left, set by the route that sends it out
+            # ('abandon_draw': the spawn-time draw above, via
+            # _finish_shopping; 'no_route': _leave_through_door), and how
+            # often the stall detector acted on it (a moving-state stall
+            # that dropped its target, an exiting-state stall that put it
+            # at the door). Recorded only -- nothing reads these to decide
+            # anything, and none of them draws a random number --
+            # so sim_analytics can tally unpaid exits by route.
+            self.exit_route = None
+            self.moving_stalls = 0
+            self.exit_stall_teleports = 0
+            self.entering_time = np.random.uniform(*AGENT_ENTERING_TIME_RANGE_S)
             self.state_start_time = self._now()
 
             # impulse stuff
             self.impulse_items = []
             self.has_made_impulse_purchase = False
             self.impulse_purchase_attempts=0
-            self.max_impulse_items = np.random.randint(1,4)
+            self.max_impulse_items = np.random.randint(*AGENT_MAX_IMPULSE_ITEMS_RANGE)
         
             self.door_position = door_position
             self.door_side = door_side
@@ -97,9 +114,9 @@ class Customer(PathfindingMixin):
             self.basket_value = 0.0
             self.zone_dwell_times = defaultdict(float)
             self.visited_zones = set()
-            self.purchase_intent= np.random.uniform(0.7, 0.95)
-            self.customer_type = np.random.choice(['quick', 'browser','thorough'], p=[0.3, 0.4, 0.3])
-            self.loyalty_level = np.random.choice(["new", "regular", "vip"], p=[0.5, 0.35, 0.15])
+            self.purchase_intent= np.random.uniform(*AGENT_PURCHASE_INTENT_RANGE)
+            self.customer_type = np.random.choice(list(CUSTOMER_TYPES), p=list(CUSTOMER_TYPE_PROBS))
+            self.loyalty_level = np.random.choice(list(LOYALTY_LEVELS), p=list(LOYALTY_PROBS))
             self.movement_path = []
         
             self._generate_shopping_list(shop_items)
@@ -266,7 +283,7 @@ class Customer(PathfindingMixin):
         self.impulse_probability = IMPULSE_BASE_PROPENSITY[cust_type]
 
         # wc prob
-        self.wc_probability = {'quick': 0.15, 'browser': 0.35, 'thorough': 0.50}[cust_type]
+        self.wc_probability = WC_PROBABILITY_BY_TYPE[cust_type]
         self.needs_wc = np.random.random() < self.wc_probability
         self.visited_wc = False
 
@@ -372,6 +389,7 @@ class Customer(PathfindingMixin):
                     # wall or has no valid path. Drop the target so it does
                     # not freeze visually.
                     if self._stalled(dt, STUCK_WINDOW_MOVING_S):
+                        self.moving_stalls += 1
                         # Abandon current target and pick a new one.
                         if (getattr(self, 'current_target_item', None)
                                 and getattr(self, 'current_target_type', None) in ('item', 'impulse')):
@@ -473,12 +491,12 @@ class Customer(PathfindingMixin):
                         if ttype == 'impulse':
                             self.impulse_items.append(self.current_target_item)
                             self._change_state("shopping")
-                            self.dwell_time = np.random.uniform(2, 5)
+                            self.dwell_time = np.random.uniform(*DWELL_IMPULSE_RANGE_S)
                             return
 
                         if ttype == 'wc':
                             self._change_state('shopping')
-                            self.dwell_time = np.random.uniform(2, 8)
+                            self.dwell_time = np.random.uniform(*DWELL_WC_RANGE_S)
                             self.visited_wc = True
                             # The zone roll-up counts 'WC' once per customer
                             # via visited_zones when the agent steps inside
@@ -505,7 +523,7 @@ class Customer(PathfindingMixin):
 
                         # Default: arrived at an item shelf -> shop here.
                         self._change_state('shopping')
-                        self.dwell_time = np.random.uniform(5, 15)
+                        self.dwell_time = np.random.uniform(*DWELL_ITEM_RANGE_S)
                         return
                 elif self._stalled(dt, STUCK_WINDOW_MOVING_S):
                     # Nothing to walk to and nothing that will give this
@@ -623,6 +641,7 @@ class Customer(PathfindingMixin):
                     if self._stalled(dt, STUCK_WINDOW_EXITING_S):
                         sim = getattr(self, '_simulation_ref', None)
                         if sim is not None and sim.door_position is not None:
+                            self.exit_stall_teleports += 1
                             self.floor = 1
                             self.position = list(sim.door_position)
                             self.target_position = list(sim.door_position)
@@ -874,6 +893,7 @@ class Customer(PathfindingMixin):
         floor). The state is set here too, so callers must not override it.
         """
         if self.abandon_cart and not self.has_checked_out:
+            self.exit_route = 'abandon_draw'
             self._change_state('exiting')
             self._set_exit_target(walls)
             return
@@ -904,7 +924,7 @@ class Customer(PathfindingMixin):
             ]
             self._initialize_path(walls)
         else:
-            self.dwell_time = np.random.uniform(5, 15)
+            self.dwell_time = np.random.uniform(*DWELL_ITEM_RANGE_S)
             self.has_checked_out = True
             self._change_state("exiting")
             self._set_exit_target(walls)
@@ -939,6 +959,8 @@ class Customer(PathfindingMixin):
         way the exiting stall detector does.
         """
         sim = getattr(self, '_simulation_ref', None)
+        if not self.has_checked_out and self.exit_route is None:
+            self.exit_route = 'no_route'
         self._pending_connector = None
         self._pending_route_type = self._pending_route_item = self._pending_route_dest = None
         self.current_target_type = 'exit'
@@ -1069,7 +1091,7 @@ class Customer(PathfindingMixin):
                 return True
            dx = self.target_position[0] - self.position[0]
            dy = self.target_position[1] - self.position[1]
-           return (dx*dx + dy*dy) < 0.25
+           return (dx*dx + dy*dy) < WAYPOINT_RADIUS_M ** 2
 
 
 

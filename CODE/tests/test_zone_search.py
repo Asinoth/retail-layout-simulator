@@ -23,7 +23,8 @@ import pytest
 
 from dataset_calibration import calibrate_transactional
 from dataset_paths import REPO_ROOT
-from experiments._common import (build_headless_shop_from_calibration,
+from experiments._common import (_zone_position_bounds,
+                                 build_headless_shop_from_calibration,
                                  feasible_layout, portable_paths,
                                  write_sidecar, zone_neighbor, zone_sampler)
 from viz_ga_run import item_zone_name
@@ -84,14 +85,15 @@ def _assert_in_zone(shop, name, pos):
 
 
 def _zone_centred(shop, names):
-    """Every item centred in its zone: a neighbour step cannot be clipped
-    back onto the starting position from here."""
-    out = {}
-    for n in names:
-        _, sx, sy, sw, sh = _zone_rect(shop, n)
-        w, h = shop.floors[1]['items'][n]['size']
-        out[n] = (sx + (sw - w) / 2.0, sy + (sh - h) / 2.0)
-    return out
+    """Every item centred in the room its zone leaves it once the aisles to
+    the zones the as-built store keeps apart are taken out
+    (``_zone_position_bounds``): a neighbour step cannot be clipped back
+    onto the starting position from here. The zone's own centre can lie in
+    such an aisle, where every move would first clip the item out of it."""
+    lo, hi = _zone_position_bounds(shop, names)
+    return {n: (float((lo[i, 0] + hi[i, 0]) / 2.0),
+                float((lo[i, 1] + hi[i, 1]) / 2.0))
+            for i, n in enumerate(names)}
 
 
 def test_store_uses_split_zones(store):
@@ -125,6 +127,7 @@ def test_neighbor_moves_exactly_one_item_and_keeps_it_in_its_zone(store):
     step_frac = 0.25
     move = zone_neighbor(shop, names, step_frac=step_frac)
     start = _zone_centred(shop, names)
+    lo, hi = _zone_position_bounds(shop, names)
     moved_items = set()
     for s in range(60):
         after = move(start, np.random.default_rng(s))
@@ -134,12 +137,42 @@ def test_neighbor_moves_exactly_one_item_and_keeps_it_in_its_zone(store):
         (n,) = changed
         moved_items.add(n)
         _assert_in_zone(shop, n, after[n])
+        i = names.index(n)
+        # The step is scaled by the room the item has, never more than its
+        # zone's own.
         _, sx, sy, sw, sh = _zone_rect(shop, n)
         w, h = shop.floors[1]['items'][n]['size']
-        assert abs(after[n][0] - start[n][0]) <= step_frac * (sw - w) + EPS
-        assert abs(after[n][1] - start[n][1]) <= step_frac * (sh - h) + EPS
+        room_x = max(hi[i, 0] - lo[i, 0], 1e-3)
+        room_y = max(hi[i, 1] - lo[i, 1], 1e-3)
+        assert room_x <= (sw - w) + EPS and room_y <= (sh - h) + EPS
+        assert abs(after[n][0] - start[n][0]) <= step_frac * room_x + EPS
+        assert abs(after[n][1] - start[n][1]) <= step_frac * room_y + EPS
     # The item is chosen uniformly, so 60 moves reach most of 16 items.
     assert len(moved_items) >= len(names) // 2
+
+
+def test_k_item_neighbor_moves_that_many_items(store):
+    """A move of k items changes exactly k distinct items, each inside its
+    zone; with k = 1 it is the one-item move, draw for draw."""
+    shop, names = store
+    one = zone_neighbor(shop, names)
+    one_again = zone_neighbor(shop, names, n_move=1)
+    start = _zone_centred(shop, names)
+    for s in range(20):
+        assert (one(start, np.random.default_rng(s))
+                == one_again(start, np.random.default_rng(s)))
+    k = 3
+    move = zone_neighbor(shop, names, n_move=k)
+    for s in range(30):
+        after = move(start, np.random.default_rng(s))
+        changed = [n for n in names if after[n] != start[n]]
+        assert len(changed) == k, changed
+        for n in changed:
+            _assert_in_zone(shop, n, after[n])
+    with pytest.raises(ValueError):
+        zone_neighbor(shop, names, n_move=0)
+    with pytest.raises(ValueError):
+        zone_neighbor(shop, names, n_move=len(names) + 1)
 
 
 def test_neighbor_chain_stays_inside_zones_from_the_as_built_layout(store):
@@ -238,7 +271,11 @@ def test_portable_paths_relativizes_inside_and_keeps_outside(tmp_path,
                                                              monkeypatch):
     monkeypatch.chdir(CODE_DIR)
     outside = str(tmp_path)
-    assert os.path.relpath(outside, REPO_ROOT).startswith(os.pardir)
+    # Outside the checkout. os.path.relpath raises on Windows when the
+    # temporary directory is on another drive, which is outside too.
+    if (os.path.splitdrive(outside)[0].lower()
+            == os.path.splitdrive(REPO_ROOT)[0].lower()):
+        assert os.path.relpath(outside, REPO_ROOT).startswith(os.pardir)
     payload = _payload(outside)
     before = json.dumps(payload, sort_keys=True)
 

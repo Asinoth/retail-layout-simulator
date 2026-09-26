@@ -1,0 +1,163 @@
+{
+ "experiment": "figc_rescore",
+ "figc": {
+  "run_name": "real_data_uci_20260926-111819",
+  "summary_sha256": "a9e586aaa18d89bf076eba4ed29bf7c96f95956d67a073855724b29ba926d33b",
+  "git_sha": "81291699f516557f73f311759e422aec7e75b88c",
+  "horizon_days": 30,
+  "assumed_conversion": 0.3,
+  "values_reproduced": true,
+  "max_rel_error": 0.0
+ },
+ "conversion_bound": {
+  "value": 0.5379999999999999,
+  "family": "Fresh fruits",
+  "n_families": 134,
+  "independence_estimate": 1.0,
+  "calibration_conversion_source": "assumption",
+  "definition": "calibrate_omnichannel conversion_rate_lower_bound: the largest single-family in-store purchase probability (a visitor buys at least that family with that probability)",
+  "provenance": {
+   "source_path": "DATASETS/Omnichannel-Retail-Datasets-main",
+   "source_bytes": 5361640,
+   "source_sha256": "6749e38cbdaac347ac20ea1154da031c08d9a91c421d3ebdd47e703da8ae7f38",
+   "adapter_name": "omnichannel_retail",
+   "adapter_version": "1.0",
+   "schema_version": "1.0.0",
+   "rows_in": 134,
+   "rows_kept": 134,
+   "currency": null,
+   "seed": null,
+   "loaded_at": 1790417852.454126,
+   "loaded_at_iso": "2026-09-26T13:17:32",
+   "python": "3.13.2",
+   "platform": "Windows-11-10.0.26200-SP0",
+   "packages": {
+    "numpy": "2.2.4",
+    "scipy": "1.15.3",
+    "pandas": "2.2.3",
+    "matplotlib": "3.10.1",
+    "openpyxl": "3.1.5"
+   },
+   "extra": {}
+  },
+  "loader_notes": [
+   "Loaded Demand and Shopping Behavior.csv",
+   "Merged prices/dimensions from Product Information.csv",
+   "Merged in-store zones from Product Family Mapping.csv",
+   "Loaded arrivals from In-store Customer and Online Order Arrivals.csv"
+  ]
+ },
+ "lift_at_conversion_bound": {
+  "rate": 0.5379999999999999,
+  "lift_pct": {
+   "optimized": 1.6841400299102784,
+   "rs": 1.3925522694860506,
+   "sa": 1.1877876066515054
+  },
+  "clamps_bind": false,
+  "scan_bracket": {
+   "below": {
+    "rate": 0.5,
+    "lift_pct": {
+     "optimized": 1.7042714396041336,
+     "rs": 1.4122473185162667,
+     "sa": 1.2017009035479345
+    }
+   },
+   "above": {
+    "rate": 0.55,
+    "lift_pct": {
+     "optimized": 1.6778160268650935,
+     "rs": 1.386365343089185,
+     "sa": 1.18341693746943
+    }
+   }
+  },
+  "assumed_rate": 0.3,
+  "lift_pct_at_assumed": {
+   "optimized": 1.8129377585967725,
+   "rs": 1.5185582283351264,
+   "sa": 1.276802785719869
+  },
+  "clamp_onset": 0.980780131711282,
+  "method": "closed form (experiments.closed_form.expected_revenue) of the saved scores and breakdowns, store recalibrated with run_real_data_example._at_conversion, as the conversion scan does"
+ },
+ "decomposition": {
+  "per_layout": {
+   "optimized": {
+    "lift_pct": 1.8129377585967725,
+    "lift_pct_no_abandonment_channel": 1.4516222479462084,
+    "abandonment_share": 0.1992983537009153,
+    "abandonment_pp": 0.3613155106505641,
+    "lift_pct_no_conversion_elasticity": 0.8739445183905757,
+    "conversion_elasticity_share": 0.517940142044912,
+    "lift_pct_no_basket_elasticity": 1.2903188890275952,
+    "basket_elasticity_share": 0.2882718212972123,
+    "score_gain": 0.026595944492598778,
+    "criterion_contributions": {
+     "traffic": -0.0007765394426395255,
+     "cross_merch": 0.008477621542792592,
+     "impulse": 0.0,
+     "flow": 0.018926595889294334,
+     "revenue_placement": -1.7438765745817488e-05,
+     "section_compliance": 0.0,
+     "accessibility": -1.4294731102753034e-05,
+     "overlap_penalty": -0.0,
+     "bottleneck_penalty": -0.0
+    },
+    "flow_share_of_score_gain": 0.711634658981985
+   },
+   "rs": {
+    "lift_pct": 1.5185582283351264,
+    "lift_pct_no_abandonment_channel": 1.1650744531873622,
+    "abandonment_share": 0.23277591109252793,
+    "abandonment_pp": 0.3534837751477642,
+    "lift_pct_no_conversion_elasticity": 0.7652421030098252,
+    "conversion_elasticity_share": 0.4960732563750292,
+    "lift_pct_no_basket_elasticity": 1.099620261014094,
+    "basket_elasticity_share": 0.2758787641487648,
+    "score_gain": 0.021359863200085427,
+    "criterion_contributions": {
+     "traffic": -0.0008015598707932092,
+     "cross_merch": 0.0036366617306718752,
+     "impulse": 0.0,
+     "flow": 0.018568797449646138,
+     "revenue_placement": -1.9270824055543922e-05,
+     "section_compliance": 0.0,
+     "accessibility": -2.476528538384759e-05,
+     "overlap_penalty": -0.0,
+     "bottleneck_penalty": -0.0
+    },
+    "flow_share_of_score_gain": 0.8693312909219322
+   },
+   "sa": {
+    "lift_pct": 1.276802785719869,
+    "lift_pct_no_abandonment_channel": 1.0270890274980677,
+    "abandonment_share": 0.19557739144578312,
+    "abandonment_pp": 0.2497137582218012,
+    "lift_pct_no_conversion_elasticity": 0.6134972322165059,
+    "conversion_elasticity_share": 0.5195050957923681,
+    "lift_pct_no_basket_elasticity": 0.9080655846046679,
+    "basket_elasticity_share": 0.2887973031068418,
+    "score_gain": 0.018836028728047738,
+    "criterion_contributions": {
+     "traffic": -0.000772262953394276,
+     "cross_merch": 0.006456177330172555,
+     "impulse": 0.0,
+     "flow": 0.013135588392709483,
+     "revenue_placement": -2.0144753143992445e-05,
+     "section_compliance": 0.0,
+     "accessibility": 3.667071170397662e-05,
+     "overlap_penalty": -0.0,
+     "bottleneck_penalty": -0.0
+    },
+    "flow_share_of_score_gain": 0.6973650647044284
+   }
+  },
+  "abandonment_coefficients": {
+   "ABANDON_FLOW_COEF": 0.4,
+   "ABANDON_SECTION_COEF": 0.2
+  },
+  "method": "abandonment channel off: base_params abandonment_rate 0 (abandonment factor 1 for every layout; the anchor baseline unchanged); elasticity channels off: that elasticity 0; share = 1 - lift_off / lift. Score gain: weight x criterion change over the baseline, penalties negative"
+ }
+}

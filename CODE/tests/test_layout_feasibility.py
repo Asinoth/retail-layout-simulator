@@ -17,6 +17,7 @@ from baselines import (random_valid, perimeter_only, popularity_rank,
 from oracle import (solve_oracle, _separate_contacts, _bounds_for,
                     _layout_to_vec, _vec_to_layout)
 from experiments._common import (build_headless_shop, base_params_for,
+                                 anchor_base_params,
                                  feasible_layout, run_ga_headless,
                                  paired_mc_revenue)
 from experiments.metaheuristics import random_search, simulated_annealing
@@ -45,8 +46,8 @@ def test_metaheuristics_feasible_and_complete():
     ss = _shop(seed=2)
     shop = build_headless_shop(ss)
     names = [it.name for it in ss.items]
-    bp = base_params_for(ss)
     init = _as_built(shop, names)
+    bp = anchor_base_params(shop, names, base_params_for(ss), init)
     for fn in (random_search, simulated_annealing):
         lay = fn(shop, ss, names, bp, seed=0, budget=12, block=4,
                  mc_iters=60, mc_days=10, init_layout=init)
@@ -64,8 +65,8 @@ def test_equal_evaluation_budgets():
     ss = _shop(seed=3)
     shop = build_headless_shop(ss)
     names = [it.name for it in ss.items]
-    bp = base_params_for(ss)
     init = _as_built(shop, names)
+    bp = anchor_base_params(shop, names, base_params_for(ss), init)
     pop, gens = 4, 3
 
     calls = []
@@ -101,8 +102,8 @@ def test_sa_temperature_is_scaled_to_move_differences():
     ss = _shop(seed=4)
     shop = build_headless_shop(ss)
     names = [it.name for it in ss.items]
-    bp = base_params_for(ss)
     init = _as_built(shop, names)
+    bp = anchor_base_params(shop, names, base_params_for(ss), init)
     mc = dict(mc_iters=60, mc_days=10, init_layout=init)
 
     stats = {}

@@ -15,7 +15,7 @@ from matplotlib.colors import LinearSegmentedColormap
 from drag import DraggableRectangle
 from simulation import CustomerFlowSimulation
 from sim_calibration import extract_simulation_parameters, mc_engine, _calib
-from retail_literature import DEFAULT_WEEKEND_MULTIPLIER
+from retail_literature import DEFAULT_WEEKEND_MULTIPLIER, IMPULSE_VALUE_CV
 
 import copy
 from scipy import stats as sp_stats
@@ -120,7 +120,7 @@ class ProjectionsMixin:
         avg_bsk = params['avg_basket_size']
         std_bsk = params['std_basket_size']
 
-        imp_std = params.get('impulse_value_std', max(imp_val * 0.3, 0.01))
+        imp_std = params.get('impulse_value_std', max(imp_val * IMPULSE_VALUE_CV, 0.01))
         engine = self._mc_engine(
             cph, conv, rev_mean, rev_std, imp_rate, imp_val,
             avg_bsk, std_bsk, observed_baskets,
@@ -390,7 +390,7 @@ class ProjectionsMixin:
                n_days, n_iter, op_hours, wknd_mult, monthly_growth,
                impulse_value_std=None):
         if impulse_value_std is None:
-            impulse_value_std = max(imp_val * 0.3, 0.01)
+            impulse_value_std = max(imp_val * IMPULSE_VALUE_CV, 0.01)
         raw = mc_engine(
             cph, conv, rev_mean, rev_std, imp_rate, imp_val,
             avg_bsk, std_bsk, observed_baskets,

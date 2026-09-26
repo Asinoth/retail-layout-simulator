@@ -1,0 +1,98 @@
+{
+ "span": {
+  "first_date": "2009-12-01",
+  "last_date": "2011-12-09",
+  "days": 739,
+  "invoices": 39245,
+  "revenue": 19088647.59
+ },
+ "weekday": {
+  "Monday": {
+   "invoices": 6201,
+   "invoice_share": 0.15800738947636642,
+   "trading_days": 94,
+   "days_in_span": 105
+  },
+  "Tuesday": {
+   "invoices": 7095,
+   "invoice_share": 0.18078736144731813,
+   "trading_days": 104,
+   "days_in_span": 106
+  },
+  "Wednesday": {
+   "invoices": 7073,
+   "invoice_share": 0.18022678048159002,
+   "trading_days": 104,
+   "days_in_span": 106
+  },
+  "Thursday": {
+   "invoices": 8102,
+   "invoice_share": 0.20644668110587336,
+   "trading_days": 103,
+   "days_in_span": 106
+  },
+  "Friday": {
+   "invoices": 5939,
+   "invoice_share": 0.15133137979360428,
+   "trading_days": 99,
+   "days_in_span": 106
+  },
+  "Saturday": {
+   "invoices": 30,
+   "invoice_share": 0.0007644285896292522,
+   "trading_days": 1,
+   "days_in_span": 105
+  },
+  "Sunday": {
+   "invoices": 4805,
+   "invoice_share": 0.12243597910561856,
+   "trading_days": 99,
+   "days_in_span": 105
+  }
+ },
+ "fourth_quarter": {
+  "months": "October-December",
+  "revenue_share": 0.36668158322891437,
+  "day_share": 0.26116373477672533,
+  "days": 193
+ },
+ "revenue_by_month": {
+  "2009-12": 793939.04,
+  "2010-01": 609582.38,
+  "2010-02": 530546.11,
+  "2010-03": 756558.34,
+  "2010-04": 639966.06,
+  "2010-05": 627692.46,
+  "2010-06": 679732.93,
+  "2010-07": 622173.1900000001,
+  "2010-08": 655923.94,
+  "2010-09": 856514.33,
+  "2010-10": 1070008.45,
+  "2010-11": 1404217.12,
+  "2010-12": 769153.29,
+  "2011-01": 566285.88,
+  "2011-02": 505801.24,
+  "2011-03": 683718.76,
+  "2011-04": 510361.4,
+  "2011-05": 733859.87,
+  "2011-06": 691065.32,
+  "2011-07": 683509.88,
+  "2011-08": 716250.46,
+  "2011-09": 1019649.52,
+  "2011-10": 1071838.54,
+  "2011-11": 1444320.6300000001,
+  "2011-12": 445978.45
+ },
+ "data": {
+  "workbook": "DATASETS/UCI Online Retail II .xlsx.xlsx",
+  "source_sha256": "bcbe73b35f5b7babf197fb0cb983a11f5d9ff929078d4aa53d171b1f2df2e980",
+  "source_bytes": 45622278,
+  "sheets": [
+   "Year 2009-2010",
+   "Year 2010-2011"
+  ],
+  "rows_read": 1067371,
+  "rows_after_dedup": 1044848,
+  "rows_kept": 1008725
+ }
+}

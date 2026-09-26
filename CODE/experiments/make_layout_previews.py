@@ -1,19 +1,27 @@
 """Regenerate the floor-plan preview figures into ``../figs/``.
 
-  * layout_previews.png          -- the three archetypes at two floor
-                                    sizes, from the architecture engine.
-  * dataset_layout_previews.png  -- the same engine driven by a dataset
-                                    calibration (UCI Online Retail II,
-                                    Omnichannel).
+  * layout_previews          (Fig. 4) -- the three archetypes at two floor
+                                         sizes, from the architecture
+                                         engine.
+  * dataset_layout_previews  (Fig. 5) -- the same engine driven by a
+                                         dataset calibration (UCI Online
+                                         Retail II, Omnichannel).
 
 Both figures are drawn from the engine at fixed seeds, so what the paper
 shows is what the shipped code produces, and every panel title reports
 the counts the engine actually placed rather than a remembered number.
+Both are drawn at the full text width they print at, with no text below
+``figstyle.MIN_FONT_PT`` (review R56 measured 2-4 pt in the old 16-inch
+drawings), and the plan elements are told apart by hatching and shape as
+well as colour: checkout lanes hatched, the restroom dotted, the entrance a
+triangle, department zones dotted outlines. A shared legend replaces the
+in-plan 'WC' labels. Each is written as PDF (vector) and PNG.
 
 The dataset panels need the UCI workbook and the Omnichannel bundle, found
 by ``dataset_paths`` (under ``DATASETS/``, or where ``UCI_RETAIL_XLSX`` /
-``OMNICHANNEL_DIR`` point). They are skipped, with a message, when those
-are absent, so this still runs on a checkout without the data.
+``OMNICHANNEL_DIR`` / ``RETAIL_DATASETS_DIR`` point). They are skipped,
+with a message, when those are absent, so this still runs on a checkout
+without the data.
 
     python -m experiments.make_layout_previews
     python -m experiments.make_layout_previews --figs-dir /tmp/figs
@@ -32,7 +40,8 @@ sys.path.insert(0, os.path.dirname(_HERE))
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt                      # noqa: E402
-from matplotlib.patches import Polygon, Rectangle    # noqa: E402
+from matplotlib.lines import Line2D                  # noqa: E402
+from matplotlib.patches import Patch, Polygon, Rectangle  # noqa: E402
 
 import figstyle                                      # noqa: E402
 
@@ -52,13 +61,14 @@ FLOOR_SIZES = ((18.0, 13.0), (32.0, 22.0))
 # figure pins a draw instead of showing whichever one came out last.
 PREVIEW_SEED = 4207
 
-# Rows of the most recent UCI sheet the preview calibrates on -- the same
-# sheet and sample the live diagnostics use. The floor plan depends only on
-# how many categories there are and how many products each one carries,
-# and this sample gives the same counts, and so the same plan, as the
-# whole sheet or as both sheets together (the Dataset button's default),
-# at a fraction of the read time. Which products sit on the fixtures does
-# differ, but the preview does not label them. Pass 0 to use all of it.
+# Rows of the most recent UCI sheet the preview calibrates on. The floor
+# plan depends only on how many categories there are and how many
+# products each carries, capped per category by the layout builder, and
+# this sample gives the same counts, and so the same plan, as the whole
+# sheet or as both sheets together (the Dataset button's default and
+# Figure C's store), at a fraction of the read time. Which products sit on
+# the fixtures does differ, but the preview does not label them. Pass 0 to
+# use all of it.
 UCI_SAMPLE_ROWS = 60000
 
 # Plan colors, chosen for what they denote rather than from the plot
@@ -68,6 +78,8 @@ BOUNDARY = '#1A1A1A'       # perimeter walls
 CHECKOUT = '#F2A93B'       # checkout lanes
 RESTROOM = '#8CC3E8'       # restroom
 DOOR = '#D62246'           # entrance marker
+CHECKOUT_HATCH = '/////'
+RESTROOM_HATCH = '....'
 
 
 def _figs_dir():
@@ -83,9 +95,9 @@ def _draw_plan(ax, walls, items, door_position, width, height, title):
     ax.set_ylim(-0.8, height + 0.8)
     ax.set_aspect('equal')
     ax.axis('off')
-    ax.set_title(title, fontsize=8)
+    ax.set_title(title, fontsize=7.5, linespacing=1.15)
 
-    # Department zones first, as tinted backgrounds.
+    # Department zones first, as tinted backgrounds with dotted outlines.
     for nm, w in walls.items():
         if not nm.startswith('Section_'):
             continue
@@ -102,12 +114,12 @@ def _draw_plan(ax, walls, items, door_position, width, height, title):
             continue
         if nm.startswith('Checkout'):
             ax.add_patch(Rectangle((x, y), ww, hh, facecolor=CHECKOUT,
-                                   edgecolor=BOUNDARY, lw=0.5, zorder=4))
+                                   hatch=CHECKOUT_HATCH, edgecolor=BOUNDARY,
+                                   lw=0.4, zorder=4))
         elif nm == 'WC':
             ax.add_patch(Rectangle((x, y), ww, hh, facecolor=RESTROOM,
-                                   edgecolor=BOUNDARY, lw=0.5, zorder=4))
-            ax.text(x + ww / 2, y + hh / 2, 'WC', ha='center', va='center',
-                    fontsize=6, zorder=5)
+                                   hatch=RESTROOM_HATCH, edgecolor=BOUNDARY,
+                                   lw=0.4, zorder=4))
         else:
             ax.add_patch(Rectangle((x, y), ww, hh, facecolor=BOUNDARY,
                                    edgecolor='none', zorder=3))
@@ -115,41 +127,76 @@ def _draw_plan(ax, walls, items, door_position, width, height, title):
     for it in items.values():
         (x, y), (ww, hh) = it['position'], it['size']
         ax.add_patch(Rectangle((x, y), ww, hh, facecolor=FIXTURE,
-                               edgecolor='white', lw=0.35, zorder=2))
+                               edgecolor='white', lw=0.25, zorder=2))
 
     if door_position:
         dx, dy = door_position
-        s = max(width, height) * 0.02
+        s = max(width, height) * 0.03
         ax.add_patch(Polygon([(dx - s, dy - 1.6 * s), (dx + s, dy - 1.6 * s),
                               (dx, dy)], closed=True, facecolor=DOOR,
                              edgecolor='none', zorder=5))
 
 
-def archetype_previews(figs):
-    """The three archetypes at two floor sizes, one panel each."""
-    fig, axes = plt.subplots(len(FLOOR_SIZES), len(ARCHETYPE_SHOPS),
-                             figsize=(16.0, 9.0))
+def _legend(fig):
+    """The plan key, below the panels: every element by fill pattern or
+    shape as well as colour."""
+    handles = [
+        Patch(facecolor=FIXTURE, edgecolor='white', label='fixture'),
+        Patch(facecolor=figstyle.GREY, alpha=0.3, edgecolor=figstyle.GREY,
+              ls=':', label='department zone'),
+        Patch(facecolor=CHECKOUT, hatch=CHECKOUT_HATCH, edgecolor=BOUNDARY,
+              lw=0.4, label='checkout lane'),
+        Patch(facecolor=RESTROOM, hatch=RESTROOM_HATCH, edgecolor=BOUNDARY,
+              lw=0.4, label='restroom'),
+        Line2D([], [], marker='^', ls='none', color=DOOR, markersize=6,
+               label='entrance'),
+    ]
+    fig.legend(handles=handles, loc='outside lower center', ncol=5,
+               handlelength=1.6, columnspacing=1.2)
+
+
+def archetype_panels():
+    """The panels of the archetype figure, row by row: one record per
+    (floor size, shop type) with the plan the engine builds at the panel's
+    fixed seed and the counts its title reports. The figure is drawn from
+    these records, and the counts are what Fig. 4's caption may quote
+    (``tests/test_figstyle.py`` pins them, so the caption cannot keep a
+    number the engine no longer produces)."""
+    panels = []
     for r, (W, H) in enumerate(FLOOR_SIZES):
         for c, shop_type in enumerate(ARCHETYPE_SHOPS):
             sections = scale_catalog(shop_type, W, H)
             rng = random.Random(PREVIEW_SEED + 100 * r + c)
             plan = generate_architecture(W, H, shop_type, sections, rng=rng)
-            lanes = sum(1 for nm in plan['walls']
-                        if nm.startswith('Checkout'))
-            title = (f"{shop_type} [{plan['archetype']}] {W:.0f}x{H:.0f}m - "
-                     f"{len(sections)} sections, {len(plan['items'])} items, "
-                     f"{lanes} lanes")
-            _draw_plan(axes[r][c], plan['walls'], plan['items'],
-                       plan['door_position'], W, H, title)
-    fig.suptitle('Size-scaled generated layouts - small (top) vs large '
-                 '(bottom); checkout banks in gold', fontsize=11)
-    fig.tight_layout(rect=[0, 0, 1, 0.95], h_pad=2.5)
-    # The paper includes these previews as raster panels; the vector copy
-    # of a dense floor plan buys nothing and is several MB.
-    out = os.path.join(figs, 'layout_previews.png')
-    fig.savefig(out, dpi=200)
+            panels.append({
+                'row': r, 'col': c, 'shop_type': shop_type,
+                'width': W, 'height': H, 'plan': plan,
+                'n_sections': len(sections),
+                'n_items': len(plan['items']),
+                'n_lanes': sum(1 for nm in plan['walls']
+                               if nm.startswith('Checkout')),
+            })
+    return panels
+
+
+def archetype_previews(figs):
+    """The three archetypes at two floor sizes, one panel each."""
+    fig, axes = figstyle.print_figure(
+        'layout_previews', height_in=3.9,
+        nrows=len(FLOOR_SIZES), ncols=len(ARCHETYPE_SHOPS),
+        layout='constrained')
+    for pnl in archetype_panels():
+        plan, W, H = pnl['plan'], pnl['width'], pnl['height']
+        title = (f"{pnl['shop_type'].replace(' Store', '')} "
+                 f"({plan['archetype']}), {W:.0f}×{H:.0f} m\n"
+                 f"{pnl['n_sections']} sections, {pnl['n_items']} items, "
+                 f"{pnl['n_lanes']} lanes")
+        _draw_plan(axes[pnl['row']][pnl['col']], plan['walls'],
+                   plan['items'], plan['door_position'], W, H, title)
+    _legend(fig)
+    figstyle.save(fig, 'layout_previews', out_dir=figs, png_dpi=300)
     plt.close(fig)
-    return out
+    return os.path.join(figs, 'layout_previews.pdf')
 
 
 def _uci_params(sample_rows):
@@ -191,23 +238,22 @@ def dataset_previews(figs, sample_rows=UCI_SAMPLE_ROWS):
     if not panels:
         return None
 
-    fig, axes = plt.subplots(1, len(panels), figsize=(9.5 * len(panels), 7.0),
-                             squeeze=False)
+    fig, axes = figstyle.print_figure(
+        'dataset_layout_previews', height_in=2.55, nrows=1,
+        ncols=len(panels), squeeze=False, layout='constrained')
     for ax, (label, shop, stats) in zip(axes[0], panels):
         f1 = shop.floors[1]
         lanes = sum(1 for nm in f1['walls'] if nm.startswith('Checkout'))
-        title = (f"{label} - derived {shop.width:.0f}x{shop.height:.0f}m, "
+        title = (f"{label}: derived {shop.width:.0f}×"
+                 f"{shop.height:.0f} m\n"
                  f"{stats['sections']} departments, {stats['zones']} zones, "
                  f"{stats['items']} items, {lanes} lanes")
         _draw_plan(ax, f1['walls'], f1['items'], f1['door_position'],
                    shop.width, shop.height, title)
-    fig.suptitle('Imported-dataset layouts on the architecture engine '
-                 '(dimensions derived from assortment size)', fontsize=11)
-    fig.tight_layout(rect=[0, 0, 1, 0.94])
-    out = os.path.join(figs, 'dataset_layout_previews.png')
-    fig.savefig(out, dpi=200)
+    _legend(fig)
+    figstyle.save(fig, 'dataset_layout_previews', out_dir=figs, png_dpi=300)
     plt.close(fig)
-    return out
+    return os.path.join(figs, 'dataset_layout_previews.pdf')
 
 
 def main(argv=None):
@@ -221,7 +267,7 @@ def main(argv=None):
                     help="Only redraw the archetype previews")
     args = ap.parse_args(argv)
 
-    figstyle.apply()
+    figstyle.apply_print()
     figs = args.figs_dir or _figs_dir()
     os.makedirs(figs, exist_ok=True)
 
@@ -231,7 +277,7 @@ def main(argv=None):
         if out:
             written.append(out)
     for p in written:
-        print(f'wrote {p}')
+        print(f'wrote {p} (+ .png)')
     return 0
 
 

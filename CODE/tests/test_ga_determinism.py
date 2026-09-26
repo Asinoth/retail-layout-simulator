@@ -14,6 +14,7 @@ import numpy as np
 from synthetic_shops import generate_synthetic_shop
 from baselines import random_valid
 from experiments._common import (build_headless_shop, base_params_for,
+                                 anchor_base_params,
                                  run_ga_headless, paired_mc_revenue,
                                  apply_layout, _INIT_POP_STREAM_TAG,
                                  _OPERATOR_STREAM_TAG)
@@ -28,7 +29,9 @@ def _setup():
     ss = _synth()
     shop = build_headless_shop(ss)
     names = [it.name for it in ss.items]
-    bp = base_params_for(ss)
+    as_built = {n: tuple(shop.floors[1]['items'][n]['position'])
+                for n in names}
+    bp = anchor_base_params(shop, names, base_params_for(ss), as_built)
     return shop, names, bp
 
 

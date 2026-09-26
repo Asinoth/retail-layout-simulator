@@ -28,11 +28,28 @@ The headline number is the GA's MC revenue minus the best non-GA baseline
 (popularity_rank or greedy_swap, whichever is higher per scenario),
 with a bootstrap 95% CI on the paired difference across scenarios x
 seeds. Artefacts:
-  * results.csv       -- one row per (scenario, method, seed)
+  * results.csv       -- one row per (scenario, method, seed): the paired
+                         MC revenue, its closed-form expectation
+                         (``cf_revenue``, ``experiments.closed_form``) and
+                         the analytical revenue
+  * layouts.json      -- every scored layout (fixed ones per scenario, the
+                         searches' per seed) and the analytical reference
+                         before and after the repair
+  * traces.json       -- each search's convergence trace per seed
   * methods_bar.png   -- mean MC revenue per method with 95% CI whiskers
   * sidecar.json      -- run metadata
   * summary.json      -- comparison family, sensitivity rows and their
-                         paired differences, written last
+                         paired differences; the crossed / two-way /
+                         G - 1 t intervals and the smallest equivalence
+                         margin (``inference``), under the MC values and
+                         their closed form, and whether every conclusion is
+                         the same under both
+                         (``closed_form_conclusions_unchanged``); written
+                         last
+
+Every scored layout is checked against the floor-plan engine's invariants
+(``experiments._feasibility``) before it is scored; the run stops on a
+violation.
 
 Important constraint: every method is evaluated with the SAME mc seed
 on the SAME scenario, so the comparison is a paired difference (not an
@@ -76,10 +93,15 @@ from baselines import (
     assert_layout_valid, assert_no_strict_overlap,
 )
 from experiments._common import (
-    build_headless_shop, base_params_for,
-    paired_mc_revenue, run_ga_headless, chromosome_to_layout,
-    feasible_layout, bootstrap_ci, make_run_dir, write_sidecar,
+    ORACLE_RESTARTS, build_headless_shop, base_params_for, anchor_base_params,
+    GA_N_FINAL_SEEDS, base_params_record, checked_layout,
+    closed_form_revenue, layout_json,
+    combine_repair_stats, paired_mc_revenue, repair_stats, run_ga_headless,
+    chromosome_to_layout,
+    feasible_layout, bootstrap_ci, make_run_dir, write_json, write_sidecar,
 )
+from experiments._inference import (EQUIV_MARGIN_FRAC,
+                                    paired_family_inference)
 from experiments.metaheuristics import (random_search, simulated_annealing,
                                         DEFAULT_INITIAL_ACCEPT)
 
@@ -130,6 +152,9 @@ def parse_args() -> argparse.Namespace:
                    help="Skip the simulated_annealing_popstart sensitivity "
                         "row (the annealer warm-started from "
                         "popularity_rank)")
+    p.add_argument('--oracle-restarts', type=int, default=ORACLE_RESTARTS,
+                   help="L-BFGS-B restarts of the analytical reference "
+                        "(oracle.solve_oracle); run_synthetic_gt's default")
     p.add_argument('--workers', type=int, default=1,
                    help="Processes running scenarios in parallel")
     p.add_argument('--out-root', type=str,
@@ -137,6 +162,8 @@ def parse_args() -> argparse.Namespace:
     args = p.parse_args()
     if args.workers < 1:
         p.error("--workers must be >= 1")
+    if args.oracle_restarts < 1:
+        p.error("--oracle-restarts must be >= 1")
     if not 0.0 < args.sa_initial_accept < 1.0:
         p.error("--sa-initial-accept must lie strictly between 0 and 1")
     # Search seeds of run seed s are s*1000 + [0, n_gens + 6) (generation or
@@ -161,9 +188,14 @@ def eval_seed(scenario_idx: int, seed: int) -> int:
 def evaluate_methods_one_scenario(scenario_idx: int,
                                   seeds: List[int],
                                   args: argparse.Namespace
-                                  ) -> Tuple[List[Dict], List[Dict]]:
+                                  ) -> Tuple[List[Dict], List[Dict], Dict,
+                                             Dict]:
     """Returns the flat list of per-(method, seed) records for this
-    scenario, and per seed the fitness evaluations each search method spent.
+    scenario, per seed the fitness evaluations each search method spent,
+    the scenario's base parameters as the sidecar records them, and the
+    scenario's record: the analytical reference before and after the
+    repair, every scored layout, each search's trace, the invariant checks
+    and the repair's counters.
 
     All MC evaluations share the same mc_seed -- the comparison is the
     PAIRED difference between method outputs."""
@@ -175,11 +207,14 @@ def evaluate_methods_one_scenario(scenario_idx: int,
     )
     shop = build_headless_shop(shop_synth)
     item_names = [it.name for it in shop_synth.items]
-    base_params = base_params_for(shop_synth)
     # Every GA run starts from the as-built layout, whatever positions
     # earlier calls on this shop have left behind.
     init_layout = {n: tuple(shop.floors[1]['items'][n]['position'])
                    for n in item_names}
+    # The elasticities act on score differences from the repaired as-built
+    # layout, which therefore reproduces the calibrated inputs.
+    base_params = anchor_base_params(shop, item_names,
+                                     base_params_for(shop_synth), init_layout)
 
     print(f"\n[scenario {scenario_idx:>3d}] shop dims "
           f"{shop_synth.width:.1f}x{shop_synth.height:.1f}, "
@@ -194,29 +229,38 @@ def evaluate_methods_one_scenario(scenario_idx: int,
     }
     # Oracle layout
     oracle_t0 = time.perf_counter()
-    oracle_result = solve_oracle(shop_synth, n_restarts=24)
+    oracle_result = solve_oracle(shop_synth, n_restarts=args.oracle_restarts)
     pre_layouts['oracle'] = oracle_result.layout
     oracle_wall = time.perf_counter() - oracle_t0
+    oracle_R_unrepaired = analytical_revenue(shop_synth, oracle_result.layout)
     # Score every method on the GA's feasible set: GA candidates always go
     # through its repair (zone clipping, impulse projection, overlap
     # resolution), so an unrepaired layout would be judged on different
     # rules.
     pre_layouts = {name: feasible_layout(shop, item_names, lay)
                    for name, lay in pre_layouts.items()}
+    oracle_R_feasible = analytical_revenue(shop_synth, pre_layouts['oracle'])
 
     # Validate the layouts that are scored (raise if any are bad). The
     # simulator fitness penalizes any positive overlap, so the reference
     # also gets the zero-tolerance check: solver contact residue would
     # otherwise pass the tolerant check and still collapse its revenue.
+    # Every layout also has to keep the floor-plan engine's invariants.
+    invariants: Dict[str, Dict] = {}
     for name, lay in pre_layouts.items():
         assert_layout_valid(shop_synth, lay)
         if name == 'oracle':
             assert_no_strict_overlap(shop_synth, lay)
+        invariants[name] = checked_layout(
+            shop, item_names, lay, f"scenario {scenario_idx} {name}")
 
     # For each seed, run the GA fresh; baselines re-use their layout
     # but get re-evaluated against the same mc_seed for paired comparison.
     records: List[Dict] = []
     eval_counts: List[Dict] = []
+    seed_layouts: Dict[str, Dict] = {}
+    seed_traces: Dict[str, Dict] = {}
+    cf_cache: Dict[tuple, float] = {}
     for seed in seeds:
         t_seed = time.perf_counter()
         # GA run (fresh per seed)
@@ -275,12 +319,12 @@ def evaluate_methods_one_scenario(scenario_idx: int,
                 start='popularity')
             sp_wall = time.perf_counter() - sp_t0
 
-        # The equal-budget check is on the SEARCH evaluations, which is what
-        # the budget argument buys. The final selection stage is not held to
-        # equality: SA ranks distinct archived states, so a search that
-        # revisits a state hands fewer than pop_size candidates to the final
-        # seeds, while the GA always re-evaluates a full population. Both
-        # counts are recorded so the difference stays visible.
+        # The equal-budget check covers both stages: the SEARCH evaluations,
+        # which is what the budget argument buys, and the final selection,
+        # where every search re-scores exactly pop_size candidates under the
+        # same n_final_seeds selection seeds (the GA its final population,
+        # random search and SA the pop_size best-standing candidates of
+        # their blocks).
         counts = {'GA': ga_out['n_search_evals'],
                   'random_search': rs_stats['n_search_evals'],
                   'simulated_annealing': sa_stats['n_search_evals']}
@@ -288,6 +332,13 @@ def evaluate_methods_one_scenario(scenario_idx: int,
             raise AssertionError(
                 f"scenario {scenario_idx} seed {seed}: search methods spent "
                 f"unequal search-evaluation budgets {counts}")
+        finals = {'GA': ga_out['n_final_evals'],
+                  'random_search': rs_stats['n_final_evals'],
+                  'simulated_annealing': sa_stats['n_final_evals']}
+        if len(set(finals.values())) != 1:
+            raise AssertionError(
+                f"scenario {scenario_idx} seed {seed}: search methods spent "
+                f"unequal final-selection budgets {finals}")
         # The start each search reported. The GA is handed init_layout
         # above; the other two say which start they actually used.
         starts = {'GA': 'asbuilt',
@@ -340,7 +391,12 @@ def evaluate_methods_one_scenario(scenario_idx: int,
                 shop, item_names, sp_layout)
         all_layouts['GA'] = ga_layout
 
+        seed_inv: Dict[str, Dict] = {}
         for method, lay in all_layouts.items():
+            if method not in invariants:
+                seed_inv[method] = checked_layout(
+                    shop, item_names, lay,
+                    f"scenario {scenario_idx} seed {seed} {method}")
             mc_rev = paired_mc_revenue(
                 shop, item_names, lay, base_params,
                 seed=mc_seed,
@@ -348,13 +404,31 @@ def evaluate_methods_one_scenario(scenario_idx: int,
                 mc_days=args.mc_days,
             )
             true_R = analytical_revenue(shop_synth, lay)
+            # The exact mean the Monte Carlo value estimates; the fixed
+            # layouts are the same for every seed, so computed once.
+            key = tuple(lay[n] for n in item_names)
+            if key not in cf_cache:
+                cf_cache[key] = closed_form_revenue(
+                    shop, item_names, lay, base_params, args.mc_days)
             records.append({
                 'scenario': scenario_idx,
                 'seed':     seed,
                 'method':   method,
                 'mc_revenue': mc_rev,
+                'cf_revenue': cf_cache[key],
                 'analytical_R': true_R,
             })
+        seed_layouts[str(seed)] = {m: layout_json(all_layouts[m])
+                                   for m in all_layouts
+                                   if m not in pre_layouts}
+        seed_traces[str(seed)] = {
+            'GA': ga_out['trace'],
+            'random_search': rs_stats.get('trace'),
+            'simulated_annealing': sa_stats.get('trace'),
+            **({'simulated_annealing_popstart': sp_stats.get('trace')}
+               if args.sa_popstart else {}),
+        }
+        count_record['invariants'] = seed_inv
 
         seed_wall = time.perf_counter() - t_seed
         sp_note = f", SA-popstart {sp_wall:.1f}s" if args.sa_popstart else ""
@@ -376,7 +450,25 @@ def evaluate_methods_one_scenario(scenario_idx: int,
               f"({seed_wall:.1f}s: GA {ga_wall:.1f}s, "
               f"RS {rs_wall:.1f}s, SA {sa_wall:.1f}s{sp_note})",
               flush=True)
-    return records, eval_counts
+    info = {
+        'scenario': scenario_idx,
+        # The analytical reference before and after the shared repair: a
+        # scenario whose reference the repair moved has a feasible-set
+        # regret below its headline regret (Figure A's 'moved' count).
+        'oracle': {'R_unrepaired': float(oracle_R_unrepaired),
+                   'R_feasible': float(oracle_R_feasible),
+                   'moved_by_repair': bool(oracle_R_feasible
+                                           < oracle_R_unrepaired),
+                   'n_restarts': oracle_result.n_restarts,
+                   'n_failed_restarts': oracle_result.n_failed,
+                   'wall_seconds': oracle_wall},
+        'fixed_layouts': {m: layout_json(lay) for m, lay in pre_layouts.items()},
+        'fixed_layout_invariants': invariants,
+        'seed_layouts': seed_layouts,
+        'traces': seed_traces,
+        'repair_stats': repair_stats(shop),
+    }
+    return records, eval_counts, base_params_record(base_params), info
 
 
 def _map_scenarios(fn, n_scenarios: int, workers: int, *fn_args) -> list:
@@ -406,15 +498,61 @@ def _map_scenarios(fn, n_scenarios: int, workers: int, *fn_args) -> list:
 
 
 def write_results_csv(out_dir: str, all_records: List[Dict]) -> str:
+    """One row per (scenario, seed, method): the paired Monte Carlo revenue,
+    its closed-form expectation (``cf_revenue``) and the analytical
+    revenue."""
     path = os.path.join(out_dir, 'results.csv')
     with open(path, 'w', newline='', encoding='utf-8') as f:
         w = csv.writer(f)
-        w.writerow(['scenario', 'seed', 'method', 'mc_revenue', 'analytical_R'])
+        w.writerow(['scenario', 'seed', 'method', 'mc_revenue', 'cf_revenue',
+                    'analytical_R'])
         for r in all_records:
             w.writerow([r['scenario'], r['seed'], r['method'],
                         f"{r['mc_revenue']:.4f}",
+                        f"{r['cf_revenue']:.4f}",
                         f"{r['analytical_R']:.4f}"])
     return path
+
+
+def by_run(all_records: List[Dict], value: str = 'mc_revenue'
+           ) -> Dict[Tuple[int, int], Dict[str, float]]:
+    """{(scenario, seed): {method: record[value]}}."""
+    out: Dict[Tuple[int, int], Dict[str, float]] = {}
+    for r in all_records:
+        out.setdefault((r['scenario'], r['seed']), {})[r['method']] = \
+            float(r[value])
+    return out
+
+
+def conclusions_unchanged(mc: Dict, cf: Dict) -> Dict[str, object]:
+    """Whether every conclusion the comparison reports under the Monte
+    Carlo values holds under their closed-form expectations: per family
+    member, the sign of the paired mean and whether the manuscript's
+    interval (scenario cluster bootstrap at the Bonferroni level) excludes
+    zero; and the GA-SA equivalence decision at the fixed margin."""
+    per: Dict[str, Dict[str, object]] = {}
+    for m, rec in mc['comparisons'].items():
+        c = cf['comparisons'].get(m)
+        if c is None:
+            continue
+        per[m] = {
+            'sign_mc': int(np.sign(rec['mean'])),
+            'sign_cf': int(np.sign(c['mean'])),
+            'significant_mc': rec['cluster_bootstrap']['excludes_zero'],
+            'significant_cf': c['cluster_bootstrap']['excludes_zero'],
+        }
+        per[m]['unchanged'] = bool(
+            per[m]['sign_mc'] == per[m]['sign_cf']
+            and per[m]['significant_mc'] == per[m]['significant_cf'])
+    eq_mc = (mc.get('equivalence') or {}).get('schemes', {}).get(
+        'cluster_bootstrap', {}).get('equivalent_at_margin')
+    eq_cf = (cf.get('equivalence') or {}).get('schemes', {}).get(
+        'cluster_bootstrap', {}).get('equivalent_at_margin')
+    return {'per_comparison': per,
+            'equivalence_mc': eq_mc, 'equivalence_cf': eq_cf,
+            'equivalence_unchanged': eq_mc == eq_cf,
+            'all_unchanged': bool(all(v['unchanged'] for v in per.values())
+                                  and eq_mc == eq_cf)}
 
 
 def aggregate_per_method(all_records: List[Dict]
@@ -459,12 +597,14 @@ def aggregate_paired_diffs(all_records: List[Dict]
     return out
 
 
-def sa_start_effect(all_records: List[Dict]) -> Dict[str, float]:
+def sa_start_effect(all_records: List[Dict],
+                    value: str = 'mc_revenue') -> Dict[str, float]:
     """Paired difference (popularity-started SA - as-built SA) over every
     (scenario, seed) pair that has both, with a bootstrap CI: what the
     popularity warm start was worth to the annealer at equal budget and
-    seeds. Empty when the sensitivity row was not run."""
-    idx = {(r['scenario'], r['seed'], r['method']): r['mc_revenue']
+    seeds. Empty when the sensitivity row was not run. ``value`` picks the
+    Monte Carlo revenue or its closed-form expectation."""
+    idx = {(r['scenario'], r['seed'], r['method']): r[value]
            for r in all_records}
     diffs = [idx[(s, sd, 'simulated_annealing_popstart')]
              - idx[(s, sd, 'simulated_annealing')]
@@ -524,11 +664,15 @@ def main() -> int:
 
     all_records: List[Dict] = []
     all_counts: List[Dict] = []
-    for records, counts in _map_scenarios(evaluate_methods_one_scenario,
-                                          args.n_scenarios, args.workers,
-                                          seeds, args):
+    all_base_params: Dict[str, Dict] = {}
+    infos: List[Dict] = []
+    for sc, (records, counts, bp_rec, info) in enumerate(_map_scenarios(
+            evaluate_methods_one_scenario, args.n_scenarios, args.workers,
+            seeds, args)):
         all_records.extend(records)
         all_counts.extend(counts)
+        all_base_params[str(sc)] = bp_rec
+        infos.append(info)
 
     wall = time.perf_counter() - wall_t0
     print(f"\nTotal wall: {wall:.1f}s  ({len(all_records)} records)",
@@ -579,6 +723,32 @@ def main() -> int:
         for m, rec in c['sensitivity'].items():
             starts.setdefault(m, set()).add(rec['start'])
     search_start = {m: '/'.join(sorted(v)) for m, v in starts.items()}
+
+    # Inference beside the manuscript's scheme: the crossed and two-way
+    # intervals (search seeds are shared across scenarios), the G - 1 t, and
+    # the smallest margin the GA-SA equivalence would hold at -- under the
+    # Monte Carlo values and under their closed-form expectations, and
+    # whether each conclusion is the same under both.
+    inf_mc = paired_family_inference(by_run(all_records, 'mc_revenue'),
+                                     COMPARISON_FAMILY)
+    inf_cf = paired_family_inference(by_run(all_records, 'cf_revenue'),
+                                     COMPARISON_FAMILY)
+    sens_mc = paired_family_inference(by_run(all_records, 'mc_revenue'),
+                                      sensitivity, equiv_with='',
+                                      alpha_family=inf_mc['alpha_per_comparison']
+                                      * max(len(sensitivity), 1))
+    sens_cf = paired_family_inference(by_run(all_records, 'cf_revenue'),
+                                      sensitivity, equiv_with='',
+                                      alpha_family=inf_cf['alpha_per_comparison']
+                                      * max(len(sensitivity), 1))
+    unchanged = conclusions_unchanged(inf_mc, inf_cf)
+    # Figure A's 'moved runs' as scenarios: the analytical reference is the
+    # same layout for every seed of a scenario, so counting runs counts each
+    # scenario once per seed.
+    moved = [i['scenario'] for i in infos if i['oracle']['moved_by_repair']]
+    repair_totals = combine_repair_stats(i['repair_stats'] for i in infos)
+    oracle_failed = sum(i['oracle']['n_failed_restarts'] for i in infos)
+
     summary = {
         'comparison_family': list(COMPARISON_FAMILY),
         'sensitivity_methods': sensitivity,
@@ -590,10 +760,47 @@ def main() -> int:
                                                for m in sensitivity
                                                if m in diffs},
         'sa_start_effect': start_effect,
+        'sa_start_effect_closed_form': sa_start_effect(all_records,
+                                                       'cf_revenue'),
         'n_scenarios': args.n_scenarios,
         'n_seeds_per_scenario': args.n_seeds,
+        'inference': {
+            'mc': inf_mc, 'closed_form': inf_cf,
+            'sensitivity_mc': sens_mc, 'sensitivity_closed_form': sens_cf,
+            'equivalence_margin_frac': EQUIV_MARGIN_FRAC,
+        },
+        'closed_form_conclusions_unchanged': unchanged,
+        'reference_moved_by_repair': {
+            'n_scenarios': len(moved), 'of_scenarios': len(infos),
+            'scenarios': moved,
+            'definition': 'analytical revenue of the reference after the '
+                          'shared repair below its unrepaired value',
+        },
+        'oracle_restarts': args.oracle_restarts,
+        'oracle_failed_restarts': int(oracle_failed),
+        # Both stages of the search budget, checked equal in every run.
+        'budget': {'search_evals': args.pop_size * args.n_gens,
+                   'final_evals': args.pop_size * GA_N_FINAL_SEEDS,
+                   'block': args.pop_size},
+        # How often the aisle rule and the reachability fallbacks bound in
+        # the shared repair, summed over scenarios (zero on this template:
+        # its sections exclude their aisles).
+        'repair_stats': repair_totals,
+        'layouts_path': 'layouts.json',
+        'traces_path': 'traces.json',
     }
 
+    # Every reported layout (fixed per scenario, searched per seed) and
+    # every search's convergence trace, so convergence and the layouts
+    # themselves can be checked without re-running.
+    write_json(out_dir, 'layouts.json', {
+        str(i['scenario']): {'fixed': i['fixed_layouts'],
+                             'per_seed': i['seed_layouts'],
+                             'invariants_fixed': i['fixed_layout_invariants'],
+                             'oracle': i['oracle']}
+        for i in infos})
+    write_json(out_dir, 'traces.json', {str(i['scenario']): i['traces']
+                                        for i in infos})
     write_sidecar(out_dir, {
         'experiment': 'baseline_comparison',
         'args': vars(args),
@@ -654,6 +861,9 @@ def main() -> int:
                            'simulated_annealing_popstart']['sa_T0']}
                       for c in all_counts],
         } if 'simulated_annealing_popstart' in sensitivity else None),
+        # The inputs every layout of each scenario was scored with, anchor
+        # included (lists as length, moments and a hash).
+        'base_params': all_base_params,
         'summary': summary,
     })
     # Written last, so its presence marks a finished run.

@@ -25,18 +25,21 @@ WORKERS ?= 1
 # `--retail-path "<RETAIL>"` when RETAIL is set, nothing otherwise.
 RETAIL_ARG = $(if $(RETAIL),--retail-path "$(RETAIL)",)
 
-.PHONY: help deps test verify smoke figures-headless macros paper all \
-        experiments-paper paper-grade clean
+.PHONY: help deps deps-lock test verify smoke figures-headless macros paper \
+        all experiments-paper paper-grade clean lock
 
 help:
 	@echo "Targets:"
 	@echo "  deps              pip install -r requirements.txt"
+	@echo "  deps-lock         pip install -r requirements-lock.txt (the"
+	@echo "                    experiments' exact environment)"
+	@echo "  lock              regen requirements-lock.txt from this environment"
 	@echo "  test              run the pytest numeric-core suite (~2 min)"
 	@echo "  verify            architecture invariants + dataset pipeline smokes"
 	@echo "  smoke             fast end-to-end experiment smokes (~mins)"
 	@echo "  figures-headless  regen the display-free paper figures"
 	@echo "                    (plots + the floor-plan previews)"
-	@echo "  macros            regen paper_results_macros.tex from artefacts"
+	@echo "  macros            regen paper_results_macros.tex + paper_table_budgets.tex"
 	@echo "  paper             pdflatex->bibtex->pdflatex x2 (needs figs/)"
 	@echo "  experiments-paper paper-grade experiment runs (HOURS)"
 	@echo "  paper-grade       experiments-paper + figures + macros + paper"
@@ -47,8 +50,18 @@ help:
 deps:
 	$(PY) -m pip install -r requirements.txt
 
+# The environment the experiments ran in, every package pinned (resolved on
+# the platform its header names; pip applies its environment markers).
+deps-lock:
+	$(PY) -m pip install -r requirements-lock.txt
+
+# The whole resolved environment (requirements.txt and everything it pulls
+# in), pinned; every experiment sidecar checks the environment against it.
+lock:
+	cd $(CODE) && $(PY) environment_lock.py
+
 test:
-	cd $(CODE) && $(PY) -m pytest -q tests/
+	cd $(CODE) && $(PY) -m pytest -q -rfE tests/
 
 # The two standalone verification scripts cited in the paper's
 # Verification section. They are not pytest tests (one needs the
@@ -97,29 +110,47 @@ experiments-paper:
 	    --n-seeds 10 --mc-iters 2000 --n-gens 25 --pop-size 30 --workers $(WORKERS)
 	cd $(CODE) && $(PY) -m experiments.run_mc_groundtruth --n-scenarios 6 \
 	    --normal-budget 750 --big-budget 7500 --mc-iters 1000 --workers $(WORKERS)
-	cd $(CODE) && $(PY) -m experiments.run_ga_sensitivity --n-scenarios 3 \
-	    --n-seeds 2 --n-gens 25 --mc-iters 800
+	cd $(CODE) && $(PY) -m experiments.run_ga_sensitivity --n-scenarios 10 \
+	    --n-seeds 3 --n-gens 25 --pop-size 30 --mc-iters 800 --workers $(WORKERS)
 	cd $(CODE) && $(PY) -m experiments.run_elasticity_lhs --n-scenarios 12 \
 	    --n-seeds 3 --n-draws 256 --n-gens 15 --pop-size 24 --mc-iters 500 \
 	    --workers $(WORKERS)
+	cd $(CODE) && $(PY) -m experiments.run_objective_alignment \
+	    --workers $(WORKERS)
 	cd $(CODE) && $(PY) -m experiments.make_paper_figures
+	cd $(CODE) && $(PY) -m experiments.run_live_protocol_study \
+	    --workers $(WORKERS) $(RETAIL_ARG)
 	cd $(CODE) && $(PY) -m experiments.run_abm_diagnostics --reps 10 \
 	    --workers $(WORKERS) $(RETAIL_ARG)
 	cd $(CODE) && $(PY) -m experiments.run_structural_sensitivity \
 	    --workers $(WORKERS) $(RETAIL_ARG)
+	cd $(CODE) && $(PY) -m experiments.run_structural_exit_check $(RETAIL_ARG)
 	cd $(CODE) && $(PY) -m experiments.measure_queueing \
 	    --workers $(WORKERS) $(RETAIL_ARG)
 	cd $(CODE) && $(PY) -m experiments.run_validation_gof \
 	    --workers $(WORKERS) $(RETAIL_ARG)
+	cd $(CODE) && $(PY) -m experiments.make_heatmap_figure $(RETAIL_ARG)
+	cd $(CODE) && $(PY) -m experiments.profile_uci $(RETAIL_ARG)
 	cd $(CODE) && $(PY) -m experiments.run_real_data_example $(RETAIL_ARG)
+	cd $(CODE) && $(PY) -m experiments.run_real_data_example \
+	    --exclude-anonymous $(RETAIL_ARG)
+	cd $(CODE) && $(PY) -m experiments.run_figc_rescore
+	cd $(CODE) && $(PY) -m experiments.make_layout_figure $(RETAIL_ARG)
 	cd $(CODE) && $(PY) -m experiments.run_real_data_seeds \
+	    --workers $(WORKERS) $(RETAIL_ARG)
+	cd $(CODE) && $(PY) -m experiments.run_real_data_budget \
+	    --workers $(WORKERS) $(RETAIL_ARG)
+	cd $(CODE) && $(PY) -m experiments.run_input_uncertainty \
+	    --workers $(WORKERS) $(RETAIL_ARG)
+	cd $(CODE) && $(PY) -m experiments.run_heldout_transfer \
 	    --workers $(WORKERS) $(RETAIL_ARG)
 
 # Ordered recipe lines rather than prerequisites: `make -j` runs
 # prerequisites concurrently, but restyle_figures, macros and the paper
-# all read what the experiment runs write. The figures
-# CODE/make_gui_figures.py draws (the GUI screenshots and the emergent
-# heat map) are the only ones not regenerated here: they need a display.
+# all read what the experiment runs write. The GUI screenshots
+# CODE/make_gui_figures.py draws are the only figures not regenerated here:
+# they need a display. The emergent heat map comes from a seeded headless
+# run (experiments.make_heatmap_figure, in experiments-paper).
 paper-grade:
 	$(MAKE) experiments-paper
 	$(MAKE) figures-headless

@@ -1,0 +1,510 @@
+{
+  "git_sha": "81291699f516557f73f311759e422aec7e75b88c",
+  "git_dirty": false,
+  "git_diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "git_modified": [],
+  "git_untracked_py": [],
+  "git_state_changed_during_run": false,
+  "python": "3.13.2",
+  "platform": "Windows-11-10.0.26200-SP0",
+  "packages": {
+    "charset-normalizer": "3.4.1",
+    "colorama": "0.4.6",
+    "contourpy": "1.3.2",
+    "cycler": "0.12.1",
+    "et-xmlfile": "2.0.0",
+    "fonttools": "4.57.0",
+    "iniconfig": "2.3.0",
+    "kiwisolver": "1.4.8",
+    "matplotlib": "3.10.1",
+    "numpy": "2.2.4",
+    "openpyxl": "3.1.5",
+    "packaging": "24.2",
+    "pandas": "2.2.3",
+    "pillow": "11.1.0",
+    "pluggy": "1.6.0",
+    "pygments": "2.19.1",
+    "pyparsing": "3.2.3",
+    "pytest": "9.0.3",
+    "python-dateutil": "2.9.0.post0",
+    "pytz": "2025.1",
+    "reportlab": "4.5.1",
+    "scipy": "1.15.3",
+    "six": "1.17.0",
+    "tzdata": "2025.1"
+  },
+  "requirements_lock": {
+    "path": "requirements-lock.txt",
+    "sha256": "99c94518459504dc1b54070797fa973f89fbbab5c8e21208db4dd60a031a6950",
+    "resolved_on": {
+      "python": "3.13.2",
+      "system": "Windows",
+      "machine": "AMD64"
+    },
+    "same_platform": true,
+    "matches_environment": true,
+    "mismatches": [],
+    "unpinned": [],
+    "exact": true
+  },
+  "hardware": {
+    "cpu_count": 16,
+    "processor": "Intel64 Family 6 Model 165 Stepping 5, GenuineIntel",
+    "machine": "AMD64",
+    "ram_gib": 15.9
+  },
+  "iso_time": "2026-09-26T10:09:30",
+  "elasticities": {
+    "GA_weights": {
+      "traffic": 0.16,
+      "cross_merch": 0.16,
+      "impulse": 0.16,
+      "flow": 0.16,
+      "revenue_placement": 0.16,
+      "section_compliance": 0.16,
+      "accessibility": 0.04,
+      "overlap_penalty": 0.8,
+      "bottleneck_penalty": 0.2
+    },
+    "ELASTICITY_CONV_BASE": 0.2,
+    "ELASTICITY_CONV_GAIN_MAX": 0.3,
+    "ELASTICITY_IMP_BASE": 0.3,
+    "ELASTICITY_IMP_GAIN_MAX": 0.4,
+    "ELASTICITY_BSK_BASE": 0.1,
+    "ELASTICITY_BSK_GAIN_MAX": 0.2,
+    "anchoring": "difference from base_params[\"score_anchor\"]",
+    "objective_constants": {
+      "ABANDON_FLOW_COEF": 0.4,
+      "ABANDON_SECTION_COEF": 0.2,
+      "ABANDON_BOTTLENECK_COEF": 0.5,
+      "ABANDON_FLOOR_FRAC": 0.3,
+      "CONV_CLAMP_LO": 0.01,
+      "CONV_CLAMP_HI": 0.99,
+      "IMPULSE_RATE_CLAMP_HI": 0.99,
+      "ABANDON_RATE_CLAMP_HI": 0.5,
+      "ABANDON_BASE_CAP": 0.95,
+      "NET_BASE_REVENUE_MIN_FRAC": 0.05,
+      "QUEUE_BOTTLENECK_FACTOR": 0.3,
+      "QUEUE_PENALTY_SLOPE": 0.15,
+      "QUEUE_PENALTY_FLOOR": 0.85,
+      "DEFAULT_QUEUE_TIME_S": 5.0,
+      "ASSUMED_CONVERSION_RATE": 0.3,
+      "IMPULSE_RATE_STANDIN": 0.2,
+      "IMPULSE_VALUE_FRAC_OF_GROSS": 0.15,
+      "IMPULSE_VALUE_CV": 0.3,
+      "REV_STD_FRAC_OF_MEAN": 0.35,
+      "ABANDON_RATE_SYNTHETIC": 0.05,
+      "ABANDON_FRAC_OF_NONCONVERTERS": 0.1,
+      "STANDIN_AVG_BASKET": 3.0,
+      "STANDIN_STD_BASKET": 1.0,
+      "HEAT_PRIOR_SYNTH_ENTRANCE": 5.0,
+      "HEAT_PRIOR_SYNTH_CHECKOUT": 3.0,
+      "HEAT_PRIOR_CAL_ENTRANCE": 3.0,
+      "HEAT_PRIOR_CAL_CHECKOUT": 2.0,
+      "HEAT_PRIOR_CAL_WALL": 1.5,
+      "HEAT_PRIOR_WALL_MIN_D": 0.1,
+      "DEFAULT_OP_HOURS_PER_DAY": 10.0,
+      "DEFAULT_WEEKEND_MULTIPLIER": 1.4,
+      "DEFAULT_DAY_NOISE_STD": 0.08,
+      "MC_LAMBDA_FLOOR": 0.1,
+      "MC_LAMBDA_CAP": 1000000.0,
+      "MC_CONV_CLAMP_LO": 0.001,
+      "MC_CONV_CLAMP_HI": 0.999,
+      "MC_SD_FLOOR": 0.01,
+      "MC_SPEND_LAW": "lognormal_moment_matched",
+      "SYNTH_DETOUR_ELASTICITY_RANGE": [
+        0.3,
+        0.5
+      ],
+      "SYNTH_DETOUR_ELASTICITY_DEFAULT": 0.4,
+      "SYNTH_IMPULSE_ELASTICITY_RANGE": [
+        0.4,
+        0.7
+      ],
+      "SYNTH_IMPULSE_ELASTICITY_DEFAULT": 0.5,
+      "SYNTH_PERIMETER_ELASTICITY_RANGE": [
+        0.15,
+        0.3
+      ],
+      "SYNTH_PERIMETER_ELASTICITY_DEFAULT": 0.2,
+      "SYNTH_AFFINITY_RANGE": [
+        0.1,
+        0.3
+      ],
+      "SYNTH_AFFINITY_DENSITY": 0.15,
+      "SYNTH_DAILY_CUSTOMERS": 200.0
+    }
+  },
+  "experiment": "mc_groundtruth",
+  "args": {
+    "n_scenarios": 6,
+    "n_items": 8,
+    "normal_budget": 750,
+    "big_budget": 7500,
+    "mc_iters": 1000,
+    "mc_days": 30,
+    "confirm_seeds": 15,
+    "sa_initial_accept": 0.8,
+    "workers": 4,
+    "out_root": "CODE/experiments/results"
+  },
+  "wall_seconds": 1147.1374319999995,
+  "workers": 4,
+  "evaluation_counts": {
+    "random_search_big": [
+      7500
+    ],
+    "simulated_annealing_big": [
+      7500
+    ],
+    "GA_big": [
+      7500
+    ],
+    "GA_normal": [
+      750
+    ],
+    "simulated_annealing_big_popstart": [
+      7500
+    ]
+  },
+  "final_evaluation_counts": {
+    "random_search_big": [
+      150
+    ],
+    "simulated_annealing_big": [
+      150
+    ],
+    "GA_big": [
+      150
+    ],
+    "GA_normal": [
+      150
+    ],
+    "simulated_annealing_big_popstart": [
+      150
+    ]
+  },
+  "search_start": {
+    "random_search_big": "asbuilt",
+    "simulated_annealing_big": "asbuilt",
+    "GA_big": "asbuilt",
+    "GA_normal": "asbuilt",
+    "simulated_annealing_big_popstart": "popularity"
+  },
+  "sa_schedule": {
+    "sa_initial_accept": 0.8,
+    "sa_T0": [
+      {
+        "scenario": 0,
+        "sa_T0": 35.084341214718535
+      },
+      {
+        "scenario": 1,
+        "sa_T0": 22.085369562550905
+      },
+      {
+        "scenario": 2,
+        "sa_T0": 57.275849111203776
+      },
+      {
+        "scenario": 3,
+        "sa_T0": 46.095826950965325
+      },
+      {
+        "scenario": 4,
+        "sa_T0": 15.296077131917228
+      },
+      {
+        "scenario": 5,
+        "sa_T0": 32.377623006292566
+      }
+    ]
+  },
+  "base_params": {
+    "0": {
+      "customers_per_hour": 20.0,
+      "conversion_rate": 0.3,
+      "rev_per_converting_customer": 31.227493207660604,
+      "rev_per_customer_gross": 32.41713514902115,
+      "rev_std": 11.345997302157402,
+      "impulse_rate": 0.2,
+      "avg_impulse_value": 5.948209706802725,
+      "avg_basket_size": 3.0,
+      "std_basket_size": 1.0,
+      "basket_sizes_observed": {
+        "n": 30,
+        "mean": 3.0,
+        "std": 0.0,
+        "sha256": "11f8bf9dfc27fec904ef369ec4012a6b30c709bf2a18265b8b87989ad921b8c7"
+      },
+      "abandonment_rate": 0.05,
+      "avg_queue_time": 5.0,
+      "score_anchor": {
+        "score": 0.5483146276641082,
+        "breakdown": {
+          "traffic": 0.13657403045264388,
+          "cross_merch": 0.7747060591747816,
+          "impulse": 0.7628226628597699,
+          "flow": 0.6328586486517822,
+          "revenue_placement": 0.024569205239347625,
+          "bottleneck_penalty": 0.0,
+          "section_compliance": 1.0,
+          "accessibility": 0.3817432660894056,
+          "overlap_penalty": 0.0,
+          "composite": 0.5483146276641082
+        },
+        "source": "as_built_repaired"
+      }
+    },
+    "1": {
+      "customers_per_hour": 20.0,
+      "conversion_rate": 0.3,
+      "rev_per_converting_customer": 12.197692486191153,
+      "rev_per_customer_gross": 12.55053590523789,
+      "rev_std": 4.392687566833261,
+      "impulse_rate": 0.2,
+      "avg_impulse_value": 1.7642170952336862,
+      "avg_basket_size": 3.0,
+      "std_basket_size": 1.0,
+      "basket_sizes_observed": {
+        "n": 30,
+        "mean": 3.0,
+        "std": 0.0,
+        "sha256": "11f8bf9dfc27fec904ef369ec4012a6b30c709bf2a18265b8b87989ad921b8c7"
+      },
+      "abandonment_rate": 0.05,
+      "avg_queue_time": 5.0,
+      "score_anchor": {
+        "score": 0.5606876807431711,
+        "breakdown": {
+          "traffic": 0.13657403045264388,
+          "cross_merch": 0.7471168437030794,
+          "impulse": 0.7628226628597699,
+          "flow": 0.6980294313532853,
+          "revenue_placement": 0.06043732914608694,
+          "bottleneck_penalty": 0.0,
+          "section_compliance": 1.0,
+          "accessibility": 0.39727082851981455,
+          "overlap_penalty": 0.0,
+          "composite": 0.5606876807431711
+        },
+        "source": "as_built_repaired"
+      }
+    },
+    "2": {
+      "customers_per_hour": 20.0,
+      "conversion_rate": 0.3,
+      "rev_per_converting_customer": 15.495360918731098,
+      "rev_per_customer_gross": 16.24817623510613,
+      "rev_std": 5.6868616822871445,
+      "impulse_rate": 0.2,
+      "avg_impulse_value": 3.7640765818751594,
+      "avg_basket_size": 3.0,
+      "std_basket_size": 1.0,
+      "basket_sizes_observed": {
+        "n": 30,
+        "mean": 3.0,
+        "std": 0.0,
+        "sha256": "11f8bf9dfc27fec904ef369ec4012a6b30c709bf2a18265b8b87989ad921b8c7"
+      },
+      "abandonment_rate": 0.05,
+      "avg_queue_time": 5.0,
+      "score_anchor": {
+        "score": 0.558417151451206,
+        "breakdown": {
+          "traffic": 0.13657403045264388,
+          "cross_merch": 0.7581652715128147,
+          "impulse": 0.7628226628597699,
+          "flow": 0.6955817422088735,
+          "revenue_placement": 0.03860365404470428,
+          "bottleneck_penalty": 0.0,
+          "section_compliance": 1.0,
+          "accessibility": 0.39343934196492275,
+          "overlap_penalty": 0.0,
+          "composite": 0.558417151451206
+        },
+        "source": "as_built_repaired"
+      }
+    },
+    "3": {
+      "customers_per_hour": 20.0,
+      "conversion_rate": 0.3,
+      "rev_per_converting_customer": 28.208765267023782,
+      "rev_per_customer_gross": 29.40827960899945,
+      "rev_std": 10.292897863149808,
+      "impulse_rate": 0.2,
+      "avg_impulse_value": 5.997571709878332,
+      "avg_basket_size": 3.0,
+      "std_basket_size": 1.0,
+      "basket_sizes_observed": {
+        "n": 30,
+        "mean": 3.0,
+        "std": 0.0,
+        "sha256": "11f8bf9dfc27fec904ef369ec4012a6b30c709bf2a18265b8b87989ad921b8c7"
+      },
+      "abandonment_rate": 0.05,
+      "avg_queue_time": 5.0,
+      "score_anchor": {
+        "score": 0.5410243798532564,
+        "breakdown": {
+          "traffic": 0.13657403045264388,
+          "cross_merch": 0.7483627926933746,
+          "impulse": 0.7628226628597699,
+          "flow": 0.617067314643868,
+          "revenue_placement": 0.02174762119627447,
+          "bottleneck_penalty": 0.0,
+          "section_compliance": 1.0,
+          "accessibility": 0.3793118089476862,
+          "overlap_penalty": 0.0,
+          "composite": 0.5410243798532564
+        },
+        "source": "as_built_repaired"
+      }
+    },
+    "4": {
+      "customers_per_hour": 20.0,
+      "conversion_rate": 0.3,
+      "rev_per_converting_customer": 14.86468342426058,
+      "rev_per_customer_gross": 15.321041893631168,
+      "rev_std": 5.362364662770909,
+      "impulse_rate": 0.2,
+      "avg_impulse_value": 2.281792346852939,
+      "avg_basket_size": 3.0,
+      "std_basket_size": 1.0,
+      "basket_sizes_observed": {
+        "n": 30,
+        "mean": 3.0,
+        "std": 0.0,
+        "sha256": "11f8bf9dfc27fec904ef369ec4012a6b30c709bf2a18265b8b87989ad921b8c7"
+      },
+      "abandonment_rate": 0.05,
+      "avg_queue_time": 5.0,
+      "score_anchor": {
+        "score": 0.5798252733597341,
+        "breakdown": {
+          "traffic": 0.13657403045264388,
+          "cross_merch": 0.8560159027525355,
+          "impulse": 0.7628226628597699,
+          "flow": 0.7044484579013139,
+          "revenue_placement": 0.0659710242626103,
+          "bottleneck_penalty": 0.0,
+          "section_compliance": 1.0,
+          "accessibility": 0.3923035210778589,
+          "overlap_penalty": 0.0,
+          "composite": 0.5798252733597341
+        },
+        "source": "as_built_repaired"
+      }
+    },
+    "5": {
+      "customers_per_hour": 20.0,
+      "conversion_rate": 0.3,
+      "rev_per_converting_customer": 23.874674871693042,
+      "rev_per_customer_gross": 24.70392244063846,
+      "rev_std": 8.646372854223461,
+      "impulse_rate": 0.2,
+      "avg_impulse_value": 4.146237844727098,
+      "avg_basket_size": 3.0,
+      "std_basket_size": 1.0,
+      "basket_sizes_observed": {
+        "n": 30,
+        "mean": 3.0,
+        "std": 0.0,
+        "sha256": "11f8bf9dfc27fec904ef369ec4012a6b30c709bf2a18265b8b87989ad921b8c7"
+      },
+      "abandonment_rate": 0.05,
+      "avg_queue_time": 5.0,
+      "score_anchor": {
+        "score": 0.5253314361332878,
+        "breakdown": {
+          "traffic": 0.13657403045264388,
+          "cross_merch": 0.6264161230434341,
+          "impulse": 0.7628226628597699,
+          "flow": 0.6259340303363083,
+          "revenue_placement": 0.03179325915181659,
+          "bottleneck_penalty": 0.0,
+          "section_compliance": 1.0,
+          "accessibility": 0.39912547995630465,
+          "overlap_penalty": 0.0,
+          "composite": 0.5253314361332878
+        },
+        "source": "as_built_repaired"
+      }
+    }
+  },
+  "summary": {
+    "mc_regret_median_pct": 0.2203704905885262,
+    "mc_regret_mean_pct": 0.2195157342848436,
+    "mc_regret_max_pct": 0.42506450493554354,
+    "mc_regret_min_pct": 0.020376917861347165,
+    "n_negative_regret": 0,
+    "n_best_known_is_ga_normal": 0,
+    "n_scenarios": 6,
+    "normal_budget": 750,
+    "big_budget": 7500,
+    "mc_iters": 1000,
+    "search_start": {
+      "random_search_big": "asbuilt",
+      "simulated_annealing_big": "asbuilt",
+      "GA_big": "asbuilt",
+      "GA_normal": "asbuilt",
+      "simulated_annealing_big_popstart": "popularity"
+    },
+    "closed_form": {
+      "regret_pct": {
+        "median": 0.22021673431492644,
+        "mean": 0.21945613810200557,
+        "max": 0.42511806788426293,
+        "min": 0.020372694381647127,
+        "per_scenario": [
+          0.020372694381647127,
+          0.03031278397354245,
+          0.400499813742728,
+          0.3056117925004121,
+          0.1348216761294408,
+          0.42511806788426293
+        ]
+      },
+      "regret_vs_cf_best_pct": {
+        "median": 0.22021673431492644,
+        "max": 0.42511806788426293,
+        "per_scenario": [
+          0.020372694381647127,
+          0.03031278397354245,
+          0.400499813742728,
+          0.3056117925004121,
+          0.1348216761294408,
+          0.42511806788426293
+        ]
+      },
+      "mc_regret_se_pct": [
+        0.000220200763427091,
+        0.00025737859870282294,
+        0.0008238327118239141,
+        0.0006125264839559981,
+        0.00048023171001624883,
+        0.0009333352578107373
+      ],
+      "n_reference_is_cf_best": 6,
+      "tolerance_pct": 0.0010927581939722468,
+      "conclusions_unchanged": {
+        "median_within_tolerance": true,
+        "max_within_tolerance": true,
+        "cf_best_regret_within_tolerance": true
+      },
+      "all_unchanged": true
+    },
+    "repair_stats": {
+      "calls": 171996,
+      "aisle_clip_calls": 0,
+      "aisle_clip_items": 0,
+      "aisle_clip_max_m": 0.0,
+      "snap_zones": 12807,
+      "reach_single_file": 0,
+      "reach_as_built_zone": 0,
+      "reach_as_built_store": 0
+    },
+    "layouts_path": "layouts.json",
+    "traces_path": "traces.json"
+  }
+}

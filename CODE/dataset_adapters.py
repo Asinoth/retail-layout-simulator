@@ -229,10 +229,145 @@ _UCI_NONPRODUCT_DESC_RE = re.compile(
 )
 
 
+#: Customer-id cells that mean 'no customer': ``astype(str)`` turns a
+#: missing Online Retail II Customer ID into 'nan'. The calibration reads
+#: the same set (``dataset_calibration.ANONYMOUS_CUSTOMER_IDS``).
+ANONYMOUS_CUSTOMER_IDS = frozenset({"", "nan", "none", "na", "<na>"})
+
+
+def anonymous_customer_mask(customer_ids: pd.Series) -> pd.Series:
+    """True where a customer-id cell names no customer (missing, blank, or
+    one of ``ANONYMOUS_CUSTOMER_IDS`` after trimming and lower-casing)."""
+    text = customer_ids.astype(str).str.strip().str.lower()
+    return customer_ids.isna() | text.isin(ANONYMOUS_CUSTOMER_IDS)
+
+
+def match_reversal_pairs(frame: pd.DataFrame,
+                         is_cancel: pd.Series) -> Tuple[np.ndarray, Dict[str, int]]:
+    """Purchase lines that a cancellation line reverses.
+
+    A cancellation line (``is_cancel``: an invoice number starting with 'C'
+    on Online Retail II, negative quantity) reverses a purchase line of the
+    SAME customer and the SAME stock code with the opposite quantity, dated
+    no later than the cancellation (timestamps have one-minute resolution,
+    so a same-minute reversal counts). Lines are paired one to one: each
+    cancellation, taken in time order, takes the most recent purchase line
+    of its (customer, stock code, quantity) not already taken -- the order
+    it most plausibly cancels. A cancellation without a customer id cannot
+    be tied to a purchase and is matched to none; neither is one whose
+    purchase predates the data (no earlier line to pair with).
+
+    Dropping only the cancellation lines, as the adapter did before, kept
+    the purchases they reverse in the calibration, among them Online Retail
+    II's two bulk entry errors (invoices 581483 and 541431, 80,995 and
+    74,215 units, each reversed soon after). On the 2010-2011 sheet the
+    pairs take the per-invoice revenue SD from 1,764 to 1,133 GBP and its
+    coefficient of variation from 3.4 to 2.3. Partial cancellations (a
+    quantity that matches no single purchase line) are not netted: they
+    are dropped as before, and counted.
+
+    ``frame`` needs ``product_id``, ``quantity``, ``timestamp`` and
+    ``customer_id`` (optional: without it nothing can be matched). Returns
+    ``(reversed_mask, counts)``: a boolean array over ``frame``'s rows,
+    True on each purchase line a cancellation reverses, and the counts
+    ``cancellation_lines``, ``reversal_pairs``,
+    ``cancellation_lines_anonymous`` and ``cancellation_lines_unmatched``.
+    """
+    n = len(frame)
+    cancel = np.asarray(is_cancel, dtype=bool)
+    counts = {'cancellation_lines': int(cancel.sum()), 'reversal_pairs': 0,
+              'cancellation_lines_anonymous': 0,
+              'cancellation_lines_unmatched': 0}
+    reversed_mask = np.zeros(n, dtype=bool)
+    if not cancel.any():
+        return reversed_mask, counts
+    if 'customer_id' not in frame.columns:
+        counts['cancellation_lines_anonymous'] = counts['cancellation_lines']
+        return reversed_mask, counts
+
+    anon = anonymous_customer_mask(frame['customer_id']).to_numpy()
+    qty = pd.to_numeric(frame['quantity'], errors='coerce').to_numpy(
+        dtype=np.float64)
+    ts = pd.to_datetime(frame['timestamp'], errors='coerce')
+    valid = (np.isfinite(qty) & ts.notna().to_numpy()
+             & frame['product_id'].notna().to_numpy())
+    counts['cancellation_lines_anonymous'] = int((cancel & anon).sum())
+    canc_rows = np.flatnonzero(cancel & ~anon & valid & (qty < 0))
+    orig_rows = np.flatnonzero(~cancel & ~anon & valid & (qty > 0))
+
+    def keys(rows):
+        return pd.DataFrame({
+            'cust': frame['customer_id'].to_numpy()[rows].astype(str),
+            'pid': frame['product_id'].to_numpy()[rows].astype(str),
+            'qty': np.abs(qty[rows]),
+            'row': rows})
+
+    ck, ok = keys(canc_rows), keys(orig_rows)
+    # Only purchases that share a key with some cancellation can be paired.
+    ok = ok.merge(ck[['cust', 'pid', 'qty']].drop_duplicates(),
+                  on=['cust', 'pid', 'qty'], how='inner')
+    ck['kind'], ok['kind'] = 1, 0          # purchases first on a time tie
+    ev = pd.concat([ok, ck], ignore_index=True)
+    ev['t'] = ts.to_numpy()[ev['row'].to_numpy()]
+    ev = ev.sort_values(['cust', 'pid', 'qty', 't', 'kind', 'row'],
+                        kind='mergesort')
+    group = ev.groupby(['cust', 'pid', 'qty'], sort=False).ngroup().to_numpy()
+    kinds = ev['kind'].to_numpy()
+    rows = ev['row'].to_numpy()
+    matched = 0
+    stack: List[int] = []
+    prev = -1
+    for g, kind, row in zip(group, kinds, rows):
+        if g != prev:
+            stack = []
+            prev = g
+        if kind == 0:
+            stack.append(int(row))
+        elif stack:
+            reversed_mask[stack.pop()] = True
+            matched += 1
+    counts['reversal_pairs'] = matched
+    counts['cancellation_lines_unmatched'] = (
+        counts['cancellation_lines'] - counts['cancellation_lines_anonymous']
+        - matched)
+    return reversed_mask, counts
+
+
 class OnlineRetailIIAdapter(BaseTransactionalAdapter):
     name = "uci_online_retail_ii"
-    version = "1.1"
+    # 1.2: a cancellation now takes the purchase line it reverses with it
+    # (``match_reversal_pairs``); 1.1 dropped the cancellation lines only.
+    version = "1.2"
     CAN_HANDLE_HINTS = ["online_retail", "online retail", "onlineretail", "retail_ii"]
+
+    #: Column-name patterns of the invoice timestamp (``adapt``,
+    #: ``raw_timestamps``).
+    DATE_COLS = ["invoicedate", "invoice_date", "date"]
+
+    def __init__(self, match_reversals: bool = True):
+        """``match_reversals=False`` reproduces adapter 1.1's cleaning:
+        the cancellation lines go, the purchases they reverse stay. It is
+        there only to measure what results made under 1.1 carried
+        (``run_input_uncertainty``'s ``legacy_floor_bias``); the report's
+        ``cleaning['reversal_matching']`` records which rule ran."""
+        self.match_reversals = bool(match_reversals)
+
+    @classmethod
+    def raw_timestamps(cls, df: pd.DataFrame) -> pd.Series:
+        """The raw frame's invoice timestamps, found and parsed as ``adapt``
+        finds and parses them (unparseable cells are NaT).
+
+        For a caller that must cut the RAW rows to a calendar window before
+        cleaning: reversal pairing (``match_reversal_pairs``) looks forward
+        in time, so a cancellation dated after a window's end would
+        otherwise remove a purchase inside the window. Online Retail II
+        gives every line of an invoice the invoice's timestamp, so a cut on
+        these rows is also a cut on whole invoices."""
+        col = _find_col(df, cls.DATE_COLS)
+        if col is None:
+            raise ValueError("no invoice-date column among "
+                             f"{list(map(str, df.columns))}")
+        return pd.to_datetime(df[col], errors="coerce")
 
     UCI_KEYWORDS_TO_CATEGORY = {
         # Crude keyword map -- keeps a flat dataset usable without an
@@ -346,7 +481,7 @@ class OnlineRetailIIAdapter(BaseTransactionalAdapter):
         col_stock = _find_col(df, ["stockcode", "stock_code", "sku"])
         col_desc = _find_col(df, ["description", "product_name", "name"])
         col_qty = _find_col(df, ["quantity", "qty"])
-        col_date = _find_col(df, ["invoicedate", "invoice_date", "date"])
+        col_date = _find_col(df, self.DATE_COLS)
         col_price = _find_col(df, ["unitprice", "unit_price", "price"])
         col_cust = _find_col(df, ["customerid", "customer_id", "customer id"])
         col_country = _find_col(df, ["country"])
@@ -397,13 +532,41 @@ class OnlineRetailIIAdapter(BaseTransactionalAdapter):
                 f"top: {df[col_country].value_counts().head(3).to_dict()}"
             )
 
-        # Drop returns (UCI uses 'C' prefix on InvoiceNo for cancellations)
+        # Cancellations (UCI prefixes their invoice numbers with 'C') go,
+        # and so does each purchase line a cancellation reverses: keeping
+        # the purchase would count an order the customer took back
+        # (``match_reversal_pairs``). The counts go into the report's
+        # ``extra['cleaning']``, which the runners stamp into provenance.
         returns = out["invoice_id"].str.upper().str.startswith("C", na=False)
-        n_returns = int(returns.sum())
-        if n_returns:
-            out = out[~returns]
-            report.info.append(f"Dropped {n_returns:,} cancellation rows "
-                               f"(InvoiceNo starts with 'C').")
+        if self.match_reversals:
+            reversed_lines, cleaning = match_reversal_pairs(out, returns)
+        else:
+            reversed_lines = np.zeros(len(out), dtype=bool)
+            cleaning = {'cancellation_lines': int(returns.sum()),
+                        'reversal_pairs': 0,
+                        'cancellation_lines_anonymous': 0,
+                        'cancellation_lines_unmatched': int(returns.sum())}
+        cleaning['reversal_matching'] = self.match_reversals
+        rev_rows = out[reversed_lines]
+        cleaning['reversed_purchase_lines_removed'] = int(reversed_lines.sum())
+        cleaning['reversed_units_removed'] = float(
+            pd.to_numeric(rev_rows["quantity"], errors="coerce").sum())
+        cleaning['reversed_revenue_removed'] = float(
+            (pd.to_numeric(rev_rows["quantity"], errors="coerce")
+             * pd.to_numeric(rev_rows["unit_price"], errors="coerce")).sum())
+        drop = returns.to_numpy() | reversed_lines
+        if drop.any():
+            out = out[~drop]
+            report.info.append(
+                f"Dropped {cleaning['cancellation_lines']:,} cancellation "
+                f"rows (InvoiceNo starts with 'C') and the "
+                f"{cleaning['reversal_pairs']:,} purchase rows they reverse "
+                f"(same customer, stock code and quantity, dated no later); "
+                f"{cleaning['cancellation_lines_anonymous']:,} cancellations "
+                f"carry no customer id and "
+                f"{cleaning['cancellation_lines_unmatched']:,} match no "
+                f"earlier purchase, so only the cancellation row goes.")
+        report.extra["cleaning"] = cleaning
 
         # Drop non-merchandise stock codes (postage/fees/adjustments/
         # vouchers/tests) so baskets, revenue, and categories reflect actual

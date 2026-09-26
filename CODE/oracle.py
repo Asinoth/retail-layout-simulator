@@ -1,21 +1,33 @@
-"""Analytical optimum for a SyntheticShop.
+"""Analytical reference solution for a SyntheticShop.
 
 Works strictly off the closed-form revenue model in
-synthetic_shops.analytical_revenue. The GA's simulator-backed fitness
-(viz_ga._ga_compute_layout_score) is structurally independent -- agent
-paths, heatmap, queue, abandonment -- so any ranking agreement between
-the two is informative rather than circular.
+synthetic_shops.analytical_revenue. The GA's fitness is a different
+function of the layout: ``viz_ga._ga_compute_layout_score`` scores the
+layout against a painted cold-start heat map (the synthetic prior of
+``experiments._common.paint_synthetic_heatmap``), co-purchase distances,
+an entrance-to-checkout waypoint path and the checkout's distance, and the
+Monte Carlo engine turns that score into revenue. No agent walks and no
+live queue forms in either; the two share the literature directions and the
+physical validity rule (no overlap), not a functional form. Any ranking
+agreement between them is therefore informative rather than circular.
 
 The anti-circularity guarantee is the whole point: this module imports
 neither viz_ga nor viz_optimize nor simulation; its only project
-dependency is synthetic_shops. Enforced by test_oracle_anti_circularity().
+dependency is synthetic_shops. ``tests/test_oracle.py`` checks it in a
+fresh interpreter, where no other test can have imported them first.
+
+The code and the shipped CSVs keep the historical name ``oracle``; the
+paper calls the result the analytical reference solution. It is the best
+of a multi-start local search, not a certified global optimum:
+``OracleResult.best_curve`` records how the best value grew with the
+number of restarts, so a reader can see whether it had stopped growing.
 """
 
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass
-from typing import Dict, List, Tuple
+from dataclasses import dataclass, field
+from typing import Dict, List, Optional, Tuple
 
 import numpy as np
 from scipy.optimize import minimize
@@ -30,12 +42,27 @@ from synthetic_shops import (
 
 @dataclass
 class OracleResult:
+    """``layout`` and its ``true_revenue`` (analytical, after contact
+    separation); ``converged`` is True when some restart reported success
+    and the layout has no residual overlap. ``n_restarts`` starts were
+    tried, ``n_failed`` of them failed (``failures``: ``(restart, reason)``);
+    ``restart_values`` holds each restart's solver value (None for a
+    failed one) and ``best_curve[k]`` the best of the first k + 1."""
     layout: Dict[str, Tuple[float, float]]
     true_revenue: float
     converged: bool
     n_iter: int
     method: str
     note: str = ""
+    n_restarts: int = 0
+    n_failed: int = 0
+    failures: List[Tuple[int, str]] = field(default_factory=list)
+    restart_values: List[Optional[float]] = field(default_factory=list)
+    best_curve: List[Optional[float]] = field(default_factory=list)
+
+
+class OracleFailure(RuntimeError):
+    """Every restart of the analytical reference failed."""
 
 
 def _layout_to_vec(layout: Dict[str, Tuple[float, float]],
@@ -188,23 +215,31 @@ def solve_oracle(shop: SyntheticShop,
                  method: str = "L-BFGS-B") -> OracleResult:
     """Solve max R(layout) over per-item-section bounds.
 
-    Uses multi-start L-BFGS-B (analytic gradient via finite differences;
-    the objective is smooth in positions). Initial points: the grid
-    layout + (n_restarts - 1) random perturbations within bounds.
+    Uses multi-start L-BFGS-B (gradient by finite differences). Initial
+    points: the grid layout + (n_restarts - 1) uniform draws within the
+    bounds, from a generator seeded by the shop's own seed.
 
-    Why L-BFGS-B: bounds-constrained, gradient-aware, handles ~20-D
-    smoothly. SLSQP would be equivalent but L-BFGS-B has better
-    convergence behavior on this objective family. We avoid global
-    methods (basin-hopping, differential evolution) because the
-    objective is smooth and the multi-start is sufficient.
+    The objective is piecewise smooth, not smooth: ``analytical_revenue``
+    has kinks where an item's nearest wall changes (the min in d_wall),
+    where the perimeter term is floored at zero, where an item's revenue is
+    floored at zero, at the entrance, checkout and partner-item centres
+    (the Euclidean distances), and where two items start to overlap (the
+    area penalty). L-BFGS-B converges to a local optimum of each smooth
+    piece it lands in, which is why the search restarts from many points;
+    ``best_curve`` shows how the best value grew with the restarts.
 
     Non-overlap is NOT a constraint in the optimization: items are
     confined to their own section walls (no overlap possible across
-    sections), and within-section grid layouts rarely require
-    overlap-avoidance for n_per_section <= 4 (the synthetic shop's
-    design). If the optimum places items on top of each other within a
-    section, that's a real result the GA must also avoid -- and the GA's
-    fitness function does explicitly penalize within-section overlap.
+    sections), and within-section overlap is priced by the area penalty
+    of ``analytical_revenue``. If the optimum places items on top of each
+    other within a section, that's a real result the GA must also avoid --
+    and the GA's fitness function does explicitly penalize within-section
+    overlap.
+
+    A restart whose solver raises, or returns a non-finite value, is
+    recorded in ``failures`` with its reason rather than skipped silently;
+    ``OracleFailure`` is raised when every restart fails, instead of
+    handing back a fallback layout as if it were a solution.
 
     The best vector is then cleared of contact residue by
     ``_separate_contacts`` (the solver leaves flush neighbours overlapping
@@ -214,6 +249,8 @@ def solve_oracle(shop: SyntheticShop,
     reported as not converged, with the offending pairs in ``note``, rather
     than handed on as a clean reference solution.
     """
+    if n_restarts < 1:
+        raise ValueError("n_restarts must be >= 1")
     ordered_names = [it.name for it in shop.items]
     bounds = _bounds_for(shop, ordered_names)
     bounds_arr = np.asarray(bounds, dtype=np.float64)
@@ -235,29 +272,35 @@ def solve_oracle(shop: SyntheticShop,
 
     total_iter = 0
     converged_any = False
-    for x0 in starts:
+    failures: List[Tuple[int, str]] = []
+    values: List[Optional[float]] = []
+    curve: List[Optional[float]] = []
+    for k, x0 in enumerate(starts):
         try:
             res = minimize(neg_R, x0, method=method, bounds=bounds)
-        except Exception:
+        except Exception as exc:          # recorded, never swallowed
+            failures.append((k, f"{type(exc).__name__}: {exc}"))
+            values.append(None)
+            curve.append(None if best_vec is None else best_val)
             continue
         total_iter += int(getattr(res, "nit", 0))
         if not np.isfinite(res.fun):
+            failures.append((k, f"non-finite objective {res.fun!r}"))
+            values.append(None)
+            curve.append(None if best_vec is None else best_val)
             continue
+        values.append(float(-res.fun))
         if -res.fun > best_val:
             best_val = float(-res.fun)
             best_vec = res.x
             converged_any = converged_any or bool(res.success)
+        curve.append(best_val)
 
     if best_vec is None:
-        # Pathological: fall back to grid layout. Should not happen on
-        # well-formed synthetic shops.
-        layout = grid_layout_within_sections(shop)
-        return OracleResult(
-            layout=layout,
-            true_revenue=analytical_revenue(shop, layout),
-            converged=False, n_iter=0, method=method,
-            note="all restarts failed; falling back to grid layout",
-        )
+        raise OracleFailure(
+            f"all {len(starts)} restarts of the analytical reference failed "
+            f"on {shop.name}: " + '; '.join(f"#{k}: {r}"
+                                           for k, r in failures[:5]))
 
     sep_vec = _separate_contacts(shop, ordered_names, best_vec, bounds_arr)
     layout = _vec_to_layout(sep_vec, ordered_names)
@@ -275,19 +318,12 @@ def solve_oracle(shop: SyntheticShop,
         n_iter=total_iter,
         method=method,
         note=note,
+        n_restarts=len(starts),
+        n_failed=len(failures),
+        failures=failures,
+        restart_values=values,
+        best_curve=curve,
     )
-
-
-def test_oracle_anti_circularity() -> bool:
-    """Sanity check: this module must not transitively import the
-    simulator or GA. Raises AssertionError on violation."""
-    import sys
-    banned = {"viz_ga", "viz_ga_run", "viz_optimize", "viz_optimize_helpers",
-              "viz_optimize_results", "simulation", "customer",
-              "customer_pathfinding"}
-    leaked = banned & set(sys.modules)
-    assert not leaked, f"oracle.py transitively imports simulator: {leaked}"
-    return True
 
 
 if __name__ == "__main__":
@@ -325,5 +361,4 @@ if __name__ == "__main__":
             print(f"  Impulse mean dist to checkout: "
                   f"grid={grid_dist:.2f}m -> oracle={orac_dist:.2f}m "
                   f"({(orac_dist - grid_dist) / max(grid_dist, 1e-6) * 100:+.1f}%)")
-    test_oracle_anti_circularity()
-    print("\nAnti-circularity check passed (oracle does not import simulator).")
+    print("\nThe anti-circularity check runs in tests/test_oracle.py.")

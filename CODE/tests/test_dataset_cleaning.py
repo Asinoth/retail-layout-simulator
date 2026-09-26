@@ -147,3 +147,153 @@ def test_read_excel_sheets_matches_codes_parsed_as_numbers(tmp_path):
     out, _ = read_excel_sheets(str(path), ['S1', 'S2'])
     assert len(out) == 3
     assert sorted(out['StockCode'].astype(str)) == ['22087', '85048', '85123A']
+
+
+# --- reversal pairs and anonymous invoices (review R27) --------------------
+
+def _reversal_rows():
+    """Purchases and cancellations exercising each matching rule."""
+    return [
+        # Customer 1 buys 12 of A twice and cancels one order of 12: only
+        # the more recent purchase before the cancellation goes.
+        ['600001', 'A1', 'ALPHA MUG', 12, '2011-01-03 09:00', 2.0, 1, 'UK'],
+        ['600002', 'A1', 'ALPHA MUG', 12, '2011-01-04 09:00', 2.0, 1, 'UK'],
+        ['C600003', 'A1', 'ALPHA MUG', -12, '2011-01-05 09:00', 2.0, 1, 'UK'],
+        ['600009', 'A1', 'ALPHA MUG', 12, '2011-01-06 09:00', 2.0, 1, 'UK'],
+        # Customer 2: a cancellation dated before the purchase and a
+        # partial cancellation (-2 of 6) match nothing.
+        ['600004', 'B2', 'BETA CARD', 6, '2011-01-03 10:00', 1.0, 2, 'UK'],
+        ['C600005', 'B2', 'BETA CARD', -6, '2011-01-02 10:00', 1.0, 2, 'UK'],
+        ['C600006', 'B2', 'BETA CARD', -2, '2011-01-04 10:00', 1.0, 2, 'UK'],
+        # Another customer's cancellation does not touch customer 2's line;
+        # a same-minute cancellation matches.
+        ['C600007', 'B2', 'BETA CARD', -6, '2011-01-04 11:00', 1.0, 3, 'UK'],
+        ['600010', 'D4', 'DELTA BAG', 80995, '2011-01-07 09:15', 2.08, 3, 'UK'],
+        ['C600011', 'D4', 'DELTA BAG', -80995, '2011-01-07 09:15', 2.08, 3, 'UK'],
+        # An anonymous cancellation cannot be tied to a purchase.
+        ['600012', 'E5', 'EPSILON TIN', 3, '2011-01-08 09:00', 4.0, np.nan, 'UK'],
+        ['C600013', 'E5', 'EPSILON TIN', -3, '2011-01-08 09:30', 4.0, np.nan, 'UK'],
+    ]
+
+
+def test_cancellations_take_the_purchases_they_reverse():
+    norm, report = OnlineRetailIIAdapter().adapt(_raw(_reversal_rows()))
+    kept = set(zip(norm['invoice_id'], norm['product_id']))
+    # Removed: the most recent earlier order of 12 (not the first, not the
+    # later one) and the same-minute bulk line.
+    assert ('600002', 'A1') not in kept and ('600010', 'D4') not in kept
+    assert {('600001', 'A1'), ('600009', 'A1')} <= kept
+    # Kept: a line only partially cancelled, cancelled before it was
+    # bought, or cancelled by someone else; an anonymous purchase.
+    assert ('600004', 'B2') in kept and ('600012', 'E5') in kept
+    assert not norm['invoice_id'].str.startswith('C').any()
+    c = report.extra['cleaning']
+    assert c['cancellation_lines'] == 6
+    assert c['reversal_pairs'] == c['reversed_purchase_lines_removed'] == 2
+    assert c['cancellation_lines_anonymous'] == 1
+    assert c['cancellation_lines_unmatched'] == 3
+    assert c['reversed_units_removed'] == 12 + 80995
+    assert c['reversed_revenue_removed'] == pytest.approx(24.0 + 80995 * 2.08)
+    assert OnlineRetailIIAdapter.version == '1.2'
+
+
+def test_reversal_matching_needs_a_customer_column():
+    rows = [r[:6] for r in _reversal_rows()]
+    df = pd.DataFrame(rows, columns=_COLS[:6])
+    norm, report = OnlineRetailIIAdapter().adapt(df)
+    c = report.extra['cleaning']
+    assert c['reversal_pairs'] == 0
+    assert c['cancellation_lines_anonymous'] == c['cancellation_lines'] == 6
+    assert ('600002', 'A1') in set(zip(norm['invoice_id'], norm['product_id']))
+
+
+def _anon_rows():
+    rows = _base_rows()                       # identified, 6 invoices
+    for i in range(3):                        # anonymous, larger baskets
+        for code, desc, price in (('85123A', 'WHITE HANGING HEART', 2.55),
+                                  ('22423', 'REGENCY CAKESTAND', 12.75),
+                                  ('21212', 'PACK OF CAKE CASES', 0.55)):
+            rows.append([f'537{i:03d}', code, desc, 4,
+                         f'2010-12-02 10:{10 + i}', price, np.nan, 'UK'])
+    return rows
+
+
+def test_anonymous_invoices_are_flagged_and_disclosed():
+    from dataset_calibration import anonymous_placed_shares
+    norm, _ = OnlineRetailIIAdapter().adapt(_raw(_anon_rows()))
+    params = calibrate_transactional(norm, currency='GBP')
+    assert params.customer_id_available
+    assert params.n_anonymous_invoices == 3
+    assert params.anonymous_invoice_frac == pytest.approx(3 / 9)
+    assert params.invoice_anonymous.size == params.basket_distinct_sizes.size
+    # The flag lines up with the per-invoice samples: anonymous invoices
+    # are the three-product ones.
+    assert (params.basket_distinct_sizes[params.invoice_anonymous] == 3).all()
+    assert (params.basket_distinct_sizes[~params.invoice_anonymous] == 2).all()
+    line = norm['quantity'] * norm['unit_price']
+    anon = norm['customer_id'].astype(str) == 'nan'
+    assert params.anonymous_revenue_frac == pytest.approx(
+        line[anon].sum() / line.sum())
+    assert params.calibration_extra['anonymous_invoices'] == 'included'
+
+    shares = anonymous_placed_shares(params, ['85123A', '21212'])
+    assert shares['n_with_placed'] == 9
+    assert shares['n_anonymous_with_placed'] == 3
+    assert shares['invoice_share'] == pytest.approx(3 / 9)
+    # Stocked purchases: 2 per anonymous invoice, 1 per identified one.
+    assert shares['purchase_share'] == pytest.approx(6 / 12)
+    assert shares['mean_size_anonymous'] == 2.0
+    assert shares['mean_size_identified'] == 1.0
+
+
+def test_seeding_with_the_shop_records_the_anonymous_list_shares():
+    from experiments._common import build_headless_shop_from_calibration
+    norm, _ = OnlineRetailIIAdapter().adapt(_raw(_anon_rows()))
+    params = calibrate_transactional(norm, currency='GBP')
+    shop = build_headless_shop_from_calibration(params, naive=True)
+    cal = shop.customer_simulation.analytics['calibration']
+    assert cal['n_invoices_with_placed'] == 9
+    assert cal['anonymous_list_share'] == pytest.approx(3 / 9)
+    # Items on the stored lists: 3 per anonymous invoice, 2 per identified.
+    assert cal['anonymous_list_item_share'] == pytest.approx(9 / 21)
+
+
+def test_calibration_without_anonymous_invoices():
+    norm, _ = OnlineRetailIIAdapter().adapt(_raw(_anon_rows()))
+    full = calibrate_transactional(norm, currency='GBP')
+    ident = calibrate_transactional(norm, currency='GBP',
+                                    exclude_anonymous=True)
+    assert ident.n_invoices == full.n_invoices - 3
+    assert ident.n_anonymous_invoices == 0
+    assert not ident.invoice_anonymous.any()
+    assert '21212' not in ident.item_visit_counts
+    extra = ident.calibration_extra
+    assert extra['anonymous_invoices'] == 'excluded'
+    assert extra['n_anonymous_invoices_excluded'] == 3
+    assert extra['n_anonymous_rows_excluded'] == 9
+    assert ident.n_unique_customers == full.n_unique_customers
+    # No customer column: anonymity is unknown, and cannot be excluded.
+    bare = norm.drop(columns=['customer_id'])
+    unknown = calibrate_transactional(bare, currency='GBP')
+    assert not unknown.customer_id_available
+    assert unknown.calibration_extra['anonymous_invoices'] == 'unknown'
+    with pytest.raises(ValueError):
+        calibrate_transactional(bare, currency='GBP', exclude_anonymous=True)
+
+
+def test_legacy_cleaning_keeps_the_reversed_purchases():
+    """``match_reversals=False`` is adapter 1.1's rule, kept only to
+    measure what results made under it carried: the cancellation lines
+    go, the purchases they reverse stay, and the report says so."""
+    new, rep_new = OnlineRetailIIAdapter().adapt(_raw(_reversal_rows()))
+    old, rep_old = OnlineRetailIIAdapter(match_reversals=False).adapt(
+        _raw(_reversal_rows()))
+    assert rep_new.extra['cleaning']['reversal_matching'] is True
+    c = rep_old.extra['cleaning']
+    assert c['reversal_matching'] is False
+    assert c['reversal_pairs'] == c['reversed_purchase_lines_removed'] == 0
+    assert c['cancellation_lines'] == 6
+    assert len(old) == len(new) + 2
+    kept = set(zip(old['invoice_id'], old['product_id']))
+    assert {('600002', 'A1'), ('600010', 'D4')} <= kept
+    assert not old['invoice_id'].str.startswith('C').any()

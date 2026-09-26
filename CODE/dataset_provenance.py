@@ -66,6 +66,15 @@ def _sha256_path(path: str) -> tuple:
     return h.hexdigest(), total
 
 
+def source_digest(path: str) -> Dict[str, Any]:
+    """``{'source_sha256', 'source_bytes'}`` of a file or directory source,
+    hashed as ``stamp`` hashes it -- for records that describe the source
+    without a whole ``ProvenanceRecord`` (the live runners' period
+    record), under the same field names."""
+    sha, nbytes = _sha256_path(path)
+    return {'source_sha256': sha, 'source_bytes': int(nbytes)}
+
+
 def _pkg_versions() -> Dict[str, str]:
     """Resolved numerics-stack versions (audit R5.1): stamped into every
     provenance record so a reviewer can confirm the exact computation

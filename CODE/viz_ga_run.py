@@ -47,83 +47,37 @@ class GARunMixin:
     """Genetic-algorithm fitness, mutation, repair, run loop, results, apply."""
 
     def _ga_fitness(self, chromosome, item_names, base_params, mc_days, mc_iters):
-        # Elasticities cited from retail_literature.py (Hui 2009 /
-        # Hui Inman 2013); midpoint of the literature band when no SA
-        # weight is available in this context. Matches the formulation
-        # used in viz_optimize.py and viz_whatif.py.
-        from retail_literature import (
-            ELASTICITY_CONV_BASE as _ECB,
-            ELASTICITY_CONV_GAIN_MAX as _ECG,
-            ELASTICITY_IMP_BASE  as _EIB,
-            ELASTICITY_IMP_GAIN_MAX  as _EIG,
-            ELASTICITY_BSK_BASE  as _EBB,
-            ELASTICITY_BSK_GAIN_MAX  as _EBG,
-            ABANDON_FLOW_COEF, ABANDON_SECTION_COEF,
-            ABANDON_BOTTLENECK_COEF, ABANDON_FLOOR_FRAC,
-            DEFAULT_WEEKEND_MULTIPLIER,
-        )
-        _conv_e = _ECB + 0.5 * _ECG    # ~0.35 at midpoint
-        _imp_e  = _EIB + 0.5 * _EIG    # ~0.50 at midpoint
-        _bsk_e  = _EBB + 0.5 * _EBG    # ~0.20 at midpoint
+        """Monte Carlo mean revenue of one layout over ``mc_days``.
+
+        The layout score goes through ``layout_objective.layout_drivers``
+        -- the one score-to-driver transform, at the midpoint of each cited
+        elasticity band (retail_literature) and anchored at
+        ``base_params['score_anchor']`` -- and the drivers through
+        ``mc_engine``. The Optimize pipeline and the What-If tab use the
+        same transform at the same elasticities
+        (``viz_optimize._opt_layout_drivers``), and
+        ``experiments.closed_form`` gives this function's exact
+        expectation."""
+        from layout_objective import layout_drivers, layout_mc_kwargs
 
         score, breakdown = self._ga_compute_layout_score(chromosome, item_names, base_params)
-
-        conv_adj = base_params['conversion_rate'] * (1.0 + score * _conv_e)
-        conv_adj = min(max(conv_adj, 0.01), 0.99)
-
-        imp_adj = base_params['impulse_rate'] * (1.0 + breakdown['impulse'] * _imp_e)
-        imp_adj = min(max(imp_adj, 0.0), 0.99)
-
-        bsk_adj = base_params['avg_basket_size'] * (1.0 + score * _bsk_e)
-
-        abandon_base = base_params.get('abandonment_rate', 0.0)
-        abandon_adj = abandon_base * max(ABANDON_FLOOR_FRAC,
-            1.0 - breakdown.get('flow', 0) * ABANDON_FLOW_COEF
-                - breakdown.get('section_compliance', 0) * ABANDON_SECTION_COEF
-                + breakdown.get('bottleneck_penalty', 0) * ABANDON_BOTTLENECK_COEF)
-        abandon_adj = min(max(abandon_adj, 0.0), 0.5)
-
-        queue_base = base_params.get('avg_queue_time', 5.0)
-        queue_factor = 1.0 + breakdown.get('bottleneck_penalty', 0) * 0.3
-        queue_adj = queue_base * queue_factor
-
-        # Abandonment enters as a RELATIVE factor vs. the baseline rate:
-        # the calibrated conversion is already net of baseline abandonment
-        # (completed/total), so multiplying by (1 - abandon_adj) alone
-        # double-counted it (audit #2). Normalizing by (1 - abandon_base)
-        # makes the factor 1.0 for a layout at baseline abandonment and
-        # (de)flates conversion only by the layout-induced CHANGE.
-        conv_after_abandon = conv_adj * (1.0 - abandon_adj) \
-            / max(1.0 - min(abandon_base, 0.95), 1e-6)
-        conv_after_abandon = min(max(conv_after_abandon, 0.01), 0.99)
-
-        queue_penalty = 1.0
-        if queue_adj > 0:
-            queue_penalty = max(0.85, 1.0 - (queue_adj - queue_base) / max(queue_base, 1e-6) * 0.15)
-
-        # Basket-size lift enters multiplicatively on the (net) base
-        # revenue -- more items at the same average item price means
-        # proportionally higher spend (audit #4: previously the basket
-        # elasticity had no revenue effect at all on this path).
-        bsk_base = max(base_params['avg_basket_size'], 1e-9)
-        rev_adj = (base_params['rev_per_converting_customer']
-                   * (bsk_adj / bsk_base) * queue_penalty)
-        res = self._mc_engine(
-            cph=base_params['customers_per_hour'],
-            conv=conv_after_abandon,
-            rev_mean=rev_adj,
-            rev_std=base_params['rev_std'],
-            imp_rate=imp_adj,
-            imp_val=base_params['avg_impulse_value'],
-            avg_bsk=bsk_adj,
-            std_bsk=base_params['std_basket_size'],
-            observed_baskets=base_params['basket_sizes_observed'],
-            n_days=mc_days, n_iter=mc_iters,
-            op_hours=10.0, wknd_mult=DEFAULT_WEEKEND_MULTIPLIER,
-            monthly_growth=0.0,
-        )
+        drivers = layout_drivers(score, breakdown, base_params)
+        res = self._mc_engine(**layout_mc_kwargs(drivers, base_params,
+                                                 n_days=mc_days,
+                                                 n_iter=mc_iters))
         return res['mean']
-    
+
+    def _ga_score_anchor(self, item_names, base_params, source='floor'):
+        """Anchor record of the layout on the floor now: the store the
+        optimization or projection starts from, scored as it stands. Its
+        score is what the elasticities are differenced against, so the
+        layout the user built reproduces the calibrated inputs exactly."""
+        from layout_objective import make_anchor
+        chrom = self._ga_encode(item_names)
+        score, breakdown = self._ga_compute_layout_score(chrom, item_names,
+                                                         base_params)
+        return make_anchor(score, breakdown, source)
+
 
     def _ga_crossover(self, p1, p2):
         mask = np.random.random(p1.shape[0]) < 0.5
@@ -173,10 +127,123 @@ class GARunMixin:
             return px, py
         return x, y
 
+    def _ga_aisle_plan(self, item_names):
+        """The shared repair's aisle plan for these items
+        (``experiments._feasibility.aisle_plan``: each zone's region, the
+        zone pairs that keep an aisle, the door and the agent grid), or None
+        where it does not apply.
+
+        The plan is read from the ground floor, as every headless store is
+        built, with the layout on the floor as the store as built (a
+        headless shop records its builder's layout in ``as_built_layout``
+        instead). It applies when every item is a ground-floor item under its
+        own name; a multi-floor GUI store, whose upper-floor items carry
+        ``F<n>:`` keys and zones on their own floor, keeps the zone-only
+        repair (``_ga_zone_snap``)."""
+        f1 = self.floors.get(1, {}).get('items', {})
+        for n in item_names:
+            if n not in f1 or self._ga_get_item_data(n).get('floor', 1) != 1:
+                return None
+        from experiments._feasibility import aisle_plan
+        return aisle_plan(self, item_names)
+
+    def _ga_plan_matches_zones(self, plan, item_names):
+        """True when the plan puts every item in the zone ``_ga_repair``
+        clips it to. They differ only on a GUI-edited store whose zone stamp
+        no longer belongs to the item's category (``item_zone_name``
+        ignores such a stamp, the plan reads it), and there the shared repair
+        would drag the item back into its old department."""
+        for i, n in enumerate(item_names):
+            z = plan.zone[i]
+            rect = plan.zone_rect[z] if z is not None else None
+            b = self._ga_get_section_bounds(n)
+            if (tuple(float(v) for v in b) if b else None) != rect:
+                return False
+        return True
+
+    def _ga_shared_plan(self, item_names):
+        """The aisle plan when the shared repair's rules can hold on this
+        store, else None.
+
+        They cannot hold when the store as built already breaks them: a
+        fixture that cannot be shopped from the door as built (walled into
+        a pocket, packed shut by its neighbours; ``_feasibility.
+        as_built_unshoppable``) stays unshoppable in every candidate that
+        leaves it where it is, so the shared repair's reachability
+        fallbacks would end, for every candidate, at the whole as-built
+        store -- the GA would score only its starting layout and report no
+        lift. The floor-plan engine never builds such a store, so every
+        headless run passes this check; a GUI floor edited into that state
+        is repaired zone by zone instead (``_ga_zone_snap``), as it was
+        before the shared repair, and the GA tab and the Optimize report
+        say so (``_ga_repair_note``). Cached with the plan."""
+        plan = self._ga_aisle_plan(item_names)
+        if plan is None:
+            return None
+        from experiments._feasibility import as_built_unshoppable
+        if as_built_unshoppable(plan):
+            return None
+        return plan
+
+    def _ga_repair_note(self, item_names):
+        """Why the GA's candidates were not held to the shared repair's
+        aisle and reach rules on this store (a sentence for the GA tab and
+        the Optimize report), or None when they were."""
+        plan = self._ga_aisle_plan(item_names)
+        if plan is None:
+            return ("aisle and reach rules not applied: they need every "
+                    "movable item on the ground floor; candidates were "
+                    "repaired zone by zone (overlaps only)")
+        from experiments._feasibility import as_built_unshoppable
+        bad = as_built_unshoppable(plan)
+        if bad:
+            shown = ', '.join(bad[:3]) + (' ...' if len(bad) > 3 else '')
+            return (f"aisle and reach rules not applied: {len(bad)} "
+                    f"fixture(s) cannot be shopped from the door as the "
+                    f"store stands ({shown}); candidates were repaired zone "
+                    f"by zone (overlaps only)")
+        if not self._ga_plan_matches_zones(plan, item_names):
+            return ("aisle and reach rules not applied: an item's zone "
+                    "stamp no longer matches its category; candidates were "
+                    "repaired zone by zone (overlaps only)")
+        return None
+
+    def _ga_move_boxes(self, item_names):
+        """``[(sx, sy, sw, sh) or None]`` per item: the box the GA's initial
+        noise and mutation scale their steps to and clip into (inset by
+        0.05 m): each item's zone (``_ga_get_section_bounds``) less the
+        aisle rule of the shared repair (``experiments._feasibility.
+        AislePlan.move_box``), so the GA's moves stay inside the space the
+        repair allows -- the space random search draws from and the
+        annealer moves in. Without it the GA would spend its moves in the
+        aisles, only to have the repair clip them onto an aisle edge. The
+        GUI and the headless experiments (``experiments._common.
+        HeadlessShop``) run this same method. An item whose zone the plan
+        does not resolve to the same rectangle keeps its zone, as does
+        every item where the plan does not apply (``_ga_aisle_plan``) or
+        cannot hold (``_ga_shared_plan``: a store with a fixture that
+        cannot be shopped as built, which the repair then treats zone by
+        zone). On a store whose zones exclude their aisles (the synthetic
+        scenarios) every box is the zone itself."""
+        boxes = [self._ga_get_section_bounds(n) for n in item_names]
+        plan = self._ga_shared_plan(item_names)
+        if plan is None:
+            return boxes
+        out = []
+        for i, b in enumerate(boxes):
+            z = plan.zone[i]
+            if (b is None or z is None
+                    or tuple(float(v) for v in b) != plan.zone_rect[z]):
+                out.append(b)
+            else:
+                out.append(plan.move_box(z))
+        return out
+
     def _ga_mutate(self, chrom, item_names, mut_rate):
         mutated = chrom.copy()
         checkout_pos, checkout_floor = self._ga_find_special_center('Checkout') if hasattr(self, '_ga_find_special_center') else (None, None)
         impulse_max = self._ga_get_impulse_max_dist()
+        boxes = self._ga_move_boxes(item_names)
 
         for i, n in enumerate(item_names):
             if np.random.random() >= mut_rate:
@@ -184,7 +251,7 @@ class GARunMixin:
             data = self._ga_get_item_data(n) if hasattr(self, '_ga_get_item_data') else self.items[n]
             w, h = data.get('size', (1.0, 1.0))
             fid = data.get('floor', getattr(self, 'current_floor', 1))
-            bounds = self._ga_get_section_bounds(n)
+            bounds = boxes[i]
 
             if bounds:
                 sx, sy, sw, sh = bounds
@@ -247,6 +314,33 @@ class GARunMixin:
         return chrom
 
     def _ga_resolve_overlaps(self, chrom, item_names):
+        """The second half of the GA's repair, after ``_ga_repair``'s zone
+        clip: the repair every headless method shares
+        (``experiments._feasibility.repair_positions``, which the headless
+        GA reaches through ``experiments._common._repair_chrom_overlaps``).
+        It keeps the floor-plan engine's invariants -- fixtures of two zones
+        the store keeps an aisle apart stay ``MIN_AISLE`` apart, overlaps
+        inside a zone are snapped apart inside the zone less its aisles, and
+        every fixture stays shoppable from the door, with the single-file
+        and as-built fallbacks -- so the GUI's GA tab and Optimize pipeline
+        search the same feasible set as the headless experiments (review
+        R06). Deterministic, no RNG draws; a feasible layout is a fixed
+        point.
+
+        Where the shared plan does not apply (a multi-floor store, or a zone
+        stamp the GUI no longer honours; ``_ga_aisle_plan`` /
+        ``_ga_plan_matches_zones``) or cannot hold (a fixture that cannot be
+        shopped as the store stands, ``_ga_shared_plan``: every candidate
+        would fall back to the as-built store) the zone-only snap
+        (``_ga_zone_snap``) is used, as before; ``_ga_repair_note`` says
+        which."""
+        plan = self._ga_shared_plan(item_names)
+        if plan is not None and self._ga_plan_matches_zones(plan, item_names):
+            from experiments._feasibility import repair_positions
+            return repair_positions(self, chrom, item_names)
+        return self._ga_zone_snap(chrom, item_names)
+
+    def _ga_zone_snap(self, chrom, item_names):
         """Resolve item-vs-item overlaps inside each zone of a chromosome.
 
         ``_ga_repair`` only clamps each item to its zone; it never separates
@@ -388,6 +482,12 @@ class GARunMixin:
             sim.hard_stop()
 
         base_params = self._extract_simulation_parameters()
+        # Anchor the elasticities at the layout on the floor now, so the
+        # store as built reproduces the calibrated inputs and the GA's
+        # fitness moves them only by a candidate's score difference from it.
+        from layout_objective import SCORE_ANCHOR_KEY
+        base_params[SCORE_ANCHOR_KEY] = self._ga_score_anchor(
+            item_names, base_params, source='floor_at_ga_start')
         pop_size = max(10, self._ga_pop.get())
         n_gens = max(5, self._ga_gens.get())
         mut_rate = max(0.01, self._ga_mut.get() / 100.0)
@@ -407,12 +507,16 @@ class GARunMixin:
         # clearance the repair enforces.
         population = [self._ga_resolve_overlaps(
             self._ga_repair(current.copy(), item_names), item_names)]
+        # The initial noise is scaled to, and clipped into, the box the
+        # mutation uses: the zone less the aisle rule (``_ga_move_boxes``),
+        # as in the headless GA.
+        boxes = self._ga_move_boxes(item_names)
         for _ in range(pop_size - 1):
             noisy = current.copy()
             for i, n in enumerate(item_names):
                 data = self._ga_get_item_data(n) if hasattr(self, '_ga_get_item_data') else self.items[n]
                 w, h = data.get('size', (1.0, 1.0))
-                bounds = self._ga_get_section_bounds(n)
+                bounds = boxes[i]
                 if bounds:
                     sx, sy, sw, sh = bounds
                     pad = 0.05
@@ -534,13 +638,19 @@ class GARunMixin:
             for s in range(n_final_seeds)
         ], axis=0)
 
+        # Whether the candidates were held to the shared repair's aisle and
+        # reach rules; the results say so when they were not.
+        self._ga_repair_notice = self._ga_repair_note(item_names)
         self._display_ga_results(
             item_names, base_params, best_chrom, best_breakdown,
             best_fit, current_fit,
             history_best, history_avg, history_worst,
             gen_scores_all, n_gens, pop_size, mc_days, mc_iters
         )
-        self._ga_progress.set("Done. Click 'Apply Best Layout' to use it.")
+        self._ga_progress.set(
+            "Done. Click 'Apply Best Layout' to use it."
+            + (" (Aisle and reach rules not applied: see the results.)"
+               if self._ga_repair_notice else ""))
 
     def _display_ga_results(self, item_names, base_params, best_chrom, breakdown,
                             best_rev, current_rev, h_best, h_avg, h_worst,
@@ -557,6 +667,11 @@ class GARunMixin:
             f"  MC iters/eval:     {mc_iters}",
             f"  MC projection:     {mc_days} days",
             f"  Movable items:     {len(item_names)}",
+        ]
+        note = getattr(self, '_ga_repair_notice', None)
+        if note:
+            lines += ["", "  NOTE: " + note]
+        lines += [
             "",
             "REVENUE COMPARISON",
             "-" * 50,

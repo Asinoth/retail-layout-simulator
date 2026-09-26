@@ -1,0 +1,65 @@
+{
+  "experiment": "objective_alignment",
+  "variants": {
+    "as_now": {
+      "n_scenarios": 30,
+      "wall_coef": 0.0,
+      "spearman_fisher_mean": 0.49013873531337393,
+      "spearman_median": 0.5149714971497149,
+      "spearman_min": -0.2923012301230123,
+      "spearman_max": 0.7432943294329432,
+      "n_reversal": 29,
+      "n_fitness_prefers_ga": 29,
+      "n_analytical_prefers_reference": 30,
+      "gap_fitness_pct_median": 0.4699097124890706,
+      "gap_analytical_pct_median": 0.9814226868425566
+    },
+    "wall_aligned": {
+      "n_scenarios": 30,
+      "wall_coef": 1.5,
+      "spearman_fisher_mean": 0.49552524638098877,
+      "spearman_median": 0.5208400840084008,
+      "spearman_min": -0.30295829582958295,
+      "spearman_max": 0.7424662466246624,
+      "n_reversal": 29,
+      "n_fitness_prefers_ga": 29,
+      "n_analytical_prefers_reference": 30,
+      "gap_fitness_pct_median": 0.3764223824141527,
+      "gap_analytical_pct_median": 0.8850855275704437
+    }
+  },
+  "change_as_now_to_wall_aligned": {
+    "spearman_diff_mean": 0.005021702170217044,
+    "spearman_diff_median": 0.005868586858685854,
+    "n_scenarios_rho_up": 22,
+    "n_reversal_as_now": 29,
+    "n_reversal_wall_aligned": 29
+  },
+  "design": {
+    "scenarios": "generate_synthetic_shop(seed=10_000 + scenario), as in Figure A",
+    "sample": "Figure A's held-out repaired random layouts (seed 20_000 + scenario), the same in both variants",
+    "fitness": "experiments.closed_form.expected_revenue (exact mean of the GA fitness), anchored at the repaired as-built layout",
+    "ga": "run_ga_headless on the exact fitness, pop 30 x 25 gens, seed 0",
+    "reference": "oracle.solve_oracle(n_restarts=96)",
+    "reversal": "the fitness prefers the GA layout and the analytical model prefers the reference"
+  },
+  "oracle": {
+    "n_restarts": 96,
+    "n_failed_restarts": 0,
+    "n_not_converged": 2,
+    "n_scenarios": 30
+  },
+  "config": {
+    "n_scenarios": 30,
+    "n_items": 10,
+    "n_samples": 100,
+    "horizon_days": 30,
+    "n_gens": 25,
+    "pop_size": 30,
+    "ga_seed": 0,
+    "oracle_restarts": 96,
+    "wall_coef": 1.5,
+    "workers": 4,
+    "out_root": "CODE/experiments/results"
+  }
+}

@@ -30,38 +30,38 @@ its date range and the workbook.
 
 The defaults were set by a transient study on this store (3,600 s runs
 from 09:00 on seeds disjoint from the runners' own), each value by a fixed
-rule. Lane utilisation below is the fraction of time a lane is serving a
-customer, averaged over the lanes.
+rule; ``experiments/run_live_protocol_study.py`` re-derives them as a
+seeded runner with an artifact. Lane utilisation below is the fraction of
+time a lane is serving a customer, averaged over the lanes.
 
   --spawn 0.27 --cap 45  The nominal load shared with the other live
       diagnostics: the highest arrival rate on a 0.01/s grid at which
       occupancy stays below the cap at least 99% of the time after the
-      warm-up. The cap binds 0.88% of the time at 0.27/s and 1.27% at
+      warm-up. The cap binds 0.97% of the time at 0.27/s and 1.28% at
       0.28/s (16 replications each); lane utilisation there is 0.29.
-  --stress-spawn 0.70 --stress-cap 110  The lowest rate on the grid at
+  --stress-spawn 0.70 --stress-cap 100  The lowest rate on the grid at
       which lane utilisation reaches 0.7 while the cap binds less than 5%
       of the time, with the cap raised only as far as that needs. Cap 45
       cannot get there: the cap binds long before the lanes saturate. With
-      the cap out of reach (200) utilisation climbs 0.32 / 0.36 / 0.42 /
-      0.48 / 0.51 / 0.55 / 0.63 / 0.71 at 0.30 / 0.35 / 0.40 / 0.45 /
+      the cap out of reach (200) utilisation climbs 0.31 / 0.37 / 0.42 /
+      0.46 / 0.53 / 0.61 / 0.65 / 0.74 at 0.30 / 0.35 / 0.40 / 0.45 /
       0.50 / 0.55 / 0.60 / 0.70 arrivals per second (six replications
       each), so 0.70/s is the first rate on the grid that reaches 0.7. At
-      0.70/s a cap of 90 reaches 0.700 but binds 5.3% of the time, and a
-      cap of 100 binds 1.3% but holds utilisation to 0.697, because
-      refused arrivals never reach a lane; a cap of 110 binds 0.34% with
-      utilisation 0.720 (eight replications each), so the stress level
-      uses 110.
+      0.70/s a cap of 90 holds utilisation to 0.695 and binds 7.1% of the
+      time, because refused arrivals never reach a lane; a cap of 100
+      reaches 0.722 and binds 2.3% (eight replications each), so the
+      stress level uses 100.
   --warmup 1020  The nominal level's warm-up (see run_abm_diagnostics:
       the first whole minute after which an initially empty store's
       expected occupancy is within 1% of its steady state, from the
-      visit-length distribution; 965 s, rounded up). The same criterion
-      at the stress level, on the study's eight 1,800 s replications
-      there, gives 845 s, and MSER-5 truncates at 450 s, so the nominal
-      1,020 s serves both levels.
+      visit-length distribution; 969 s, rounded up). The same criterion
+      at the stress level, on the study's stress replications, gives
+      859 s, so the nominal 1,020 s serves both levels.
   --seconds 1860  The nominal collection window of the other live
       diagnostics: every study replication completes at least 300 visits
-      in it (the fewest 306) and it spans at least ten median visits
-      (median 118 s). Runs end at 2,880 s, inside the first trading hour,
+      in it (the fewest 303) and it spans at least ten median visits
+      (Kaplan-Meier median 123 s). Runs end at 2,880 s, inside the first
+      trading hour,
       so both rates are constant over a run; the calibrated hour-of-day
       profile scales them by 0.744 in that hour.
 
@@ -100,7 +100,7 @@ SAMPLE_INTERVAL_S = 0.4     # simulated seconds between queue samples
 NOMINAL_SPAWN = 0.27
 NOMINAL_CAP = 45
 STRESS_SPAWN = 0.70
-STRESS_CAP = 110
+STRESS_CAP = 100
 WARMUP_S = 1020.0
 COLLECT_S = 1860.0
 
@@ -268,8 +268,8 @@ def parse_args(argv=None):
     # spread so the reader can see which of the two is actually stable
     # (audit R74).
     ap.add_argument('--reps', type=int, default=5)
-    # 0.04 s is the threaded GUI loop's 25 fps ceiling, so agents move
-    # with the per-tick resolution they have in the GUI.
+    # 0.04 s is the threaded GUI loop's fixed tick, so the headless runs
+    # advance the same discrete-time model the GUI does.
     ap.add_argument('--dt', type=float, default=0.04,
                     help="Fixed tick, simulated s")
     ap.add_argument('--seed', type=int, default=3000,
@@ -295,6 +295,57 @@ def parse_args(argv=None):
     if args.warmup <= 0 or args.seconds <= 0 or args.dt <= 0:
         ap.error("--warmup, --seconds and --dt must be positive")
     return args
+
+
+# The queue figure is drawn at the size it is printed (review R56): the
+# ACM small-format text width, so no text is scaled below FIG_MIN_FONT_PT,
+# and each series has its own line style as well as its own colour, so it
+# reads in greyscale and without colour vision.
+PRINT_WIDTH_IN = round(figstyle.ACMSMALL_TEXTWIDTH_IN, 2)
+FIG_HEIGHT_IN = 2.6
+FIG_MIN_FONT_PT = figstyle.MIN_PRINT_FONT_PT
+_FIG_RC = {'font.size': 8, 'axes.titlesize': 8, 'axes.labelsize': 8,
+           'xtick.labelsize': FIG_MIN_FONT_PT,
+           'ytick.labelsize': FIG_MIN_FONT_PT,
+           'legend.fontsize': FIG_MIN_FONT_PT, 'lines.linewidth': 1.1}
+
+
+def _queue_series(r):
+    """The four series of one run's panel: (label, values, colour, style)."""
+    at_lanes = r['q'].sum(axis=1)
+    return (('in service + waiting at the lanes', at_lanes,
+             figstyle.VERMILLION, '-'),
+            ('waiting (all lanes)', np.maximum(r['q'] - 1, 0).sum(axis=1),
+             figstyle.PURPLE, ':'),
+            ('at the lanes + walking to them',
+             at_lanes + r['appr'].sum(axis=1), figstyle.BLUE, '--'),
+            ('agents in the store', r['totals'], figstyle.GREEN, '-.'))
+
+
+def _queue_figure(r_nom, r_str, figs):
+    """``queue_lengths.{pdf,png}``: one representative run per load level,
+    side by side, with one legend beneath both panels."""
+    with matplotlib.rc_context(_FIG_RC):
+        fig, axes = plt.subplots(1, 2, figsize=(PRINT_WIDTH_IN, FIG_HEIGHT_IN),
+                                 sharey=True)
+        for ax, r, title in (
+                (axes[0], r_nom,
+                 f'Nominal: {r_nom["spawn"]}/s, cap {r_nom["cap"]}'),
+                (axes[1], r_str,
+                 f'Stress: {r_str["spawn"]}/s, cap {r_str["cap"]}')):
+            for label, values, colour, style in _queue_series(r):
+                ax.plot(r['ts'], values, color=colour, ls=style, label=label)
+            ax.set_title(title)
+            ax.set_xlabel('simulated s after the warm-up')
+            ax.grid(alpha=0.25)
+        axes[0].set_ylabel('agents')
+        handles, labels = axes[0].get_legend_handles_labels()
+        fig.legend(handles, labels, loc='lower center', ncol=2,
+                   frameon=False, bbox_to_anchor=(0.5, 0.0))
+        fig.tight_layout(rect=[0, 0.13, 1, 1])
+        path = figstyle.save(fig, 'queue_lengths', out_dir=figs)
+        plt.close(fig)
+    return path
 
 
 def summarize(tag, r, quiet=False):
@@ -437,27 +488,7 @@ def main(argv=None):
     p_nom = _pool('nominal', nom_reps)
     p_str = _pool('stress', str_reps)
 
-    fig, axes = plt.subplots(1, 2, figsize=(11, 4.0), sharey=True)
-    for ax, r, title in ((axes[0], r_nom, f'Nominal (cap {r_nom["cap"]}, spawn {r_nom["spawn"]}/s)'),
-                         (axes[1], r_str, f'Stress (cap {r_str["cap"]}, spawn {r_str["spawn"]}/s)')):
-        at_lanes = r['q'].sum(axis=1)
-        waiting = np.maximum(r['q'] - 1, 0).sum(axis=1)
-        ax.plot(r['ts'], at_lanes, color='#E15759', lw=1.6,
-                label='at lanes: in service + waiting')
-        ax.plot(r['ts'], waiting, color='#B07AA1', lw=1.2,
-                label='waiting (all lanes)')
-        ax.plot(r['ts'], at_lanes + r['appr'].sum(axis=1), color='#4E79A7',
-                lw=1.4, ls='--', label='at lanes + en route')
-        ax.plot(r['ts'], r['totals'], color='#59A14F', lw=1.0, alpha=0.6,
-                label='total active agents')
-        ax.set_title(title, fontsize=10)
-        ax.set_xlabel('simulated time after warm-up (s)'); ax.grid(alpha=0.25)
-        ax.legend(fontsize=7, frameon=False)
-    axes[0].set_ylabel('count')
-    fig.suptitle('Checkout-lane occupancy over a live run', fontsize=12)
-    fig.tight_layout(rect=[0, 0, 1, 0.95])
-    figstyle.save(fig, 'queue_lengths', out_dir=figs)
-    plt.close(fig)
+    fig_path = _queue_figure(r_nom, r_str, figs)
     print(f"wrote {os.path.join(figs, 'queue_lengths.png')}")
 
     m_str, b_str = p_str['max_lane_occupancy'], p_str['busy_frac']
@@ -484,7 +515,7 @@ def main(argv=None):
                      'workers': int(args.workers),
                      'sample_interval_s': SAMPLE_INTERVAL_S,
                      'n_reps': int(args.reps),
-                     'framing': 'terminating',
+                     'framing': 'steady_state_replication_deletion',
                      'discipline': 'single-server FIFO per lane',
                      'busy_frac': 'fraction of samples in which some lane '
                                   'has >= 1 customer waiting',
@@ -493,6 +524,17 @@ def main(argv=None):
                      'wait': 'simulated seconds from joining the lane '
                              'queue to service start'},
         'verdict': verdict,
+        # queue_lengths is drawn at print width, text no smaller than this.
+        'figure': {'width_in': PRINT_WIDTH_IN, 'height_in': FIG_HEIGHT_IN,
+                   'series_styles': [s[3] for s in _queue_series(r_nom)],
+                   'textwidth_in': round(figstyle.ACMSMALL_TEXTWIDTH_IN, 3),
+                   # The paper includes it at the text width; the fonts it
+                   # then prints at are recorded, from the saved file.
+                   'include_hint': '\\includegraphics[width=\\textwidth]'
+                                   '{figs/queue_lengths.pdf}',
+                   **figstyle.print_record(
+                       fig_path, FIG_MIN_FONT_PT,
+                       include_width_in=figstyle.ACMSMALL_TEXTWIDTH_IN)},
         # The data the store was calibrated from.
         'data': data,
         # The paper's queue numbers are read straight out of the copy in
