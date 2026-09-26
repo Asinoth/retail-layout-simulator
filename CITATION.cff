@@ -5,7 +5,7 @@ title: "retail-layout-simulator: agent-based retail-layout simulation and optimi
 version: 1.0.3
 date-released: 2026-09-26
 license: MIT
-repository-code: "https://github.com/Asinoth/retail-layout-simulator"
+repository-code: "https://github.com/Alexandros-Tsagkanos/retail-layout-simulator"
 authors:
   - family-names: Tsagkanos
     given-names: Alexandros
